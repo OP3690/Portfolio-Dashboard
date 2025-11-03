@@ -48,50 +48,35 @@ export async function POST(request: NextRequest) {
       console.log(`   - Additional (All Stocks): ${otherIsins.length} stocks`);
       console.log(`   - Total: ${uniqueIsins.length} stocks`);
       
-      // First, check database for recent data (last 3 days)
-      const threeDaysAgo = new Date();
-      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
-      
-      const isinsNeedingFetch: string[] = [];
-      let foundInDB = 0;
-      
-      // Check database first - CRITICAL: Check specifically for TODAY's data
-      // Only mark as "found" if we have TODAY's price, not just any recent price
+      // OPTIMIZED: Use MongoDB aggregation to check ALL ISINs at once for today's data
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       const todayEnd = new Date(today);
       todayEnd.setHours(23, 59, 59, 999);
       
-      for (const isin of uniqueIsins) {
-        // First check for today's data specifically
-        const todayData: any = await StockData.findOne({ 
-          isin,
-          date: { $gte: today, $lte: todayEnd }
-        })
-          .sort({ date: -1 })
-          .lean();
-        
-        if (todayData && todayData.close && todayData.close > 0) {
-          foundInDB++;
-        } else {
-          // No today's data - check if we have any recent data (for reporting)
-          const recentData: any = await StockData.findOne({ 
-            isin,
-            date: { $gte: threeDaysAgo }
-          })
-          .sort({ date: -1 })
-          .lean();
-          
-          // Even if we have recent data, we need today's price - mark for fetch
-          isinsNeedingFetch.push(isin);
-          
-          if (recentData && recentData.close && recentData.close > 0) {
-            console.log(`   ⚠️  ${isin} has recent data (${recentData.date}) but not today's - will fetch`);
+      // Get all ISINs with today's data in ONE query using aggregation
+      const todayDataResults: any[] = await StockData.aggregate([
+        {
+          $match: {
+            isin: { $in: uniqueIsins },
+            date: { $gte: today, $lte: todayEnd },
+            close: { $gt: 0 }
+          }
+        },
+        {
+          $group: {
+            _id: '$isin',
+            latestDate: { $max: '$date' },
+            latestClose: { $first: '$close' }
           }
         }
-      }
+      ]);
       
-      console.log(`✅ Found ${foundInDB} stocks with TODAY's data in database, ${isinsNeedingFetch.length} need fetching from API`);
+      const isinsWithTodayData = new Set(todayDataResults.map(r => r._id));
+      const isinsNeedingFetch = uniqueIsins.filter(isin => !isinsWithTodayData.has(isin));
+      const foundInDB = isinsWithTodayData.size;
+      
+      console.log(`✅ Found ${foundInDB} stocks with TODAY's data in database (via aggregation), ${isinsNeedingFetch.length} need fetching from API`);
       
       // Separate holdings (priority) from other stocks
       const holdingsNeedingFetch = isinsNeedingFetch.filter(isin => holdingsIsins.has(isin));
@@ -111,20 +96,41 @@ export async function POST(request: NextRequest) {
       const isinsNeedingFetchOrdered = [...holdingsNeedingFetch, ...otherStocksNeedingFetch];
       
       if (isinsNeedingFetchOrdered.length > 0) {
-        // Quick check: separate stocks that need 5-year vs refresh (parallel)
-        const checkPromises = isinsNeedingFetchOrdered.map(async (isin) => {
-          const has5Year = await hasComplete5YearData(isin);
-          return { isin, has5Year };
-        });
+        // OPTIMIZED: Use MongoDB aggregation to check which stocks have 5-year data (parallel batch check)
+        // Check counts of records per ISIN - if >= 1000 records, assume 5-year data exists
+        const dataCountResults: any[] = await StockData.aggregate([
+          {
+            $match: {
+              isin: { $in: isinsNeedingFetchOrdered }
+            }
+          },
+          {
+            $group: {
+              _id: '$isin',
+              count: { $sum: 1 }
+            }
+          }
+        ]);
         
-        const checkResults = await Promise.all(checkPromises);
-        const stocksNeeding5Year = checkResults.filter(r => !r.has5Year).map(r => r.isin);
-        const stocksNeedingRefresh = checkResults.filter(r => r.has5Year).map(r => r.isin);
+        const isinCountMap = new Map(dataCountResults.map(r => [r._id, r.count]));
+        const STOCK_DATA_THRESHOLD = 1000; // ~5 years of trading days
         
-        console.log(`📊 ${stocksNeeding5Year.length} stocks need 5-year data, ${stocksNeedingRefresh.length} need refresh`);
+        const stocksNeeding5Year: string[] = [];
+        const stocksNeedingRefresh: string[] = [];
         
-        // Process stocks needing refresh in parallel batches (faster)
-        const REFRESH_BATCH_SIZE = 10;
+        for (const isin of isinsNeedingFetchOrdered) {
+          const count = isinCountMap.get(isin) || 0;
+          if (count >= STOCK_DATA_THRESHOLD) {
+            stocksNeedingRefresh.push(isin);
+          } else {
+            stocksNeeding5Year.push(isin);
+          }
+        }
+        
+        console.log(`📊 ${stocksNeeding5Year.length} stocks need 5-year data, ${stocksNeedingRefresh.length} need refresh (via aggregation)`);
+        
+        // Process stocks needing refresh in LARGER parallel batches (faster)
+        const REFRESH_BATCH_SIZE = 20; // Increased from 10 to 20
         for (let i = 0; i < stocksNeedingRefresh.length; i += REFRESH_BATCH_SIZE) {
           const batch = stocksNeedingRefresh.slice(i, i + REFRESH_BATCH_SIZE);
           const batchPromises = batch.map(async (holdingIsin) => {
@@ -147,27 +153,39 @@ export async function POST(request: NextRequest) {
             }
           });
           
-          // Small delay between batches
+          // Reduced delay between batches (only if not last batch)
           if (i + REFRESH_BATCH_SIZE < stocksNeedingRefresh.length) {
-            await new Promise(resolve => setTimeout(resolve, 200));
+            await new Promise(resolve => setTimeout(resolve, 100)); // Reduced from 200ms to 100ms
           }
         }
         
-        // Process stocks needing 5-year data (slower, sequential with delays)
-        for (let i = 0; i < stocksNeeding5Year.length; i++) {
-          const holdingIsin = stocksNeeding5Year[i];
-          try {
-            const count = await fetchAndStoreHistoricalData(holdingIsin, true);
-            stocksFetched5Year++;
-            totalFetched += count;
-            stocksProcessed++;
-          } catch (error: any) {
-            console.error(`Error fetching 5-year data for ${holdingIsin}:`, error);
-            errors.push(`${holdingIsin}: ${error.message || 'Unknown error'}`);
-          }
+        // Process stocks needing 5-year data in parallel batches (was sequential)
+        const FIVE_YEAR_BATCH_SIZE = 5; // Process 5-year data in smaller batches
+        for (let i = 0; i < stocksNeeding5Year.length; i += FIVE_YEAR_BATCH_SIZE) {
+          const batch = stocksNeeding5Year.slice(i, i + FIVE_YEAR_BATCH_SIZE);
+          const batchPromises = batch.map(async (holdingIsin) => {
+            try {
+              const count = await fetchAndStoreHistoricalData(holdingIsin, true);
+              return { success: true, count, isin: holdingIsin };
+            } catch (error: any) {
+              return { success: false, error: error.message, isin: holdingIsin };
+            }
+          });
           
-          if (i < stocksNeeding5Year.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, 800));
+          const batchResults = await Promise.all(batchPromises);
+          batchResults.forEach(result => {
+            if (result.success) {
+              stocksFetched5Year++;
+              totalFetched += result.count || 0;
+              stocksProcessed++;
+            } else {
+              errors.push(`${result.isin}: ${result.error || 'Unknown error'}`);
+            }
+          });
+          
+          // Delay between batches for 5-year data (longer to avoid rate limits)
+          if (i + FIVE_YEAR_BATCH_SIZE < stocksNeeding5Year.length) {
+            await new Promise(resolve => setTimeout(resolve, 500)); // Reduced from 800ms per stock to 500ms per batch
           }
         }
       }
