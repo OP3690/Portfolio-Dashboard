@@ -20,7 +20,18 @@ function normalizeIsin(isin: string | null | undefined): string {
 export async function POST(request: NextRequest) {
   try {
     await connectDB();
+  } catch (dbError: any) {
+    console.error('Database connection error:', dbError);
+    return NextResponse.json(
+      { 
+        success: false,
+        error: 'Database connection failed. Please try again.' 
+      },
+      { status: 500 }
+    );
+  }
 
+  try {
     const formData = await request.formData();
     const file = formData.get('file') as File;
     const fileType = formData.get('fileType') as string; // 'holdings' or 'stockMaster'
@@ -39,11 +50,35 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
 
-    const arrayBuffer = await file.arrayBuffer();
+    let arrayBuffer: ArrayBuffer;
+    try {
+      arrayBuffer = await file.arrayBuffer();
+    } catch (bufferError: any) {
+      console.error('Error reading file buffer:', bufferError);
+      return NextResponse.json(
+        { 
+          success: false,
+          error: 'Failed to read file. Please ensure the file is not corrupted.' 
+        },
+        { status: 400 }
+      );
+    }
 
     if (fileType === 'stockMaster') {
       // Parse and save stock master data
-      const stockMasterData = parseStockMasterFile(arrayBuffer);
+      let stockMasterData;
+      try {
+        stockMasterData = parseStockMasterFile(arrayBuffer);
+      } catch (parseError: any) {
+        console.error('Error parsing stock master file:', parseError);
+        return NextResponse.json(
+          { 
+            success: false,
+            error: `Failed to parse stock master file: ${parseError.message || 'Invalid file format'}` 
+          },
+          { status: 400 }
+        );
+      }
       
       for (const stock of stockMasterData) {
         await StockMaster.findOneAndUpdate(
@@ -73,7 +108,19 @@ export async function POST(request: NextRequest) {
 
     // Parse holdings Excel file (only format supported - Holding_equity_open format)
     console.log('\n=== PARSING EXCEL FILE ===');
-    const excelData = parseExcelFile(arrayBuffer);
+    let excelData;
+    try {
+      excelData = parseExcelFile(arrayBuffer);
+    } catch (parseError: any) {
+      console.error('Error parsing Excel file:', parseError);
+      return NextResponse.json(
+        { 
+          success: false,
+          error: `Failed to parse Excel file: ${parseError.message || 'Invalid file format. Please ensure the file matches the expected format.'}` 
+        },
+        { status: 400 }
+      );
+    }
     
     // Log parsing results for debugging
     console.log('\n=== UPLOAD API: PARSING RESULTS ===');
@@ -1416,8 +1463,35 @@ export async function POST(request: NextRequest) {
     });
   } catch (error: any) {
     console.error('Upload error:', error);
+    // Ensure we always return valid JSON, even for unexpected errors
+    const errorMessage = error?.message || error?.toString() || 'Failed to process Excel file';
+    
+    // Handle specific error types
+    if (error instanceof SyntaxError) {
+      return NextResponse.json(
+        { 
+          success: false,
+          error: 'Invalid file format or corrupted file. Please check your Excel file.' 
+        },
+        { status: 400 }
+      );
+    }
+    
+    if (error instanceof TypeError) {
+      return NextResponse.json(
+        { 
+          success: false,
+          error: 'File processing error. Please ensure the file is a valid Excel file.' 
+        },
+        { status: 400 }
+      );
+    }
+    
     return NextResponse.json(
-      { error: error.message || 'Failed to process Excel file' },
+      { 
+        success: false,
+        error: errorMessage 
+      },
       { status: 500 }
     );
   }
