@@ -694,10 +694,6 @@ export async function GET(request: NextRequest) {
             rejected: results.filter(r => r.status === 'rejected').length,
           });
           
-          );
-            });
-          }
-          
           // CRITICAL: Build processedHoldings ensuring ALL original holdings are included
           // ✅ FIX: Never drop holdings, even if processing failed
           const processedHoldings: any[] = [];
