@@ -1629,15 +1629,15 @@ export async function GET(request: NextRequest) {
         console.error(`API: 🔴 This means find({ clientId }) is not returning all documents!`);
         
         // Try to find what's missing by checking each document individually
-        const allIsinsFromCount = new Set();
+        const allIsinsFromCount = new Set<string>();
         for (let i = 0; i < dbCountCheck; i++) {
           const testHolding = await Holding.findOne({ clientId }).skip(i).lean() as any;
           if (testHolding && !Array.isArray(testHolding)) {
             allIsinsFromCount.add(normalizeIsin(testHolding.isin));
           }
         }
-        const allIsinsFromFind = new Set(allDbHoldingsFinal.map((h: any) => normalizeIsin(h.isin)));
-        const missingFromFind = Array.from(allIsinsFromCount).filter(isin => !allIsinsFromFind.has(isin));
+        const allIsinsFromFind = new Set<string>(allDbHoldingsFinal.map((h: any) => normalizeIsin(h.isin)));
+        const missingFromFind = Array.from(allIsinsFromCount).filter((isin: string) => !allIsinsFromFind.has(isin));
         
         if (missingFromFind.length > 0) {
           console.error(`API: 🔴 Missing ISINs from find():`, missingFromFind);
