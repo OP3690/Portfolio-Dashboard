@@ -14,96 +14,10 @@ export default function Navigation({ onUploadSuccess, activeTab = 'dashboard', o
   const [uploadType, setUploadType] = useState<'holdings' | 'stockMaster'>('holdings');
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [fetchingData, setFetchingData] = useState(false);
-  const [fetchingAllStocks, setFetchingAllStocks] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info'; isVisible: boolean } | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleFetchAllStocks = async () => {
-    if (!confirm('This will fetch 5-year comprehensive data (OHLC, PE, MarketCap, 52W High/Low, etc.) for ALL stocks in StockMaster. This may take a very long time. Continue?')) {
-      return;
-    }
-
-    setFetchingAllStocks(true);
-    
-    try {
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Request timeout after 30 seconds. The process continues in the background.')), 30000)
-      );
-      
-      const fetchPromise = fetch('/api/fetch-historical-data', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          fetchAllStocks: true // Fetch comprehensive data for all stocks
-        }),
-      });
-
-      const response = await Promise.race([fetchPromise, timeoutPromise]) as Response;
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      if (data.success) {
-        setToast({
-          message: `Started fetching comprehensive data for all ${data.totalStocks || 0} stocks in the background. This will take a long time. Progress: Check terminal/console where 'npm run dev' is running.`,
-          type: 'info',
-          isVisible: true,
-        });
-        
-        // Start polling for progress updates
-        const pollProgress = async () => {
-          try {
-            const progressRes = await fetch('/api/fetch-progress');
-            const progressData = await progressRes.json();
-            if (progressData.success) {
-              const { stocksWithData, stocksWithFundamentals, totalStocks, totalRecords } = progressData.progress;
-              console.log(`📊 Fetch Progress: ${stocksWithData}/${totalStocks} stocks with data, ${stocksWithFundamentals} with fundamentals, ${totalRecords} total records`);
-            }
-          } catch (err) {
-            // Silently fail - progress polling is optional
-          }
-        };
-        
-        // Poll every 30 seconds
-        const progressInterval = setInterval(pollProgress, 30000);
-        
-        // Clear interval after 2 hours (process should be done by then)
-        setTimeout(() => clearInterval(progressInterval), 2 * 60 * 60 * 1000);
-        
-        setTimeout(() => {
-          setToast(prev => prev ? { ...prev, isVisible: false } : null);
-        }, 10000);
-      } else {
-        setToast({
-          message: data.error || 'Failed to start fetching all stocks data',
-          type: 'error',
-          isVisible: true,
-        });
-        setTimeout(() => {
-          setToast(prev => prev ? { ...prev, isVisible: false } : null);
-        }, 5000);
-      }
-    } catch (error: any) {
-      console.error('Fetch all stocks error:', error);
-      setToast({
-        message: error.message || 'Failed to start fetching all stocks data. Please try again.',
-        type: 'error',
-        isVisible: true,
-      });
-      setTimeout(() => {
-        setToast(prev => prev ? { ...prev, isVisible: false } : null);
-      }, 5000);
-    } finally {
-      setFetchingAllStocks(false);
-    }
-  };
 
   const handleRefreshStockData = async () => {
     setFetchingData(true);
@@ -412,58 +326,27 @@ export default function Navigation({ onUploadSuccess, activeTab = 'dashboard', o
             </div>
             <div className="flex items-center gap-2 sm:gap-3">
               <button
-                onClick={handleFetchAllStocks}
-                disabled={fetchingAllStocks || fetchingData}
-                className="px-3 sm:px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-all shadow-md hover:shadow-lg disabled:bg-gray-400 disabled:cursor-not-allowed text-sm sm:text-base flex items-center gap-2 whitespace-nowrap"
-                title="Fetch comprehensive 5-year data for ALL stocks (OHLC, PE, MarketCap, 52W High/Low, Volume metrics, etc.)"
-              >
-                {fetchingAllStocks ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    <span className="hidden sm:inline">Fetching All...</span>
-                    <span className="sm:hidden">...</span>
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                    <span className="hidden sm:inline">Fetch All Stocks</span>
-                    <span className="sm:hidden">All</span>
-                  </>
-                )}
-              </button>
-              <button
                 onClick={handleRefreshStockData}
-                disabled={fetchingData || fetchingAllStocks}
-                className="px-3 sm:px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all shadow-md hover:shadow-lg disabled:bg-gray-400 disabled:cursor-not-allowed text-sm sm:text-base flex items-center gap-2 whitespace-nowrap"
-                title="Refresh: Fetch latest 3 days of stock data (OHLC, Volume, PE, MarketCap) including today"
+                disabled={fetchingData}
+                className="p-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all shadow-md hover:shadow-lg disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center"
+                title="Refresh Stock Data: Fetch latest 3 days of stock data (OHLC, Volume, PE, MarketCap) including today"
               >
                 {fetchingData ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                    <span className="hidden sm:inline">Refreshing...</span>
-                    <span className="sm:hidden">...</span>
-                  </>
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
                 ) : (
-                  <>
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                    </svg>
-                    <span className="hidden sm:inline">Refresh Stock Data</span>
-                    <span className="sm:hidden">Refresh</span>
-                  </>
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                  </svg>
                 )}
               </button>
               <button
                 onClick={() => setShowUploadModal(true)}
-                className="px-3 sm:px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-md hover:shadow-lg text-sm sm:text-base flex items-center gap-2 whitespace-nowrap"
+                className="p-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-all shadow-md hover:shadow-lg flex items-center justify-center"
+                title="Upload Excel File"
               >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                 </svg>
-                <span className="hidden sm:inline">Upload Excel</span>
-                <span className="sm:hidden">Upload</span>
               </button>
               <button
                 onClick={() => {
