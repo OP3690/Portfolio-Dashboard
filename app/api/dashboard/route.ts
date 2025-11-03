@@ -79,20 +79,20 @@ export async function GET(request: NextRequest) {
       console.log(`API: Raw count from database (countDocuments): ${totalCount}`);
       
       // CRITICAL: Direct query for BHEL FIRST to verify it exists
-      bhelDirectQuery = await Holding.findOne({ clientId, isin: 'INE257A01026' }).lean();
+      bhelDirectQuery = await Holding.findOne({ clientId, isin: 'INE257A01026' }).lean() as any;
       if (!bhelDirectQuery) {
         // Try with regex in case of whitespace issues
         bhelDirectQuery = await Holding.findOne({ 
           clientId, 
           isin: { $regex: /INE257A01026/i }
-        }).lean();
+        }).lean() as any;
       }
       if (!bhelDirectQuery) {
         // Try by name
         bhelDirectQuery = await Holding.findOne({ 
           clientId, 
           stockName: { $regex: /b\s*h\s*e\s*l|bhel/i } 
-        }).lean();
+        }).lean() as any;
       }
       
       if (bhelDirectQuery) {
