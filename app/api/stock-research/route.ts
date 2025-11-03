@@ -135,30 +135,119 @@ export async function GET(request: NextRequest) {
       tightRangeBreakouts: [] as any[],
     };
 
-    const stocksToProcess = allStocks.slice(0, 1500);
-    console.log(`Processing ${stocksToProcess.length} stocks...`);
+    // Limit to 300 stocks for performance - prioritize holdings first
+    const Holding = (await import('@/models/Holding')).default;
+    const holdings = await Holding.find({}).select('isin').lean();
+    const holdingsIsins = new Set(holdings.map((h: any) => h.isin).filter(Boolean));
+    
+    // Prioritize holdings, then add other stocks up to 300 total
+    const stocksToProcess: any[] = [];
+    for (const stock of allStocks) {
+      if (holdingsIsins.has(stock.isin)) {
+        stocksToProcess.push(stock);
+      }
+    }
+    // Add non-holdings up to 300 total
+    for (const stock of allStocks) {
+      if (!holdingsIsins.has(stock.isin) && stocksToProcess.length < 300) {
+        stocksToProcess.push(stock);
+      }
+    }
+    
+    console.log(`Processing ${stocksToProcess.length} stocks (${holdingsIsins.size} holdings + ${stocksToProcess.length - holdingsIsins.size} others)...`);
+
+    // Fetch all latest prices in one aggregation
+    const isins = stocksToProcess.map(s => s.isin);
+    const latestPricesMap = new Map<string, any>();
+    const latestPricesData = await StockData.aggregate([
+      {
+        $match: {
+          isin: { $in: isins }
+        }
+      },
+      {
+        $sort: { isin: 1, date: -1 }
+      },
+      {
+        $group: {
+          _id: '$isin',
+          latest: { $first: '$$ROOT' }
+        }
+      }
+    ]).exec();
+    
+    latestPricesData.forEach((item: any) => {
+      if (item.latest && item.latest.close && item.latest.close >= 30) {
+        latestPricesMap.set(item._id, item.latest);
+      }
+    });
+
+    // Fetch all 365-day data in one aggregation for all stocks
+    const oneYearAgoDate = subDays(today, 365);
+    const allPriceData = await StockData.aggregate([
+      {
+        $match: {
+          isin: { $in: isins },
+          date: { $gte: oneYearAgoDate, $lte: today }
+        }
+      },
+      {
+        $sort: { isin: 1, date: 1 }
+      },
+      {
+        $group: {
+          _id: '$isin',
+          prices: { $push: '$$ROOT' }
+        }
+      }
+    ]).exec();
+
+    // Build price data maps for fast lookup
+    const priceDataMap = new Map<string, any[]>();
+    allPriceData.forEach((item: any) => {
+      priceDataMap.set(item._id, item.prices || []);
+    });
 
     let processedCount = 0;
     let skippedCount = 0;
 
     for (const stock of stocksToProcess) {
       try {
-        const latest = await StockData.findOne({ isin: stock.isin })
-          .sort({ date: -1 })
-          .lean() as any;
+        const latest = latestPricesMap.get(stock.isin);
         
-        if (!latest || Array.isArray(latest) || !latest.close || latest.close < 30) {
+        if (!latest || !latest.close || latest.close < 30) {
           skippedCount++;
           continue;
         }
 
         const currentPrice = latest.close;
-        const price60Days = await getRecentPrices(stock.isin, 60);
-        const price30Days = await getRecentPrices(stock.isin, 30);
-        const price15Days = await getRecentPrices(stock.isin, 15);
-        const price10Days = await getRecentPrices(stock.isin, 10);
-        const price5Days = await getRecentPrices(stock.isin, 5);
-        const price365Days = await getRecentPrices(stock.isin, 365);
+        const allPrices = priceDataMap.get(stock.isin) || [];
+        
+        // Filter data by date ranges
+        const price365Days = allPrices.filter((d: any) => {
+          const date = new Date(d.date);
+          return date >= subDays(today, 365);
+        });
+        const price60Days = allPrices.filter((d: any) => {
+          const date = new Date(d.date);
+          return date >= subDays(today, 60);
+        });
+        const price30Days = allPrices.filter((d: any) => {
+          const date = new Date(d.date);
+          return date >= subDays(today, 30);
+        });
+        const price15Days = allPrices.filter((d: any) => {
+          const date = new Date(d.date);
+          return date >= subDays(today, 15);
+        });
+        const price10Days = allPrices.filter((d: any) => {
+          const date = new Date(d.date);
+          return date >= subDays(today, 10);
+        });
+        const price5Days = allPrices.filter((d: any) => {
+          const date = new Date(d.date);
+          return date >= subDays(today, 5);
+        });
 
         // Require at least some data, but be flexible about exact counts
         // Need at least 20 days for meaningful analysis, and at least 5 days for 5-day calculations
