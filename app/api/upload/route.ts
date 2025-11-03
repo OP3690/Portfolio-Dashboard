@@ -229,14 +229,14 @@ export async function POST(request: NextRequest) {
     }
     
     // Strategy 3: Fallback to existing holdings in database (for historical data)
-    // OPTIMIZATION: Use already-fetched holdings if available (we fetch them later anyway)
+    // OPTIMIZATION: Pre-fetch holdings once and reuse for later operations
+    const oldHoldings = await Holding.find({ clientId }).lean();
     const stockNamesStillNeedingIsin = uniqueStockNames.filter(name => !stockMasterMap.has(name));
     if (stockNamesStillNeedingIsin.length > 0) {
       console.log(`💾 Checking existing holdings for ${stockNamesStillNeedingIsin.length} stocks...`);
-      const existingHoldings = await Holding.find({ clientId }).lean();
       const existingHoldingsMap = new Map<string, string>();
       
-      existingHoldings.forEach((h: any) => {
+      oldHoldings.forEach((h: any) => {
         const stockName = String(h.stockName || '').trim().toLowerCase();
         const isin = normalizeIsin(h.isin);
         if (stockName && isin && !existingHoldingsMap.has(stockName)) {
@@ -402,9 +402,7 @@ export async function POST(request: NextRequest) {
         .filter(Boolean)
     );
     
-    // Get old holdings from database (used for comparison, also reused later for optimization)
-    const oldHoldings = await Holding.find({ clientId }).lean();
-    // Normalize ISINs from database for comparison
+    // Normalize ISINs from database for comparison (oldHoldings already fetched above)
     const oldIsins = new Set(oldHoldings.map(h => normalizeIsin(h.isin)).filter(Boolean));
 
     // REMOVED: Deletion of "sold stocks" - stocks can be sold and bought again
@@ -452,8 +450,8 @@ export async function POST(request: NextRequest) {
     
     console.log(`\nProcessing ${holdingsWithIsin.length} holdings with valid ISINs (${currentHoldingsFromExcel.length - holdingsWithIsin.length} skipped)`);
     
-    // OPTIMIZATION: Pre-fetch ALL existing holdings and variants in ONE query
-    const allExistingHoldings = await Holding.find({ clientId }).lean() as any[];
+    // OPTIMIZATION: Reuse oldHoldings (already fetched above) instead of querying again
+    const allExistingHoldings = oldHoldings as any[];
     const existingHoldingsMap = new Map<string, any>();
     const variantIsinsToDelete = new Set<string>();
     
