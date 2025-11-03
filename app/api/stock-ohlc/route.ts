@@ -3,6 +3,9 @@ import connectDB from '@/lib/mongodb';
 import StockData from '@/models/StockData';
 import { parseISO, format } from 'date-fns';
 
+// Force dynamic rendering
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   try {
     await connectDB();

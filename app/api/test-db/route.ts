@@ -5,6 +5,9 @@ import StockMaster from '@/models/StockMaster';
 import Holding from '@/models/Holding';
 import Transaction from '@/models/Transaction';
 
+// Force dynamic rendering
+export const dynamic = 'force-dynamic';
+
 /**
  * Test endpoint to check database connection and collections
  */

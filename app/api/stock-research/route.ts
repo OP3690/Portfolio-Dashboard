@@ -4,6 +4,9 @@ import StockMaster from '@/models/StockMaster';
 import StockData from '@/models/StockData';
 import { subDays, subMonths } from 'date-fns';
 
+// Force dynamic rendering
+export const dynamic = 'force-dynamic';
+
 export async function GET(request: NextRequest) {
   await connectDB();
   

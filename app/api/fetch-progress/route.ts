@@ -3,6 +3,9 @@ import connectDB from '@/lib/mongodb';
 import StockData from '@/models/StockData';
 import StockMaster from '@/models/StockMaster';
 
+// Force dynamic rendering
+export const dynamic = 'force-dynamic';
+
 /**
  * GET endpoint to check progress of data fetching
  * Returns statistics about how many stocks have data

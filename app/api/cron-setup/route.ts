@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { setupDailyStockDataRefresh } from '@/lib/cronJobs';
 
+// Force dynamic rendering
+export const dynamic = 'force-dynamic';
+
 // This endpoint initializes the cron job
 // Call it once when the server starts or manually trigger it
 export async function GET(request: NextRequest) {

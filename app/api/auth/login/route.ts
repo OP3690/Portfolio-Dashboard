@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+// Force dynamic rendering
+export const dynamic = 'force-dynamic';
+
 // Simple authentication - in production, use proper authentication with hashed passwords
 const VALID_EMAIL = 'omprakashutaha@gmail.com';
 const VALID_PASSWORD = '123456';

@@ -3,6 +3,9 @@ import connectDB from '@/lib/mongodb';
 import { fetchAllStocksHistoricalData, fetchAndStoreHistoricalData, hasComplete5YearData } from '@/lib/stockDataService';
 import StockMaster from '@/models/StockMaster';
 
+// Force dynamic rendering
+export const dynamic = 'force-dynamic';
+
 /**
  * API endpoint to fetch and store historical stock data
  * POST /api/fetch-historical-data

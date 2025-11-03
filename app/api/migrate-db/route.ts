@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import mongoose from 'mongoose';
 
+// Force dynamic rendering
+export const dynamic = 'force-dynamic';
+
 /**
  * Migration endpoint to copy data from 'test' database to 'OP_Portfolio_Dashboard' database
  * GET /api/migrate-db - Migrate all relevant collections
