@@ -1,7 +1,6 @@
 import cron from 'node-cron';
 import connectDB from './mongodb';
-import { fetchAndStoreHistoricalData, hasComplete5YearData } from './stockDataService';
-import Holding from '@/models/Holding';
+import { fetchAndStoreHistoricalData } from './stockDataService';
 import StockMaster from '@/models/StockMaster';
 
 /**
@@ -41,7 +40,6 @@ export function setupDailyStockDataRefresh() {
       
       let totalFetched = 0;
       let stocksProcessed = 0;
-      let stocksRefreshed = 0;
       const errors: string[] = [];
       
       // Process stocks in batches
@@ -63,7 +61,6 @@ export function setupDailyStockDataRefresh() {
             const count = await fetchAndStoreHistoricalData(isin, false);
             totalFetched += count;
             stocksProcessed++;
-            stocksRefreshed++;
             
             // Log progress every 50 stocks within the batch
             if ((i + 1) % 50 === 0) {
