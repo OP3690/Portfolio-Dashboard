@@ -704,7 +704,7 @@ export default function DetailedAnalysis({ holdings }: DetailedAnalysisProps) {
                   stroke="#3b82f6"
                   strokeWidth={2.5}
                   activeDot={{ r: 5, stroke: '#1e40af', strokeWidth: 2 }}
-                  dot={(props: any) => {
+                  dot={(props: any): JSX.Element => {
                     const { cx, cy, payload } = props;
                     if (!payload) return <circle cx={cx} cy={cy} r={2} fill="#8884d8" />;
                     
