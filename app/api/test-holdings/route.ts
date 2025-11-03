@@ -10,7 +10,7 @@ export async function GET(request: NextRequest) {
     const clientId = searchParams.get('clientId') || '994826';
     
     // Get from database
-    const dbHoldings = await Holding.find({ clientId }).lean();
+    const dbHoldings = await Holding.find({ clientId }).lean() as any[];
     const dbCount = await Holding.countDocuments({ clientId });
     
     // Normalize ISINs
@@ -19,7 +19,7 @@ export async function GET(request: NextRequest) {
       return String(isin).trim().toUpperCase();
     };
     
-    const normalizedDbHoldings = dbHoldings.map(h => ({
+    const normalizedDbHoldings = dbHoldings.map((h: any) => ({
       ...h,
       isin: normalizeIsin(h.isin),
     }));
