@@ -1448,9 +1448,9 @@ export async function GET(request: NextRequest) {
             { isin: 'INE257A01026' },
             { stockName: { $regex: /b\s*h\s*e\s*l|bhel/i } }
           ]
-        }).lean();
+        }).lean() as any;
         
-        if (bhelDirectQueryFinal) {
+        if (bhelDirectQueryFinal && !Array.isArray(bhelDirectQueryFinal)) {
           console.error(`API: ✅ BHEL found in database! Adding to response...`);
           bhelDirectQueryFinal.isin = normalizeIsin(bhelDirectQueryFinal.isin);
           const stockTransactionsFinal = transactions.filter((t: any) => 
