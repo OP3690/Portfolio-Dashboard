@@ -1090,8 +1090,8 @@ export async function GET(request: NextRequest) {
               if (missingHolding) {
                 console.error(`API: 🔧 Adding missing holding back: ${missingHolding.stockName} (${missingIsin})`);
                 // Try to get from direct query first
-                const directQuery = await Holding.findOne({ clientId, isin: missingIsin }).lean();
-                const holdingToAdd = directQuery || missingHolding;
+                const directQuery = await Holding.findOne({ clientId, isin: missingIsin }).lean() as any;
+                const holdingToAdd = (directQuery && !Array.isArray(directQuery)) ? directQuery : missingHolding;
                 
                 finalProcessedHoldings.push({
                   ...holdingToAdd,
@@ -1631,8 +1631,8 @@ export async function GET(request: NextRequest) {
         // Try to find what's missing by checking each document individually
         const allIsinsFromCount = new Set();
         for (let i = 0; i < dbCountCheck; i++) {
-          const testHolding = await Holding.findOne({ clientId }).skip(i).lean();
-          if (testHolding) {
+          const testHolding = await Holding.findOne({ clientId }).skip(i).lean() as any;
+          if (testHolding && !Array.isArray(testHolding)) {
             allIsinsFromCount.add(normalizeIsin(testHolding.isin));
           }
         }
