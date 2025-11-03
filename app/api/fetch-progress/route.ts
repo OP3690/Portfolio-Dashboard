@@ -28,15 +28,15 @@ export async function GET(request: NextRequest) {
         });
         
         // Get date range
-        const firstDate = await StockData.findOne({ isin }).sort({ date: 1 }).select('date').lean();
-        const lastDate = await StockData.findOne({ isin }).sort({ date: -1 }).select('date').lean();
+        const firstDate = await StockData.findOne({ isin }).sort({ date: 1 }).select('date').lean() as any;
+        const lastDate = await StockData.findOne({ isin }).sort({ date: -1 }).select('date').lean() as any;
         
         return {
           isin,
           totalRecords: count,
           hasFundamentals: withFundamentals > 0,
-          firstDate: firstDate?.date || null,
-          lastDate: lastDate?.date || null,
+          firstDate: (firstDate && !Array.isArray(firstDate) && firstDate.date) ? firstDate.date : null,
+          lastDate: (lastDate && !Array.isArray(lastDate) && lastDate.date) ? lastDate.date : null,
         };
       })
     );
