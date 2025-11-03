@@ -1219,17 +1219,13 @@ export async function GET(request: NextRequest) {
       }
       
       console.log(`API: ✅✅✅ Final safety net complete. New response count: ${finalHoldingsResult.length}`);
-      
-      );
-      } else {
-      }
     } else {
       console.log(`API: ✅✅✅ Final safety net: All DB holdings are in response (${finalHoldingsResult.length}/${dbAllHoldingsFinalCheck.length})`);
     }
     
     const finalDbCountCheck = await Holding.countDocuments({ clientId });
-    );
     
+    if (finalHoldingsResult.length !== finalDbCountCheck) {
       console.error(`API: 🔴 REBUILDING ENTIRE RESPONSE FROM DATABASE...`);
       
       // Rebuild from scratch using database as source of truth
@@ -1315,19 +1311,11 @@ export async function GET(request: NextRequest) {
       );
       
       console.error(`API: ✅✅✅ Rebuilt response from database. Final count: ${finalHoldingsResult.length}`);
-      
-      );
-      } else {
-      }
     }
     
     // LAST CHECK: Log what we're actually returning
     console.log(`API: 🎯 RETURNING: ${finalHoldingsResult.length} holdings`);
     console.log(`API: 🎯 RETURNING ISINs:`, finalHoldingsResult.map((h: any) => normalizeIsin(h.isin)).sort());
-    );
-    } else {
-      
-      // ULTIMATE LAST RESORT: Query database one final time and rebuild if needed
       const ultimateDbCount = await Holding.countDocuments({ clientId });
       const ultimateDbHoldings = await Holding.find({ clientId }).lean();
       
