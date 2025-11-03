@@ -714,7 +714,6 @@ export async function GET(request: NextRequest) {
               const processedIsin = normalizeIsin(result.value.isin);
               processedHoldings.push(result.value);
               processedIsins.add(processedIsin);
-              }
             } else {
               // ✅ FIX: Processing failed - ALWAYS use original with defaults (never drop)
               // This handles both rejected promises AND fulfilled promises with null/undefined values
@@ -732,9 +731,6 @@ export async function GET(request: NextRequest) {
               };
               processedHoldings.push(failedHolding);
               processedIsins.add(originalIsin);
-                if (result.status === 'rejected') {
-                }
-              }
             }
           });
           
