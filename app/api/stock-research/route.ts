@@ -498,8 +498,17 @@ export async function GET(request: NextRequest) {
 
   } catch (error: any) {
     console.error('Stock research error:', error);
+    
+    // Ensure we return valid JSON even on connection errors
+    let errorMessage = 'Failed to fetch stock research data';
+    if (error?.message) {
+      errorMessage = error.message;
+    } else if (typeof error === 'string') {
+      errorMessage = error;
+    }
+    
     return NextResponse.json(
-      { success: false, error: error.message || 'Failed to fetch stock research data' },
+      { success: false, error: errorMessage },
       { status: 500 }
     );
   }
