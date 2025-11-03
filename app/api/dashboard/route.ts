@@ -652,10 +652,8 @@ export async function GET(request: NextRequest) {
             
             try {
               stockXIRR = calculateStockXIRR(stockTransactions, h);
-              }
             } catch (error: any) {
               console.error(`Error calculating XIRR for ${h.isin}:`, error);
-              }
             }
             
             try {
