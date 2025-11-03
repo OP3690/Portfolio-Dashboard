@@ -473,6 +473,42 @@ export async function POST(request: NextRequest) {
     
     console.log(`\nProcessing ${holdingsWithIsin.length} holdings with valid ISINs (${currentHoldingsFromExcel.length - holdingsWithIsin.length} skipped)`);
     
+    // OPTIMIZATION: Pre-fetch ALL existing holdings and variants in ONE query
+    const allExistingHoldings = await Holding.find({ clientId }).lean() as any[];
+    const existingHoldingsMap = new Map<string, any>();
+    const variantIsinsToDelete = new Set<string>();
+    
+    // Build map of existing holdings by normalized ISIN and collect variants
+    for (const existing of allExistingHoldings) {
+      const normalizedExistingIsin = normalizeIsin(existing.isin);
+      if (normalizedExistingIsin) {
+        // If we already have this normalized ISIN, check if current is variant
+        if (existingHoldingsMap.has(normalizedExistingIsin)) {
+          // This is a variant - mark for deletion
+          variantIsinsToDelete.add(existing._id.toString());
+        } else {
+          existingHoldingsMap.set(normalizedExistingIsin, existing);
+          // Check if the stored ISIN format differs from normalized
+          if (existing.isin !== normalizedExistingIsin) {
+            variantIsinsToDelete.add(existing._id.toString());
+            // Still add to map for comparison
+            existingHoldingsMap.set(normalizedExistingIsin, existing);
+          }
+        }
+      }
+    }
+    
+    // Batch delete all variants at once
+    if (variantIsinsToDelete.size > 0) {
+      const variantIds = Array.from(variantIsinsToDelete).map(id => ({ _id: id }));
+      await Holding.deleteMany({ _id: { $in: variantIds } });
+      console.log(`🗑️  Deleted ${variantIsinsToDelete.size} variant holdings with duplicate ISINs`);
+    }
+    
+    // Prepare bulk operations
+    const bulkOps: any[] = [];
+    const now = new Date();
+    
     for (const holding of holdingsWithIsin) {
       const normalizedIsin = normalizeIsin(holding.isin); // Use helper function for consistency
       
@@ -481,11 +517,7 @@ export async function POST(request: NextRequest) {
         console.error(`❌ ERROR: Holding has empty ISIN after filter: ${holding.stockName}`);
         continue;
       }
-      const isBhel = normalizedIsin === 'INE257A01026' || holding.stockName?.toLowerCase().includes('bhel');
-      
-      if (isBhel) {
-        console.log(`\n🔵🔵🔵 PROCESSING BHEL: ${holding.stockName} (ISIN: ${normalizedIsin})`);
-      }
+      // Removed BHEL-specific logging (it was just a test)
       
       // Get Excel values (handle both normalized and raw Excel column names)
       // IMPORTANT: The Excel parser normalizes column names, so holding.stockName should work
@@ -497,38 +529,14 @@ export async function POST(request: NextRequest) {
       const excelInvestmentAmount = Number(holding.investmentAmount ?? holding['Investment Amount'] ?? 0);
       const excelSectorName = String(holding.sectorName || holding['Sector Name'] || '').trim();
       
-      // Debug logging for Tata Steel to track what values we're getting from Excel
-      if (excelStockName.toLowerCase().includes('tata steel')) {
-        console.log(`📊 Tata Steel Excel values extracted:`, {
-          stockName: excelStockName,
-          qty: excelQty,
-          isin: normalizedIsin,
-          rawHolding: {
-            stockName: holding.stockName,
-            'Stock Name': holding['Stock Name'],
-            openQty: holding.openQty,
-            'Open Qty': holding['Open Qty'],
-          }
-        });
-      }
-      
-      const existing = await Holding.findOne({
-        clientId,
-        isin: normalizedIsin,
-      }).lean() as any;
+      // Use pre-fetched existing holdings map (no database query needed)
+      const existing = existingHoldingsMap.get(normalizedIsin);
 
-      if (!existing || Array.isArray(existing)) {
+      if (!existing) {
         // New stock - add it
         newStocksCount++;
-        if (isBhel) {
-          console.log(`🔵 BHEL: New stock - Adding: ${excelStockName} (ISIN: ${normalizedIsin}, Qty: ${excelQty})`);
-        } else {
-          console.log(`➕ Adding new stock: ${excelStockName} (ISIN: ${normalizedIsin}, Qty: ${excelQty})`);
-        }
       } else {
         // Existing stock - check if data changed
-        // Use parsed Excel values for comparison
-        // CRITICAL: Convert numbers to ensure proper comparison (handle string vs number issues)
         const existingQty = Number(existing.openQty) || 0;
         const existingPrice = Number(existing.marketPrice) || 0;
         const existingValue = Number(existing.marketValue) || 0;
@@ -546,233 +554,78 @@ export async function POST(request: NextRequest) {
 
         if (shouldUpdate) {
           updatedStocksCount++;
-          if (isBhel || excelStockName.toLowerCase().includes('tata steel')) {
-            console.log(`🔄 Updating stock: ${excelStockName} (ISIN: ${normalizedIsin})`);
-            console.log(`   Changes detected:`);
-            if (existingStockName !== excelStockName) {
-              console.log(`     - Stock Name: "${existingStockName}" → "${excelStockName}"`);
-            }
-            if (existingQty !== excelQty) {
-              console.log(`     - Quantity: ${existingQty} → ${excelQty}`);
-            }
-            if (existingPrice !== excelMarketPrice) {
-              console.log(`     - Market Price: ${existingPrice} → ${excelMarketPrice}`);
-            }
-            if (existingSector !== excelSectorName) {
-              console.log(`     - Sector: "${existingSector}" → "${excelSectorName}"`);
-            }
-          } else {
-            console.log(`🔄 Updating stock: ${excelStockName} (ISIN: ${normalizedIsin})`);
-          }
-        } else {
-          if (isBhel || excelStockName.toLowerCase().includes('tata steel')) {
-            console.log(`ℹ️  No changes detected for: ${excelStockName} (existing matches Excel)`);
-            console.log(`   Existing: Name="${existingStockName}", Qty=${existingQty}`);
-            console.log(`   Excel: Name="${excelStockName}", Qty=${excelQty}`);
-          }
         }
       }
-      
-      // ALWAYS update (even if no changes detected) to ensure lastUpdated timestamp is fresh
-      // This ensures the UI can detect that data was refreshed
 
-      // Prepare holding data with defaults for ALL required fields - use the parsed Excel values
-      // Define holdingToSave BEFORE try block so it's accessible in catch block
+      // Prepare holding data with defaults for ALL required fields
       const holdingToSave = {
-          stockName: excelStockName,
-          sectorName: excelSectorName,
-          isin: normalizedIsin,
-          portfolioPercentage: holding.portfolioPercentage ?? holding['% of Total Portfolio'] ?? 0,
-          openQty: excelQty,
-          marketPrice: excelMarketPrice,
-          marketValue: excelMarketValue,
-          investmentAmount: excelInvestmentAmount,
-          avgCost: holding.avgCost ?? holding['Avg Cost'] ?? 0,
-          profitLossTillDate: holding.profitLossTillDate ?? holding['Profit/Loss Till date'] ?? 0,
-          profitLossTillDatePercent: holding.profitLossTillDatePercent ?? holding['Profit/Loss Till date %'] ?? 0,
-          clientId,
-          clientName: excelData.clientName || '',
-          asOnDate: excelData.asOnDate || new Date(),
-          lastUpdated: now,
-        };
+        stockName: excelStockName,
+        sectorName: excelSectorName,
+        isin: normalizedIsin,
+        portfolioPercentage: holding.portfolioPercentage ?? holding['% of Total Portfolio'] ?? 0,
+        openQty: excelQty,
+        marketPrice: excelMarketPrice,
+        marketValue: excelMarketValue,
+        investmentAmount: excelInvestmentAmount,
+        avgCost: holding.avgCost ?? holding['Avg Cost'] ?? 0,
+        profitLossTillDate: holding.profitLossTillDate ?? holding['Profit/Loss Till date'] ?? 0,
+        profitLossTillDatePercent: holding.profitLossTillDatePercent ?? holding['Profit/Loss Till date %'] ?? 0,
+        clientId,
+        clientName: excelData.clientName || '',
+        asOnDate: excelData.asOnDate || new Date(),
+        lastUpdated: now,
+      };
       
-      // Log what we're saving for Tata Steel
-      if (excelStockName.toLowerCase().includes('tata steel')) {
-        console.log(`📝 Saving Tata Steel data:`, {
-          stockName: holdingToSave.stockName,
-          qty: holdingToSave.openQty,
-          isin: holdingToSave.isin,
-        });
-      }
-      
-      // Validate critical fields - if ISIN or stock name is missing, log but still try to save with defaults
+      // Validate critical fields
       if (!holdingToSave.isin || !holdingToSave.isin.trim()) {
         console.error(`❌ CRITICAL: Holding has no ISIN! Skipping:`, holdingToSave.stockName);
         failedSaves.push({ holding, error: 'Missing ISIN' });
         continue;
       }
       
-      // Upsert the holding (update if exists, insert if new)
+      // Add to bulk operations array
+      bulkOps.push({
+        updateOne: {
+          filter: { clientId, isin: normalizedIsin },
+          update: { $set: holdingToSave },
+          upsert: true,
+        },
+      });
+      
+      savedHoldings.push({ isin: normalizedIsin, stockName: holdingToSave.stockName });
+    }
+    
+    // Execute bulk write operation (MUCH faster than individual queries)
+    if (bulkOps.length > 0) {
       try {
-        // Delete any existing entries with the same ISIN (normalized) but different format
-        // This ensures we don't have duplicates with whitespace/case differences
-        const existingVariants = await Holding.find({ clientId }).lean();
-        const variantsToDelete = existingVariants.filter(v => 
-          normalizeIsin(v.isin) === normalizedIsin && v.isin !== normalizedIsin
-        );
+        console.log(`\n💾 Executing bulk write for ${bulkOps.length} holdings...`);
+        const bulkResult = await Holding.bulkWrite(bulkOps, { ordered: false });
+        console.log(`✅ Bulk write completed: ${bulkResult.modifiedCount} updated, ${bulkResult.upsertedCount} inserted`);
         
-        if (variantsToDelete.length > 0) {
-          if (isBhel) {
-            console.log(`🔵 BHEL: Found ${variantsToDelete.length} variant(s) to delete`);
-          }
-          for (const variant of variantsToDelete) {
-            console.log(`   Deleting variant with different ISIN format: "${variant.isin}" (expected: "${normalizedIsin}")`);
-            await Holding.deleteOne({ _id: variant._id });
-          }
+        // Track actual saves vs failures
+        const actualSaved = bulkResult.modifiedCount + bulkResult.upsertedCount;
+        if (actualSaved < bulkOps.length) {
+          console.warn(`⚠️  Warning: Only ${actualSaved} of ${bulkOps.length} holdings were saved`);
         }
-        
-        // Try to save - if duplicate key error, delete the conflicting entry and retry
-        let result;
-        let saveAttempts = 0;
-        const maxAttempts = 3;
-        
-        while (saveAttempts < maxAttempts && !result) {
-          saveAttempts++;
-          try {
-            // CRITICAL: Always use $set to ensure ALL fields are updated, even if they're the same
-            // This ensures data consistency and updates the lastUpdated timestamp
-            result = await Holding.findOneAndUpdate(
-              { clientId, isin: normalizedIsin },
-              { 
-                $set: {
-                  ...holdingToSave,
-                  lastUpdated: new Date(), // Always update timestamp to reflect latest upload
-                }
-              },
-              { upsert: true, new: true, runValidators: true, setDefaultsOnInsert: true }
-            );
-            if (result) {
-              // Verify it was actually saved
-              const verifySaved = await Holding.findOne({ 
-                clientId, 
-                isin: normalizedIsin 
-              }).lean() as any;
-              
-              if (verifySaved && !Array.isArray(verifySaved)) {
-                // Double-check the saved values match what we tried to save (especially for Tata Steel)
-                if (excelStockName.toLowerCase().includes('tata steel')) {
-                  console.log(`   ✅ Tata Steel saved! Verifying values:`);
-                  console.log(`      - Stock Name: DB="${verifySaved.stockName}" vs Excel="${holdingToSave.stockName}" ${verifySaved.stockName === holdingToSave.stockName ? '✅' : '❌'}`);
-                  console.log(`      - Quantity: DB=${verifySaved.openQty} vs Excel=${holdingToSave.openQty} ${verifySaved.openQty === holdingToSave.openQty ? '✅' : '❌'}`);
-                  if (verifySaved.stockName !== holdingToSave.stockName || verifySaved.openQty !== holdingToSave.openQty) {
-                    console.error(`   ⚠️  WARNING: Saved values don't match Excel values!`);
-                  }
-                }
-                
-                savedHoldings.push({ isin: normalizedIsin, stockName: holdingToSave.stockName });
-                if (isBhel) {
-                  console.log(`   ✅✅✅ BHEL SAVE SUCCESS! _id: ${result._id}, isin: "${result.isin}", verified: YES`);
-                }
-                break; // Success, exit retry loop
-              } else {
-                if (isBhel || excelStockName.toLowerCase().includes('tata steel')) {
-                  console.error(`   ❌ SAVE RETURNED RESULT BUT NOT FOUND IN DB! Retrying...`);
-                }
-                result = null; // Not actually saved, retry
-              }
+      } catch (bulkError: any) {
+        console.error(`❌ Bulk write error:`, bulkError.message);
+        // Individual errors are in bulkError.writeErrors
+        if (bulkError.writeErrors && bulkError.writeErrors.length > 0) {
+          console.error(`   Failed operations: ${bulkError.writeErrors.length}`);
+          bulkError.writeErrors.forEach((err: any, idx: number) => {
+            const failedHolding = savedHoldings[idx];
+            if (failedHolding) {
+              failedSaves.push({ holding: { isin: failedHolding.isin, stockName: failedHolding.stockName }, error: err.errmsg || 'Bulk write error' });
             }
-          } catch (duplicateError: any) {
-            // Log error for BHEL
-            if (normalizeIsin(holdingToSave.isin) === 'INE257A01026' || holdingToSave.stockName?.toLowerCase().includes('bhel')) {
-              console.error(`   ❌❌❌ BHEL SAVE ERROR (Attempt ${saveAttempts}):`, duplicateError.message);
-              console.error(`   Error code:`, duplicateError.code);
-              console.error(`   Full error:`, duplicateError);
-            }
-            if (saveAttempts >= maxAttempts) {
-              throw duplicateError; // Give up after max attempts
-            }
-            
-            // Handle duplicate key error (E11000)
-            if (duplicateError.code === 11000 || duplicateError.message?.includes('duplicate key')) {
-              console.warn(`⚠️  Duplicate key error for ${holdingToSave.stockName} (ISIN: ${holdingToSave.isin}) - Attempt ${saveAttempts}/${maxAttempts}`);
-              
-              // Try to find and delete the conflicting entry
-              const conflicting = await Holding.findOne({ clientId, isin: normalizedIsin }).lean() as any;
-              if (conflicting && !Array.isArray(conflicting)) {
-                console.log(`   Deleting conflicting entry:`, conflicting._id, conflicting.isin);
-                await Holding.deleteOne({ _id: conflicting._id });
-                // Retry on next iteration
-                await new Promise(resolve => setTimeout(resolve, 100));
-              } else {
-                throw duplicateError; // Can't find conflict, give up
-              }
-            } else {
-              throw duplicateError; // Not a duplicate key error, don't retry
-            }
-          }
+          });
         }
-        
-        // If still no result, try using create() as fallback
-        if (!result) {
-          try {
-            if (isBhel) {
-              console.log(`🔵 BHEL: Attempting fallback save using create()`);
-            } else {
-              console.log(`   Attempting fallback save using create() for ${holdingToSave.stockName}`);
-            }
-            // Delete any existing first (using normalized ISIN)
-            await Holding.deleteMany({ clientId, isin: normalizedIsin });
-            result = await Holding.create(holdingToSave);
-            
-            // Verify it was saved
-            const verifyCreate = await Holding.findOne({ 
-              clientId, 
-              isin: normalizedIsin 
-            }).lean();
-            
-            if (verifyCreate) {
-              savedHoldings.push({ isin: normalizedIsin, stockName: holdingToSave.stockName });
-              if (isBhel) {
-                console.log(`   ✅✅✅ BHEL Fallback create() succeeded and verified! _id: ${result._id}`);
-              } else {
-                console.log(`   ✅ Fallback create() succeeded for ${holdingToSave.stockName}`);
-              }
-            } else {
-              throw new Error('Create returned result but verification failed');
-            }
-          } catch (createError: any) {
-            // If create also fails, log and continue
-            if (isBhel) {
-              console.error(`   ❌❌❌ BHEL Fallback create() FAILED:`, createError.message);
-            } else {
-              console.error(`   ❌ Fallback create() also failed for ${holdingToSave.stockName}:`, createError.message);
-            }
-            throw createError;
-          }
-        }
-        
-        if (!result) {
-          const errorMsg = `All save attempts returned null`;
-          if (isBhel) {
-            console.error(`❌❌❌ BHEL FAILED TO SAVE: ${errorMsg}`);
-          } else {
-            console.error(`❌ Failed to save holding: ${holdingToSave.stockName} (ISIN: ${normalizedIsin}) - ${errorMsg}`);
-          }
-          failedSaves.push({ holding, error: errorMsg });
-        }
-      } catch (saveError: any) {
-        console.error(`❌ Error saving holding ${holdingToSave?.stockName || holding.stockName} (ISIN: ${holdingToSave?.isin || holding.isin}):`, saveError.message);
-        console.error(`   Error code: ${saveError.code}, Error name: ${saveError.name}`);
-        if (saveError.errors) {
-          console.error(`   Validation errors:`, JSON.stringify(saveError.errors, null, 2));
-        }
-        failedSaves.push({ holding, error: saveError.message });
+        // For partial failures, we continue - some may have succeeded
       }
     }
     
     // Log summary of saves
     console.log(`\n=== SAVE SUMMARY ===`);
-    console.log(`✅ Successfully saved/updated: ${savedHoldings.length} holdings`);
+    console.log(`✅ Processed ${savedHoldings.length} holdings`);
     console.log(`   - New: ${newStocksCount}`);
     console.log(`   - Updated: ${updatedStocksCount}`);
     console.log(`   - Saved ISINs:`, savedHoldings.map(h => h.isin).sort());
