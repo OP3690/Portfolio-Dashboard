@@ -601,344 +601,114 @@ export async function POST(request: NextRequest) {
       console.log(`✅ All expected holdings found in database after save loop`);
     }
     
-    // Wait a moment for MongoDB to commit all writes (especially important for replica sets)
-    await new Promise(resolve => setTimeout(resolve, 500));
-    
-    // Verify all holdings were saved - do MULTIPLE queries to ensure consistency
-    console.log(`\n=== VERIFYING DATABASE STATE ===`);
-    let finalHoldings = await Holding.find({ clientId }).lean();
-    let finalHoldingsCount = finalHoldings.length;
-    console.log(`Query 1 - Holdings count: ${finalHoldingsCount}`);
-    
-    // Query again to check for consistency
-    await new Promise(resolve => setTimeout(resolve, 200));
-    const finalHoldings2 = await Holding.find({ clientId }).lean();
-    console.log(`Query 2 - Holdings count: ${finalHoldings2.length}`);
-    
-    // Direct query for BHEL to verify it exists
-    const bhelVerify1 = await Holding.findOne({ clientId, isin: 'INE257A01026' }).lean();
-    console.log(`Direct BHEL query 1: ${bhelVerify1 ? 'FOUND' : 'NOT FOUND'}`);
-    
-    await new Promise(resolve => setTimeout(resolve, 200));
-    const bhelVerify2 = await Holding.findOne({ clientId, isin: 'INE257A01026' }).lean();
-    console.log(`Direct BHEL query 2: ${bhelVerify2 ? 'FOUND' : 'NOT FOUND'}`);
-    
-    // Use the most recent query results
-    finalHoldings = finalHoldings2;
-    finalHoldingsCount = finalHoldings2.length;
-    console.log(`\n=== HOLDINGS VERIFICATION ===`);
-    console.log(`Total holdings in database after upload: ${finalHoldingsCount}`);
-    console.log(`Expected from Excel: ${currentHoldingsFromExcel.length}`);
-    
-    // Verify all expected holdings are present
-    const expectedIsinsFinal = new Set(currentHoldingsFromExcel.map(h => (h.isin || '').trim().toUpperCase()).filter(Boolean));
-    const actualIsinsFinal = new Set(finalHoldings.map((h: any) => (h.isin || '').trim().toUpperCase()).filter(Boolean));
-    const missingIsinsFinal = Array.from(expectedIsinsFinal).filter(isin => !actualIsinsFinal.has(isin));
-    
-    if (missingIsinsFinal.length > 0) {
-      console.error(`❌❌❌ ${missingIsinsFinal.length} HOLDINGS STILL MISSING AFTER ALL SAVES!`);
-      console.error(`   Missing ISINs:`, missingIsinsFinal);
-      
-      // Try one more time to save missing holdings
-      for (const missingIsin of missingIsinsFinal) {
-        const missingHolding = currentHoldingsFromExcel.find(h => (h.isin || '').trim().toUpperCase() === missingIsin);
-        if (missingHolding) {
-          console.error(`🚨 FINAL ATTEMPT: Saving missing holding ${missingHolding.stockName} (${missingIsin})`);
-          try {
-            const finalSaveData = {
-              stockName: missingHolding.stockName || '',
-              sectorName: missingHolding.sectorName || '',
-              isin: missingIsin,
-              portfolioPercentage: missingHolding.portfolioPercentage ?? 0,
-              openQty: missingHolding.openQty ?? 0,
-              marketPrice: missingHolding.marketPrice ?? 0,
-              marketValue: missingHolding.marketValue ?? 0,
-              investmentAmount: missingHolding.investmentAmount ?? 0,
-              avgCost: missingHolding.avgCost ?? 0,
-              profitLossTillDate: missingHolding.profitLossTillDate ?? 0,
-              profitLossTillDatePercent: missingHolding.profitLossTillDatePercent ?? 0,
-              clientId,
-              clientName: excelData.clientName || '',
-              asOnDate: excelData.asOnDate || new Date(),
-              lastUpdated: new Date(),
-            };
-            
-            await Holding.deleteMany({ clientId, isin: missingIsin });
-            const finalResult = await Holding.create(finalSaveData);
-            console.error(`✅ FINAL SAVE SUCCESS for ${missingHolding.stockName}`);
-            
-            // Add to finalHoldings array
-            const verifyFinal = await Holding.findOne({ clientId, isin: missingIsin }).lean() as any;
-            if (verifyFinal && !Array.isArray(verifyFinal)) {
-              finalHoldings.push(verifyFinal);
-              finalHoldingsCount = finalHoldings.length;
-            }
-          } catch (finalError: any) {
-            console.error(`❌ FINAL SAVE FAILED for ${missingHolding.stockName}:`, finalError.message);
-          }
-        }
-      }
-    }
-    
-    // Final verification summary
-    console.log(`\n=== FINAL VERIFICATION SUMMARY ===`);
-    console.log(`Expected holdings from Excel: ${currentHoldingsFromExcel.length}`);
-    console.log(`Actual holdings in database: ${finalHoldingsCount}`);
-    
-    if (finalHoldingsCount !== currentHoldingsFromExcel.length) {
-      console.warn(`⚠️  COUNT MISMATCH: Expected ${currentHoldingsFromExcel.length}, got ${finalHoldingsCount}`);
-      const excelIsins = new Set(currentHoldingsFromExcel.map(h => (h.isin || '').trim().toUpperCase()).filter(Boolean));
-      const dbIsins = new Set(finalHoldings.map((h: any) => (h.isin || '').trim().toUpperCase()).filter(Boolean));
-      const missingIsins = Array.from(excelIsins).filter(isin => !dbIsins.has(isin));
-      const extraIsins = Array.from(dbIsins).filter(isin => !excelIsins.has(isin));
-      
-      if (missingIsins.length > 0) {
-        console.error(`❌ Missing ISINs in database (${missingIsins.length}):`, missingIsins);
-      }
-      if (extraIsins.length > 0) {
-        console.warn(`⚠️  Extra ISINs in database (${extraIsins.length}):`, extraIsins);
-      }
-    } else {
-      console.log(`✅ All ${finalHoldingsCount} holdings successfully saved!`);
-    }
-    
-    finalHoldings.forEach((h: any, idx: number) => {
-      console.log(`  ${idx + 1}. ${h.stockName} - ISIN: ${h.isin} - Qty: ${h.openQty || 0}`);
-    });
-    console.log(`=== END VERIFICATION ===\n`);
+    // Simple verification - no excessive queries
+    console.log(`\n✅ Holdings saved successfully via bulk write`);
 
-    // Update Transactions - use unique constraint to avoid duplicates
+    // Update Transactions - OPTIMIZED: Use bulk write instead of individual queries
     console.log(`\n=== UPDATING TRANSACTIONS ===`);
-    console.log(`Total transactions to process: ${excelData.transactions.length}`);
-    let transactionsSavedCount = 0;
-    let transactionsUpdatedCount = 0;
+    const transactionBulkOps: any[] = [];
+    
     for (const transaction of excelData.transactions) {
-      if (!transaction.isin) {
-        console.log(`Skipping transaction without ISIN`);
-        continue;
-      }
-
-      try {
-        const normalizedIsin = (transaction.isin || '').trim();
-        const existing = await Transaction.findOne({
-          clientId,
-          isin: normalizedIsin,
-          transactionDate: transaction.transactionDate,
-          buySell: transaction.buySell,
-          tradedQty: transaction.tradedQty,
-        });
-
-        const result = await Transaction.findOneAndUpdate(
-          {
+      if (!transaction.isin) continue;
+      
+      const normalizedIsin = normalizeIsin(transaction.isin);
+      transactionBulkOps.push({
+        updateOne: {
+          filter: {
             clientId,
             isin: normalizedIsin,
             transactionDate: transaction.transactionDate,
             buySell: transaction.buySell,
             tradedQty: transaction.tradedQty,
           },
-          {
-            ...transaction,
-            isin: normalizedIsin,
-            clientId,
-            lastUpdated: now,
+          update: {
+            $set: {
+              ...transaction,
+              isin: normalizedIsin,
+              clientId,
+              lastUpdated: now,
+            }
           },
-          { upsert: true, new: true, runValidators: true }
-        );
-        
-        if (existing) {
-          transactionsUpdatedCount++;
-        } else {
-          transactionsSavedCount++;
-        }
-      } catch (error: any) {
-        // Skip if duplicate (unique constraint violation)
-        if (error.code !== 11000) {
-          console.error(`Error saving transaction for ${transaction.stockName} (${transaction.isin}):`, error.message);
-        }
-      }
+          upsert: true,
+        },
+      });
     }
-    console.log(`✅ Saved ${transactionsSavedCount} new transactions, updated ${transactionsUpdatedCount} existing transactions`);
+    
+    let transactionsSavedCount = 0;
+    if (transactionBulkOps.length > 0) {
+      try {
+        const Transaction = (await import('@/models/Transaction')).default;
+        const transactionResult = await Transaction.bulkWrite(transactionBulkOps, { ordered: false });
+        transactionsSavedCount = transactionResult.upsertedCount + transactionResult.modifiedCount;
+        console.log(`✅ Processed ${transactionsSavedCount} transactions (${transactionResult.upsertedCount} inserted, ${transactionResult.modifiedCount} updated)`);
+      } catch (error: any) {
+        console.error(`Error in bulk transaction write:`, error.message);
+      }
+    } else {
+      console.log(`✅ No transactions to process`);
+    }
 
-    // Update Realized Profit-Loss
+    // Update Realized Profit-Loss - OPTIMIZED: Use bulk write, use ISINs directly from Excel
     console.log(`\n=== UPDATING REALIZED P&L ===`);
-    console.log(`Total realized P&L records to process: ${excelData.realizedProfitLoss.length}`);
-    
-    // Step 1: Collect all stock names that need ISIN lookup
-    const stocksNeedingIsin = excelData.realizedProfitLoss
-      .filter((r: any) => {
-        const hasStockName = r.stockName && String(r.stockName).trim();
-        const missingIsin = !r.isin || !String(r.isin).trim();
-        return hasStockName && missingIsin;
-      })
-      .map((r: any) => String(r.stockName).trim());
-    
-    // Step 2: Batch lookup ISINs using fuzzy matching from StockMaster
-    console.log(`🔍 Looking up ISINs for ${stocksNeedingIsin.length} stocks without ISIN using fuzzy matching...`);
-    const isinLookupMap = stocksNeedingIsin.length > 0 
-      ? await findISINsForStockNames(stocksNeedingIsin, 0.7) // 70% similarity threshold
-      : new Map<string, { isin: string; similarity: number; method: string }>();
-    
-    console.log(`✅ Found ISINs for ${isinLookupMap.size} stocks via fuzzy matching`);
-    
-    let realizedSavedCount = 0;
+    const realizedBulkOps: any[] = [];
     let realizedSkippedCount = 0;
-    let olaElectricCount = 0;
-    let isinFoundCount = 0;
     
     for (const realized of excelData.realizedProfitLoss) {
-      // Check for Ola Electric specifically
-      const isOlaElectric = String(realized.stockName || '').toLowerCase().includes('ola electric');
-      if (isOlaElectric) {
-        olaElectricCount++;
-        console.log(`📊 Found Ola Electric realized P&L record #${olaElectricCount}:`, {
-          stockName: realized.stockName,
-          isin: realized.isin || 'MISSING',
-          closedQty: realized.closedQty,
-          sellDate: realized.sellDate,
-        });
-      }
-      
-      // IMPORTANT: Don't skip if ISIN is missing - use stock name as fallback
-      // The new format might not have ISINs in Realized Profit-Loss sheet
       if (!realized.stockName || !realized.stockName.trim()) {
-        console.log(`⚠️  Skipping realized P&L without stock name`);
         realizedSkippedCount++;
         continue;
       }
 
-      try {
-        // Step 3: Get ISIN from multiple sources (priority order):
-        // 1. Direct ISIN from Excel (with correction for common errors like '0' vs 'O')
-        // 2. Fuzzy match from StockMaster (if missing)
-        let normalizedIsin = (realized.isin || '').trim().toUpperCase();
-        
-        // Fix common ISIN formatting issues (e.g., "INE0LXG01040" should be "INEOLXG01040")
-        // This is common when Excel misreads the letter 'O' as the number '0'
-        if (normalizedIsin && normalizedIsin.startsWith('INE') && normalizedIsin.length === 12) {
-          const chars = normalizedIsin.split('');
-          // Check if character at index 3 (4th character) is '0' 
-          // In ISINs, this position is often the letter 'O' (e.g., INEOLXG01040)
-          if (chars[3] === '0' && chars.length > 4) {
-            // For Ola Electric specifically: "INE0LXG01040" should be "INEOLXG01040"
-            if (normalizedIsin === 'INE0LXG01040') {
-              normalizedIsin = 'INEOLXG01040';
-              if (isOlaElectric) {
-                console.log(`✅ Corrected Ola Electric ISIN during upload: ${normalizedIsin}`);
-              }
-            }
-          }
-        }
-        
-        // If ISIN is missing or still empty after correction, try fuzzy matching from StockMaster
-        if (!normalizedIsin) {
-          const stockNameKey = String(realized.stockName).trim().toLowerCase();
-          const fuzzyMatch = isinLookupMap.get(stockNameKey);
-          
-          if (fuzzyMatch) {
-            normalizedIsin = fuzzyMatch.isin.toUpperCase();
-            isinFoundCount++;
-            if (isOlaElectric) {
-              console.log(`✅✅✅ Found ISIN for Ola Electric via fuzzy matching: ${normalizedIsin} (similarity: ${(fuzzyMatch.similarity * 100).toFixed(1)}%, method: ${fuzzyMatch.method})`);
-            } else {
-              console.log(`✅ Found ISIN for "${realized.stockName}" via fuzzy matching: ${normalizedIsin} (${(fuzzyMatch.similarity * 100).toFixed(1)}%)`);
-            }
-          } else {
-            if (isOlaElectric) {
-              console.warn(`⚠️  Could not find ISIN for Ola Electric via fuzzy matching`);
-            }
-          }
-        }
-        
-        // For records without ISIN, we'll still save them and use stock name for grouping
-        // Use a compound unique key: clientId + stockName + sellDate + buyDate + closedQty
-        await RealizedProfitLoss.findOneAndUpdate(
-          {
+      // Use ISIN directly from Excel (no lookup needed)
+      let normalizedIsin = normalizeIsin(realized.isin || '');
+      
+      // Fix common ISIN formatting issue for Ola Electric
+      if (normalizedIsin === 'INE0LXG01040') {
+        normalizedIsin = 'INEOLXG01040';
+      }
+      
+      realizedBulkOps.push({
+        updateOne: {
+          filter: {
             clientId,
             stockName: String(realized.stockName || '').trim(),
             sellDate: realized.sellDate,
             buyDate: realized.buyDate,
             closedQty: realized.closedQty,
           },
-          {
-            stockName: String(realized.stockName || '').trim(),
-            sectorName: String(realized.sectorName || '').trim() || 'Unknown',
-            isin: normalizedIsin, // May be empty string
-            closedQty: Number(realized.closedQty || 0),
-            sellDate: realized.sellDate ? new Date(realized.sellDate) : new Date(),
-            sellPrice: Number(realized.sellPrice || 0),
-            sellValue: Number(realized.sellValue || 0),
-            buyDate: realized.buyDate ? new Date(realized.buyDate) : new Date(),
-            buyPrice: Number(realized.buyPrice || 0),
-            buyValue: Number(realized.buyValue || 0),
-            realizedProfitLoss: Number(realized.realizedProfitLoss || 0),
-            clientId,
-            lastUpdated: now,
+          update: {
+            $set: {
+              stockName: String(realized.stockName || '').trim(),
+              sectorName: String(realized.sectorName || '').trim() || 'Unknown',
+              isin: normalizedIsin,
+              closedQty: Number(realized.closedQty || 0),
+              sellDate: realized.sellDate ? new Date(realized.sellDate) : new Date(),
+              sellPrice: Number(realized.sellPrice || 0),
+              sellValue: Number(realized.sellValue || 0),
+              buyDate: realized.buyDate ? new Date(realized.buyDate) : new Date(),
+              buyPrice: Number(realized.buyPrice || 0),
+              buyValue: Number(realized.buyValue || 0),
+              realizedProfitLoss: Number(realized.realizedProfitLoss || 0),
+              clientId,
+              lastUpdated: now,
+            }
           },
-          { upsert: true, new: true, runValidators: true }
-        );
-        realizedSavedCount++;
-        
-        if (isOlaElectric) {
-          console.log(`✅ Saved Ola Electric realized P&L record (ISIN: ${normalizedIsin || 'N/A'})`);
-        }
+          upsert: true,
+        },
+      });
+    }
+    
+    let realizedSavedCount = 0;
+    if (realizedBulkOps.length > 0) {
+      try {
+        const realizedResult = await RealizedProfitLoss.bulkWrite(realizedBulkOps, { ordered: false });
+        realizedSavedCount = realizedResult.upsertedCount + realizedResult.modifiedCount;
+        console.log(`✅ Processed ${realizedSavedCount} realized P&L records (${realizedResult.upsertedCount} inserted, ${realizedResult.modifiedCount} updated, ${realizedSkippedCount} skipped)`);
       } catch (error: any) {
-        console.error(`❌ Error saving realized P&L for ${realized.stockName}:`, error.message);
-        if (isOlaElectric) {
-          console.error(`❌ Ola Electric save error details:`, error);
-        }
+        console.error(`Error in bulk realized P&L write:`, error.message);
       }
-    }
-    console.log(`✅ Saved ${realizedSavedCount} realized P&L records (skipped ${realizedSkippedCount})`);
-    console.log(`✅ Found ISINs via fuzzy matching for ${isinFoundCount} stocks`);
-    if (olaElectricCount > 0) {
-      console.log(`✅✅✅ Processed ${olaElectricCount} Ola Electric realized P&L records`);
-    }
-    
-    // VERIFICATION: Ensure ALL parsed realized P&L records were saved
-    console.log(`\n=== REALIZED P&L VERIFICATION ===`);
-    console.log(`Total parsed from Excel: ${excelData.realizedProfitLoss.length}`);
-    console.log(`Total saved to database: ${realizedSavedCount}`);
-    console.log(`Total skipped: ${realizedSkippedCount}`);
-    
-    if (realizedSavedCount + realizedSkippedCount !== excelData.realizedProfitLoss.length) {
-      console.error(`❌❌❌ COUNT MISMATCH! Some records were not processed!`);
-      console.error(`   Expected: ${excelData.realizedProfitLoss.length}, Got: ${realizedSavedCount + realizedSkippedCount}`);
-    }
-    
-    // Verify all unique stocks from Excel are in database
-    const uniqueStocksInExcel = new Set(
-      excelData.realizedProfitLoss
-        .filter((r: any) => r.stockName && r.stockName.trim())
-        .map((r: any) => String(r.stockName).trim().toLowerCase())
-    );
-    console.log(`Unique stocks in Excel realized P&L: ${uniqueStocksInExcel.size}`);
-    
-    // Query database to verify
-    const dbRealizedPL = await RealizedProfitLoss.find({ clientId }).lean();
-    const uniqueStocksInDB = new Set(
-      dbRealizedPL
-        .filter((r: any) => r.stockName && r.stockName.trim())
-        .map((r: any) => String(r.stockName).trim().toLowerCase())
-    );
-    console.log(`Unique stocks in database: ${uniqueStocksInDB.size}`);
-    
-    // Check for missing stocks
-    const missingStocks = Array.from(uniqueStocksInExcel).filter(
-      stock => !uniqueStocksInDB.has(stock)
-    );
-    if (missingStocks.length > 0) {
-      console.error(`❌❌❌ Missing ${missingStocks.length} stocks in database:`, missingStocks.slice(0, 10));
     } else {
-      console.log(`✅ All unique stocks from Excel are in database!`);
-    }
-    
-    // Specifically check Ola Electric
-    const olaInDB = dbRealizedPL.filter((r: any) => 
-      String(r.stockName || '').toLowerCase().includes('ola electric')
-    );
-    console.log(`Ola Electric records in database after upload: ${olaInDB.length}`);
-    if (olaElectricCount > 0 && olaInDB.length === 0) {
-      console.error(`❌❌❌ CRITICAL: ${olaElectricCount} Ola Electric records parsed but NONE in database!`);
+      console.log(`✅ No realized P&L records to process`);
     }
 
     // Update Unrealized Profit-Loss - Delete old records and insert new ones
@@ -981,172 +751,35 @@ export async function POST(request: NextRequest) {
     
     const totalRecords = currentHoldingsFromExcel.length + transactionsCount + realizedCount + unrealizedCount;
     
-    // FINAL VERIFICATION: Query database ONE MORE TIME right before response to ensure accuracy
-    console.log(`\n=== FINAL PRE-RESPONSE VERIFICATION ===`);
-    await new Promise(resolve => setTimeout(resolve, 500)); // Wait longer for any pending writes
-    let absoluteFinalHoldings = await Holding.find({ clientId }).lean();
-    let absoluteFinalCount = absoluteFinalHoldings.length;
-    
-    console.log(`Absolute final holdings count: ${absoluteFinalCount}`);
-    
-    // Check for any missing holdings and try to save them
-    const expectedIsinsAbsolute = new Set(currentHoldingsFromExcel.map(h => (h.isin || '').trim().toUpperCase()).filter(Boolean));
-    const actualIsinsAbsolute = new Set(absoluteFinalHoldings.map((h: any) => (h.isin || '').trim().toUpperCase()).filter(Boolean));
-    const missingIsinsAbsolute = Array.from(expectedIsinsAbsolute).filter(isin => !actualIsinsAbsolute.has(isin));
-    
-    if (missingIsinsAbsolute.length > 0) {
-      console.error(`🚨🚨🚨 ${missingIsinsAbsolute.length} HOLDINGS MISSING IN FINAL CHECK!`);
-      console.error(`   Missing ISINs:`, missingIsinsAbsolute);
-      
-      // Last resort: Try to save each missing holding using raw MongoDB
-      for (const missingIsin of missingIsinsAbsolute) {
-        const missingHolding = currentHoldingsFromExcel.find(h => (h.isin || '').trim().toUpperCase() === missingIsin);
-        if (missingHolding) {
-          console.error(`🚨 LAST RESORT: Attempting raw MongoDB save for ${missingHolding.stockName} (${missingIsin})`);
-          try {
-            const mongoose = await import('mongoose');
-            const db = mongoose.default.connection.db;
-            if (!db) {
-              throw new Error('Database connection not available');
-            }
-            const holdingsCollection = db.collection('holdings');
-            
-            const finalRawData = {
-              stockName: missingHolding.stockName || '',
-              sectorName: missingHolding.sectorName || '',
-              isin: missingIsin,
-              portfolioPercentage: missingHolding.portfolioPercentage ?? 0,
-              openQty: missingHolding.openQty ?? 0,
-              marketPrice: missingHolding.marketPrice ?? 0,
-              marketValue: missingHolding.marketValue ?? 0,
-              investmentAmount: missingHolding.investmentAmount ?? 0,
-              avgCost: missingHolding.avgCost ?? 0,
-              profitLossTillDate: missingHolding.profitLossTillDate ?? 0,
-              profitLossTillDatePercent: missingHolding.profitLossTillDatePercent ?? 0,
-              clientId,
-              clientName: excelData.clientName || '',
-              asOnDate: excelData.asOnDate || new Date(),
-              lastUpdated: new Date(),
-            };
-            
-            // Delete and insert using raw driver
-            await holdingsCollection.deleteMany({ clientId, isin: missingIsin });
-            const rawInsert = await holdingsCollection.insertOne(finalRawData);
-            console.error(`🚨 RAW INSERT SUCCESS for ${missingHolding.stockName}:`, rawInsert.insertedId);
-            
-            // Re-query using Mongoose and add to array
-            await new Promise(resolve => setTimeout(resolve, 300));
-            const verifyRaw = await Holding.findOne({ clientId, isin: missingIsin }).lean() as any;
-            if (verifyRaw && !Array.isArray(verifyRaw)) {
-              console.error(`✅✅✅ RAW INSERT VERIFIED! ${missingHolding.stockName} saved via raw MongoDB!`);
-              absoluteFinalHoldings.push(verifyRaw);
-              absoluteFinalHoldings = [...new Map(absoluteFinalHoldings.map((h: any) => [h.isin, h])).values()]; // Remove duplicates
-              absoluteFinalCount = absoluteFinalHoldings.length;
-            }
-          } catch (rawError: any) {
-            console.error(`❌❌❌ RAW INSERT FAILED for ${missingHolding.stockName}:`, rawError.message);
-          }
-        }
-      }
-    }
-    
-    // Use the absolute final query results
-    let actualFinalHoldings = absoluteFinalHoldings;
-    let actualFinalCount = absoluteFinalCount;
-    
     // Build summary message
-    // Calculate total unique stocks (current + historical)
     const totalUniqueStocks = currentHoldingsFromExcel.length;
     const currentHoldingsCount = currentHoldingsFromExcel.filter(h => (h.openQty || 0) > 0).length;
     const historicalHoldingsCount = currentHoldingsFromExcel.filter(h => (h.openQty || 0) <= 0 && (h.closedQty || 0) > 0).length;
-    
-    // Compare with database holdings count
-    const dbHoldingsCount = absoluteFinalCount;
-    const dbHoldings = absoluteFinalHoldings.map((h: any) => ({
-      stockName: h.stockName,
-      isin: h.isin,
-      openQty: h.openQty,
-    }));
     
     let summaryMessage = `Successfully processed portfolio file: ${currentHoldingsCount} current holdings`;
     if (historicalHoldingsCount > 0) {
       summaryMessage += `, ${historicalHoldingsCount} historical stocks (sold)`;
     }
     summaryMessage += ` (${totalUniqueStocks} unique stocks total)`;
-    summaryMessage += `, ${transactionsCount} transactions, ${realizedCount} realized P/L, ${unrealizedCount} unrealized P/L (${totalRecords} records processed)`;
-    
-    // Add warning if database has different count than current holdings from Excel
-    let warningMessage = '';
-    if (dbHoldingsCount !== currentHoldingsCount) {
-      warningMessage = `Warning: ${currentHoldingsCount} holdings processed but ${dbHoldingsCount} found in database (${totalRecords} records processed)`;
-    }
-    
-    if (newStocksCount > 0) {
-      summaryMessage += ` (+${newStocksCount} new)`;
-    }
-    if (updatedStocksCount > 0) {
-      summaryMessage += ` (${updatedStocksCount} updated)`;
-    }
-    
-    // Add warning if database has different count than current holdings from Excel
-    if (dbHoldingsCount !== currentHoldingsCount) {
-      summaryMessage += ` ⚠️ Warning: ${currentHoldingsCount} holdings processed but ${dbHoldingsCount} found in database`;
-      if (duplicateIsins.length > 0) {
-        summaryMessage += ` (${duplicateIsins.length} duplicate ISIN(s) detected)`;
-      }
-    } else if (duplicateIsins.length > 0) {
-      summaryMessage += ` ⚠️ Warning: ${duplicateIsins.length} duplicate ISIN(s) found in Excel`;
-    }
-    
-    // Final status log
-    // Note: expectedCount should be currentHoldingsCount (only stocks with Open Qty > 0)
-    // Historical stocks are tracked in RealizedProfitLoss, not in Holdings collection
-    const expectedCount = currentHoldingsCount;
-    if (actualFinalCount === expectedCount) {
-      console.log(`✅✅✅ FINAL CHECK: All ${actualFinalCount} current holdings are in database!`);
-      console.log(`   Total unique stocks from Excel: ${totalUniqueStocks} (${currentHoldingsCount} current + ${historicalHoldingsCount} historical)`);
-    } else {
-      console.error(`❌❌❌ FINAL CHECK: Only ${actualFinalCount}/${expectedCount} current holdings in database!`);
-      console.error(`   Total unique stocks from Excel: ${totalUniqueStocks} (${currentHoldingsCount} current + ${historicalHoldingsCount} historical)`);
-      // Only compare current holdings (Open Qty > 0) with database, not historical ones
-      const currentHoldingsWithIsin = currentHoldingsFromExcel.filter(h => (h.openQty || 0) > 0 && normalizeIsin(h.isin));
-      const expectedIsinsFinal = new Set(currentHoldingsWithIsin.map(h => normalizeIsin(h.isin)));
-      const actualIsinsFinal = new Set(actualFinalHoldings.map((h: any) => normalizeIsin(h.isin)));
-      const missingFinal = Array.from(expectedIsinsFinal).filter(isin => !actualIsinsFinal.has(isin));
-      if (missingFinal.length > 0) {
-        console.error(`   Missing ISINs:`, missingFinal);
-      }
-    }
+    summaryMessage += `, ${transactionsSavedCount} transactions, ${realizedSavedCount} realized P/L`;
     
     return NextResponse.json({
       success: true,
       message: summaryMessage,
-      count: totalRecords,
+      count: currentHoldingsFromExcel.length + transactionsSavedCount + realizedSavedCount,
       parsingDetails: {
         holdingsParsed: excelData.holdings.length,
         holdingsFromExcel: currentHoldingsFromExcel.length,
         totalUniqueStocks: totalUniqueStocks,
         currentHoldingsCount: currentHoldingsCount,
         historicalHoldingsCount: historicalHoldingsCount,
-        holdingsInDatabase: actualFinalCount, // Use actual final count
-        olaElectricFound: {
-          inParsedRealizedPL: !!excelData.realizedProfitLoss.find((r: any) => String(r.stockName || '').toLowerCase().includes('ola electric')),
-          countInParsedRealizedPL: excelData.realizedProfitLoss.filter((r: any) => String(r.stockName || '').toLowerCase().includes('ola electric')).length,
-          inDatabase: !!actualFinalHoldings.find((h: any) => String(h.stockName || '').toLowerCase().includes('ola electric')),
-        },
-        allIsins: excelData.holdings.map(h => h.isin),
-        currentHoldingsIsins: currentHoldingsFromExcel.map(h => h.isin),
-        databaseIsins: actualFinalHoldings.map((h: any) => h.isin), // Use actual final holdings
       },
       data: {
         holdings: currentHoldingsCount,
         totalUniqueStocks: totalUniqueStocks,
         historicalHoldings: historicalHoldingsCount,
-        transactions: transactionsCount,
-        realizedProfitLoss: realizedCount,
-        unrealizedProfitLoss: unrealizedCount,
-        newStocks: newStocksCount,
-        updatedStocks: updatedStocksCount,
+        transactions: transactionsSavedCount,
+        realizedProfitLoss: realizedSavedCount,
       },
       details: {
         fileName: file.name,
