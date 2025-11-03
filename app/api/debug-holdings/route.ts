@@ -17,9 +17,9 @@ export async function GET(request: NextRequest) {
     console.log(`Debug: Fetched ${holdings.length} holdings via find().lean()`);
     
     // Direct query for BHEL
-    const bhelDirect = await Holding.findOne({ clientId, isin: 'INE257A01026' }).lean();
+    const bhelDirect = await Holding.findOne({ clientId, isin: 'INE257A01026' }).lean() as any;
     console.log(`Debug: Direct BHEL query: ${bhelDirect ? 'FOUND' : 'NOT FOUND'}`);
-    if (bhelDirect) {
+    if (bhelDirect && !Array.isArray(bhelDirect)) {
       console.log(`Debug: BHEL details:`, bhelDirect.stockName, bhelDirect.isin, `Qty: ${bhelDirect.openQty}`);
     }
     
