@@ -728,7 +728,7 @@ export default function PerformanceAnalyticsCharts({ clientId = '994826', holdin
                       <td className={`px-4 py-3 whitespace-nowrap text-center font-semibold ${item.currentReturn >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                         {formatPercent(item.currentReturn)}%
                       </td>
-                      <td className={`px-4 py-3 whitespace-nowrap text-center font-semibold ${item.avgMonthlyReturn >= 0 ? 'text-green-600' : 'text-red-600'}`} title={`Price-based: ${formatPercent(item.avgMonthlyReturn)}%${item.actualMonthlyReturnFromInvestment !== undefined && !isNaN(item.actualMonthlyReturnFromInvestment) ? ` | Investment-based: ${formatPercent(item.actualMonthlyReturnFromInvestment)}%` : ''}`}>
+                      <td className={`px-4 py-3 whitespace-nowrap text-center font-semibold ${item.avgMonthlyReturn >= 0 ? 'text-green-600' : 'text-red-600'}`} title={`Price-based: ${formatPercent(item.avgMonthlyReturn)}%${('actualMonthlyReturnFromInvestment' in item && item.actualMonthlyReturnFromInvestment !== undefined && !isNaN(item.actualMonthlyReturnFromInvestment)) ? ` | Investment-based: ${formatPercent(item.actualMonthlyReturnFromInvestment)}%` : ''}`}>
                         {formatPercent(item.avgMonthlyReturn)}%
                       </td>
                       <td className={`px-4 py-3 whitespace-nowrap text-center font-semibold ${item.cagr >= 0 ? 'text-green-600' : 'text-red-600'}`}>
