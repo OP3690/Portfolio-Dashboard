@@ -645,8 +645,6 @@ export async function GET(request: NextRequest) {
             const holdingNormalizedIsin = normalizeIsin(h.isin);
             const stockTransactions = transactions.filter(t => normalizeIsin(t.isin) === holdingNormalizedIsin);
             
-            }
-            
             let stockXIRR = 0;
             let cagr = 0;
             let holdingPeriodYears = 0;
