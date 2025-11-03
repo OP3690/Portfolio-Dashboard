@@ -535,9 +535,7 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    // 🚨 CRITICAL: After save loop, verify ALL expected holdings are saved
-    console.log(`\n=== POST-LOOP VERIFICATION: Checking for missing holdings ===`);
-    // Bulk write complete - no verification needed
+    // Bulk write complete
     console.log(`\n✅ Holdings saved successfully via bulk write`);
 
     // Update Transactions - OPTIMIZED: Use bulk write instead of individual queries
