@@ -141,6 +141,70 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    // Handle fetching prices for specific ISINs (e.g., from RealizedStocksTable)
+    if (isins && Array.isArray(isins) && isins.length > 0) {
+      console.log(`📊 Fetching current prices for ${isins.length} ISINs from database first, then API if missing...`);
+      
+      const StockData = (await import('@/models/StockData')).default;
+      const StockMaster = (await import('@/models/StockMaster')).default;
+      
+      // Check database first for current prices (last 7 days)
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+      
+      const isinsNeedingFetch: string[] = [];
+      let foundInDB = 0;
+      
+      for (const isin of isins) {
+        const latestData: any = await StockData.findOne({ 
+          isin,
+          date: { $gte: sevenDaysAgo }
+        })
+          .sort({ date: -1 })
+          .lean();
+        
+        if (!latestData || !latestData.close || latestData.close <= 0) {
+          isinsNeedingFetch.push(isin);
+        } else {
+          foundInDB++;
+        }
+      }
+      
+      console.log(`✅ Found ${foundInDB} stocks with recent prices in database, ${isinsNeedingFetch.length} need fetching`);
+      
+      // Only fetch missing ones in batches to avoid timeout
+      let fetchedCount = 0;
+      const BATCH_SIZE = 5; // Smaller batches to avoid timeout
+      
+      for (let i = 0; i < isinsNeedingFetch.length; i += BATCH_SIZE) {
+        const batch = isinsNeedingFetch.slice(i, i + BATCH_SIZE);
+        console.log(`🔄 Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(isinsNeedingFetch.length / BATCH_SIZE)} (${batch.length} stocks)...`);
+        
+        await Promise.all(batch.map(async (isin) => {
+          try {
+            // Only fetch last 3 days (including today) for missing prices
+            const count = await fetchAndStoreHistoricalData(isin, false);
+            fetchedCount += count;
+          } catch (error: any) {
+            console.error(`Error fetching ${isin}:`, error?.message);
+          }
+        }));
+        
+        // Delay between batches
+        if (i + BATCH_SIZE < isinsNeedingFetch.length) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+      
+      return NextResponse.json({
+        success: true,
+        message: `Found ${foundInDB} stocks in database, fetched ${fetchedCount} records for ${isinsNeedingFetch.length} missing stocks`,
+        stocksProcessed: isinsNeedingFetch.length,
+        foundInDatabase: foundInDB,
+        totalRecords: fetchedCount,
+      });
+    }
+
     if (isin) {
       // Fetch data for specific stock
       const count = await fetchAndStoreHistoricalData(isin);
@@ -148,83 +212,6 @@ export async function POST(request: NextRequest) {
         success: true,
         message: `Fetched ${count} records for ISIN ${isin}`,
         count,
-      });
-    } else if (isins && Array.isArray(isins) && isins.length > 0) {
-      // Fetch data for provided array of ISINs (typically for realized stocks missing prices)
-      // Always fetch at least last 3 days to get current price, or full 5 years if no data exists
-      let totalFetched = 0;
-      let stocksProcessed = 0;
-      const uniqueIsins = [...new Set(isins)];
-      const errors: string[] = [];
-      
-      console.log(`Starting to fetch data for ${uniqueIsins.length} stocks (for realized stocks)...`);
-      
-      // Get stock names for better error reporting
-      const StockMaster = (await import('@/models/StockMaster')).default;
-      
-      for (let i = 0; i < uniqueIsins.length; i++) {
-        const holdingIsin = uniqueIsins[i];
-        try {
-          // Get stock name for logging
-          const stockMaster = await StockMaster.findOne({ isin: holdingIsin }).lean();
-          const stockName = stockMaster ? (stockMaster as any).stockName : holdingIsin;
-          console.log(`Processing stock ${i + 1}/${uniqueIsins.length}: ${stockName} (${holdingIsin})`);
-          
-          // Check if stock has any data
-          const StockData = (await import('@/models/StockData')).default;
-          const existingDataCount = await StockData.countDocuments({ isin: holdingIsin });
-          
-          if (existingDataCount === 0) {
-            // No data exists - fetch full 5 years
-            console.log(`📦 ${stockName} (${holdingIsin}) has no data, fetching full 5 years`);
-            const count = await fetchAndStoreHistoricalData(holdingIsin, true);
-            if (count === 0) {
-              console.warn(`⚠️  ${stockName} (${holdingIsin}) - No data could be fetched. Check if symbol exists in StockMaster or if API has data for this stock.`);
-              errors.push(`${stockName} (${holdingIsin}): No data available - symbol may not be found or stock may be delisted`);
-            } else {
-              totalFetched += count;
-              stocksProcessed++;
-              console.log(`✅ ${stockName} - Fetched ${count} records`);
-            }
-          } else {
-            // Has some data - fetch last 3 days to ensure we have current price
-            console.log(`🔄 ${stockName} (${holdingIsin}) has existing data, fetching last 3 days to update current price`);
-            const count = await fetchAndStoreHistoricalData(holdingIsin, false);
-            if (count === 0) {
-              console.warn(`⚠️  ${stockName} (${holdingIsin}) - Could not fetch latest data.`);
-              errors.push(`${stockName} (${holdingIsin}): Could not fetch latest data`);
-            } else {
-              totalFetched += count;
-              stocksProcessed++;
-            }
-          }
-          
-          // Progress update every 5 stocks
-          if ((i + 1) % 5 === 0) {
-            console.log(`Progress: ${i + 1}/${uniqueIsins.length} stocks processed (${stocksProcessed} successful, ${errors.length} errors)`);
-          }
-        } catch (error: any) {
-          console.error(`❌ Error fetching data for ${holdingIsin}:`, error);
-          const stockMaster = await StockMaster.findOne({ isin: holdingIsin }).lean().catch(() => null);
-          const stockName = stockMaster ? (stockMaster as any).stockName : holdingIsin;
-          errors.push(`${stockName} (${holdingIsin}): ${error.message || 'Unknown error'}`);
-          // Continue with next stock even if one fails
-        }
-        
-        // Add delay to avoid rate limiting
-        if (i < uniqueIsins.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 500));
-        }
-      }
-      
-      console.log(`Completed: ${stocksProcessed}/${uniqueIsins.length} stocks processed, ${totalFetched} total records`);
-      
-      return NextResponse.json({
-        success: true,
-        message: `Fetched data for ${stocksProcessed}/${uniqueIsins.length} stocks (${totalFetched} total records)`,
-        stocksProcessed,
-        totalRecords: totalFetched,
-        errors: errors.length > 0 ? errors : undefined,
       });
     } else if (fetchHoldings) {
       // Fetch data only for holdings
