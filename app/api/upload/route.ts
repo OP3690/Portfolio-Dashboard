@@ -606,9 +606,9 @@ export async function POST(request: NextRequest) {
               const verifySaved = await Holding.findOne({ 
                 clientId, 
                 isin: normalizedIsin 
-              }).lean();
+              }).lean() as any;
               
-              if (verifySaved) {
+              if (verifySaved && !Array.isArray(verifySaved)) {
                 // Double-check the saved values match what we tried to save (especially for Tata Steel)
                 if (excelStockName.toLowerCase().includes('tata steel')) {
                   console.log(`   ✅ Tata Steel saved! Verifying values:`);
