@@ -489,18 +489,24 @@ export async function GET(request: NextRequest) {
     
     // Month on month returns (based on actual stock prices)
     // Wrap in try-catch with timeout to prevent blocking
+    // Increased timeout for Vercel (serverless can be slower)
     let monthlyReturns: Array<{month: string, returnPercent: number, returnAmount: number}> = [];
     try {
+      console.log('🔄 Starting monthly returns calculation...');
       const monthlyReturnsPromise = calculateMonthlyReturns(holdings, transactions);
       const timeoutPromise = new Promise<Array<{month: string, returnPercent: number, returnAmount: number}>>((resolve) => {
         setTimeout(() => {
-          console.log('Monthly returns calculation timed out after 45 seconds');
+          console.warn('⚠️ Monthly returns calculation timed out after 60 seconds - returning empty array');
           resolve([]);
-        }, 45000);
+        }, 60000); // Increased to 60 seconds for Vercel
       });
       monthlyReturns = await Promise.race([monthlyReturnsPromise, timeoutPromise]);
+      console.log(`✅ Monthly returns calculated: ${monthlyReturns.length} months of data`);
+      if (monthlyReturns.length === 0) {
+        console.warn('⚠️ No monthly returns data calculated. Check if StockData collection has historical data.');
+      }
     } catch (error: any) {
-      console.error('Error calculating monthly returns:', error);
+      console.error('❌ Error calculating monthly returns:', error);
       console.error('Error stack:', error?.stack);
       monthlyReturns = [];
     }
@@ -2339,22 +2345,36 @@ async function calculateMonthlyReturns(holdings: any[], transactions: any[]): Pr
   const priceDataMap = new Map<string, Array<{ date: Date; close: number }>>();
   
   // Process in batches to avoid overwhelming the database
-  const BATCH_SIZE = 10;
+  // Optimize: Use indexed query with date range filter to reduce data transfer
+  const BATCH_SIZE = 20; // Increased batch size for better performance
+  const minDate = startOfMonth(subYears(new Date(), 5)); // Only fetch last 5 years
+  
+  console.log(`📊 Fetching stock prices for ${uniqueIsins.length} ISINs for monthly returns calculation...`);
+  
   for (let i = 0; i < uniqueIsins.length; i += BATCH_SIZE) {
     const batch = uniqueIsins.slice(i, i + BATCH_SIZE);
     try {
       await Promise.all(batch.map(async (isin) => {
         try {
-          const prices = await StockData.find({ isin })
+          // Optimize: Only fetch data for the last 5 years with indexed query
+          const prices = await StockData.find({ 
+            isin,
+            date: { $gte: minDate } // Only fetch last 5 years
+          })
             .sort({ date: 1 })
             .select('date close')
             .lean()
             .limit(2000); // Limit to prevent huge queries
           
-          priceDataMap.set(isin, prices.map((p: any) => ({
-            date: new Date(p.date),
-            close: p.close || 0
-          })));
+          if (prices.length > 0) {
+            priceDataMap.set(isin, prices.map((p: any) => ({
+              date: new Date(p.date),
+              close: p.close || 0
+            })));
+          } else {
+            // If no data found, set empty array
+            priceDataMap.set(isin, []);
+          }
         } catch (error) {
           console.error(`Error fetching prices for ${isin}:`, error);
           priceDataMap.set(isin, []);
@@ -2365,6 +2385,8 @@ async function calculateMonthlyReturns(holdings: any[], transactions: any[]): Pr
       // Continue with next batch
     }
   }
+  
+  console.log(`✅ Fetched price data for ${priceDataMap.size} ISINs. Data points: ${Array.from(priceDataMap.values()).reduce((sum, arr) => sum + arr.length, 0)}`);
   
   // Helper function to get price from cached data
   const getCachedPrice = (isin: string, targetDate: Date): number => {
