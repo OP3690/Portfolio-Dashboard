@@ -8,6 +8,9 @@ import StockMaster from '@/models/StockMaster';
 import { updateDailyStockDataForHoldings } from '@/lib/stockDataService';
 import { findISINsForStockNames } from '@/lib/isinMatcher';
 
+// Force dynamic rendering
+export const dynamic = 'force-dynamic';
+
 // Helper function to normalize ISIN (trim whitespace and uppercase)
 function normalizeIsin(isin: string | null | undefined): string {
   if (!isin) return '';
