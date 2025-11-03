@@ -1,36 +1,114 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Portfolio Dashboard
+
+A comprehensive portfolio management dashboard built with Next.js, React, MongoDB, and Tailwind CSS.
+
+## Features
+
+- 📊 **Dashboard Overview**: View portfolio summary, top performers, and analytics
+- 📈 **Stock Analytics**: Detailed performance metrics, consistency tracking, and signals
+- 🔍 **Stock Research**: Research stocks with detailed analysis
+- 📤 **Excel Upload**: Upload and parse portfolio data from Excel files
+- 🔐 **Secure Login**: Authentication system for authorized users
+- 📉 **Realized Stocks**: Track realized profit/loss with current valuations
+- 📅 **Monthly Tracking**: Month-over-month performance comparison
+
+## Tech Stack
+
+- **Framework**: Next.js 14 (App Router)
+- **Frontend**: React 18, TypeScript, Tailwind CSS
+- **Backend**: Next.js API Routes
+- **Database**: MongoDB with Mongoose
+- **Charts**: Recharts
+- **File Processing**: XLSX for Excel parsing
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
 
+- Node.js 18+ and npm
+- MongoDB Atlas account (or local MongoDB)
+
+### Installation
+
+1. Clone the repository:
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone https://github.com/OP3690/Portfolio-Dashboard.git
+cd Portfolio-Dashboard/portfolio-dashboard
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Install dependencies:
+```bash
+npm install
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+3. Set up environment variables:
+Create a `.env.local` file in the `portfolio-dashboard` directory:
+```
+MONGODB_URI=your_mongodb_connection_string
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+4. Run the development server:
+```bash
+npm run dev
+```
 
-## Learn More
+5. Open [http://localhost:3000](http://localhost:3000) in your browser.
 
-To learn more about Next.js, take a look at the following resources:
+## Environment Variables
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- `MONGODB_URI`: MongoDB connection string (required)
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Deployment
 
-## Deploy on Vercel
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed deployment instructions to Vercel and Render.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Project Structure
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+```
+portfolio-dashboard/
+├── app/
+│   ├── api/              # API routes
+│   ├── login/            # Login page
+│   └── page.tsx          # Dashboard page
+├── components/           # React components
+├── lib/                  # Utility functions
+├── models/               # MongoDB models
+├── scripts/              # Utility scripts
+└── public/               # Static assets
+```
+
+## Features in Detail
+
+### Dashboard
+- Portfolio summary cards
+- Top/worst performing stocks
+- Monthly investment and dividend charts
+- Industry distribution pie chart
+- Holdings table with filtering
+- Realized stocks table
+
+### Stock Analytics
+- Monthly consistency tracker
+- Month-over-month comparison
+- Volume trend analysis
+- Advanced trading signals
+- Alert & Action table
+
+### Stock Research
+- Detailed stock analysis
+- Price trends and indicators
+
+## Scripts
+
+- `npm run dev` - Start development server
+- `npm run build` - Build for production
+- `npm start` - Start production server
+- `npm run fetch-stocks` - Fetch stock data
+
+## License
+
+Private project
+
+## Author
+
+OP3690

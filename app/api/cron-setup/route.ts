@@ -1,0 +1,23 @@
+import { NextRequest, NextResponse } from 'next/server';
+import { setupDailyStockDataRefresh } from '@/lib/cronJobs';
+
+// This endpoint initializes the cron job
+// Call it once when the server starts or manually trigger it
+export async function GET(request: NextRequest) {
+  try {
+    setupDailyStockDataRefresh();
+    return NextResponse.json({
+      success: true,
+      message: 'Daily stock data refresh cron job has been set up. It will run daily at 11:35 PM IST.',
+    });
+  } catch (error: any) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: error.message || 'Failed to setup cron job',
+      },
+      { status: 500 }
+    );
+  }
+}
+

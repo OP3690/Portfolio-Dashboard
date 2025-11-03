@@ -6,21 +6,38 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "fetch-stocks": "node scripts/fetch-all-stocks.js",
+    "check-db-size": "node scripts/check-db-size.js",
+    "cleanup-old-data": "node scripts/cleanup-old-data.js",
+    "cleanup-and-fetch": "node scripts/cleanup-and-fetch-fresh.js",
+    "remove-duplicates": "node scripts/remove-duplicates.js",
+    "backfill-fundamentals": "node scripts/backfill-fundamentals.js",
+    "fetch-fundamentals": "node scripts/fetch-fundamentals-only.js"
   },
   "dependencies": {
-    "react": "19.2.0",
-    "react-dom": "19.2.0",
-    "next": "16.0.1"
+    "axios": "^1.13.1",
+    "date-fns": "^4.1.0",
+    "mongodb": "^6.20.0",
+    "mongoose": "^8.19.2",
+    "next": "^14.2.15",
+    "node-cron": "^3.0.3",
+    "pdf-parse": "^1.1.1",
+    "pdfjs-dist": "^4.0.379",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "recharts": "^3.3.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "typescript": "^5",
-    "@types/node": "^20",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
     "@tailwindcss/postcss": "^4",
-    "tailwindcss": "^4",
+    "@types/node": "^20",
+    "@types/node-cron": "^3.0.11",
+    "@types/react": "^18.3.26",
+    "@types/react-dom": "^18.3.7",
     "eslint": "^9",
-    "eslint-config-next": "16.0.1"
+    "eslint-config-next": "16.0.1",
+    "tailwindcss": "^4",
+    "typescript": "^5"
   }
 }
