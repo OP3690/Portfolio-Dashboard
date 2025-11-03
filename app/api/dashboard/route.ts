@@ -639,8 +639,6 @@ export async function GET(request: NextRequest) {
     
     
     const processedHoldingsPromise = Promise.allSettled(holdings.map(async (h: any, index: number) => {
-          }
-          
           try {
             // Calculate XIRR, CAGR, and Holding Period for each stock
             // CRITICAL: Normalize ISINs for comparison to avoid mismatches
