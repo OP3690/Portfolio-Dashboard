@@ -630,11 +630,6 @@ export async function GET(request: NextRequest) {
     console.log(`API: ✅ Final holdings count after merge: ${holdings.length}`);
     
     console.log(`API: ✅ All ISINs before processing:`, holdings.map((h: any) => h.isin));
-      console.error(`API: 🔴 RE-FETCHING FROM DATABASE...`);
-      const reFetchedHoldings = await Holding.find({ clientId }).lean();
-      );
-      }
-    }
     
     // CRITICAL: Store original holdings count and list before Promise.allSettled
     const originalHoldingsCount = holdings.length;
@@ -1316,33 +1311,6 @@ export async function GET(request: NextRequest) {
     // LAST CHECK: Log what we're actually returning
     console.log(`API: 🎯 RETURNING: ${finalHoldingsResult.length} holdings`);
     console.log(`API: 🎯 RETURNING ISINs:`, finalHoldingsResult.map((h: any) => normalizeIsin(h.isin)).sort());
-      const ultimateDbCount = await Holding.countDocuments({ clientId });
-      const ultimateDbHoldings = await Holding.find({ clientId }).lean();
-      
-      if (ultimateDbHoldings.length !== finalHoldingsResult.length) {
-        console.error(`API: 🔴🔴🔴 ULTIMATE RESORT: DB has ${ultimateDbHoldings.length}, response has ${finalHoldingsResult.length}`);
-        console.error(`API: Rebuilding from database...`);
-        
-        // Rebuild from database holdings
-        const rebuiltHoldings = ultimateDbHoldings.map((h: any) => {
-          const existing = finalHoldingsResult.find((fh: any) => normalizeIsin(fh.isin) === normalizeIsin(h.isin));
-          return existing || {
-            ...h,
-            _id: String(h._id || ''),
-            isin: normalizeIsin(h.isin),
-            xirr: 0,
-            cagr: 0,
-            holdingPeriodYears: 0,
-            holdingPeriodMonths: 0,
-          };
-        });
-        
-        finalHoldingsResult = rebuiltHoldings;
-        console.error(`API: ✅ Rebuilt response with ${finalHoldingsResult.length} holdings`);
-        
-        );
-      }
-    }
     
     return NextResponse.json({
       success: true,
