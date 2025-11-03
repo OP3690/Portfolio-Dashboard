@@ -706,7 +706,7 @@ export default function DetailedAnalysis({ holdings }: DetailedAnalysisProps) {
                   activeDot={{ r: 5, stroke: '#1e40af', strokeWidth: 2 }}
                   dot={(props: any) => {
                     const { cx, cy, payload } = props;
-                    if (!payload) return null;
+                    if (!payload) return <circle cx={cx} cy={cy} r={2} fill="#8884d8" />;
                     
                     const spikeInfo = analytics?.volumeSpikes.find(s => s.date === payload.fullDate);
                     const highInfo = analytics?.priceHighs.find(h => h.date === payload.fullDate);
