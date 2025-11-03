@@ -647,8 +647,8 @@ export async function POST(request: NextRequest) {
               console.warn(`⚠️  Duplicate key error for ${holdingToSave.stockName} (ISIN: ${holdingToSave.isin}) - Attempt ${saveAttempts}/${maxAttempts}`);
               
               // Try to find and delete the conflicting entry
-              const conflicting = await Holding.findOne({ clientId, isin: normalizedIsin }).lean();
-              if (conflicting) {
+              const conflicting = await Holding.findOne({ clientId, isin: normalizedIsin }).lean() as any;
+              if (conflicting && !Array.isArray(conflicting)) {
                 console.log(`   Deleting conflicting entry:`, conflicting._id, conflicting.isin);
                 await Holding.deleteOne({ _id: conflicting._id });
                 // Retry on next iteration
