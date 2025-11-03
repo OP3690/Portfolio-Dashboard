@@ -251,21 +251,24 @@ export default function DetailedAnalysis({ holdings }: DetailedAnalysisProps) {
         const totalReturnFactor = 1 + (holding.profitLossTillDatePercent / 100);
         annualizedReturn = (Math.pow(totalReturnFactor, 1 / holdingYears) - 1) * 100;
       }
-    } else {
-      // Fallback to price-based calculation
-      const firstPrice = sortedData[0].close;
-      const lastPrice = sortedData[sortedData.length - 1].close;
+    }
+    
+    // Get first price for calculations (declare outside if/else for scope)
+    const firstPrice = sortedData.length > 0 ? sortedData[0].close : 0;
+    const lastPrice = sortedData.length > 0 ? sortedData[sortedData.length - 1].close : 0;
+    
+    // Fallback to price-based calculation if not already calculated
+    if (totalReturnPercent === 0 && firstPrice > 0) {
       totalReturn = lastPrice - firstPrice;
-      totalReturnPercent = firstPrice > 0 ? (totalReturn / firstPrice) * 100 : 0;
+      totalReturnPercent = (totalReturn / firstPrice) * 100;
 
       // Calculate annualized return based on period
       const years = (new Date(sortedData[sortedData.length - 1].date).getTime() - 
                      new Date(sortedData[0].date).getTime()) / (1000 * 60 * 60 * 24 * 365);
-      annualizedReturn = years > 0 ? (Math.pow(lastPrice / firstPrice, 1 / years) - 1) * 100 : 0;
+      if (years > 0 && annualizedReturn === 0) {
+        annualizedReturn = (Math.pow(lastPrice / firstPrice, 1 / years) - 1) * 100;
+      }
     }
-
-    // Get first price for max drawdown calculation (outside if/else block for scope)
-    const firstPrice = sortedData.length > 0 ? sortedData[0].close : 0;
 
     // Calculate volatility (standard deviation of daily returns)
     const returns = sortedData.slice(1).map((d, i) => 
