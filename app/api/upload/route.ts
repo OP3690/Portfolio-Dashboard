@@ -1261,6 +1261,9 @@ export async function POST(request: NextRequest) {
           try {
             const mongoose = await import('mongoose');
             const db = mongoose.default.connection.db;
+            if (!db) {
+              throw new Error('Database connection not available');
+            }
             const holdingsCollection = db.collection('holdings');
             
             const finalRawData = {
