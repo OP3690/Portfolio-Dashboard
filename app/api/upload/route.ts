@@ -210,11 +210,11 @@ export async function POST(request: NextRequest) {
     });
     console.log(`   ✅ Found ${exactMatches} exact matches from StockMaster`);
     
-    // Strategy 2: Use fuzzy matching from StockMaster for remaining stocks
+    // Strategy 2: Use fuzzy matching from StockMaster for remaining stocks (OPTIMIZED: pass pre-fetched data)
     const stockNamesNeedingFuzzyMatch = uniqueStockNames.filter(name => !stockMasterMap.has(name));
     if (stockNamesNeedingFuzzyMatch.length > 0) {
-      console.log(`\n🔍 Strategy 2: Using fuzzy matching for ${stockNamesNeedingFuzzyMatch.length} stocks from StockMaster...`);
-      const fuzzyMatchMap = await findISINsForStockNames(stockNamesNeedingFuzzyMatch, 0.7);
+      console.log(`🔍 Using fuzzy matching for ${stockNamesNeedingFuzzyMatch.length} stocks...`);
+      const fuzzyMatchMap = await findISINsForStockNames(stockNamesNeedingFuzzyMatch, 0.7, allStockMasters);
       console.log(`   ✅ Found ${fuzzyMatchMap.size} matches via fuzzy matching`);
       
       // Add fuzzy matches to stockMasterMap
@@ -229,9 +229,10 @@ export async function POST(request: NextRequest) {
     }
     
     // Strategy 3: Fallback to existing holdings in database (for historical data)
+    // OPTIMIZATION: Use already-fetched holdings if available (we fetch them later anyway)
     const stockNamesStillNeedingIsin = uniqueStockNames.filter(name => !stockMasterMap.has(name));
     if (stockNamesStillNeedingIsin.length > 0) {
-      console.log(`\n💾 Strategy 3: Checking existing holdings in database for ${stockNamesStillNeedingIsin.length} stocks...`);
+      console.log(`💾 Checking existing holdings for ${stockNamesStillNeedingIsin.length} stocks...`);
       const existingHoldings = await Holding.find({ clientId }).lean();
       const existingHoldingsMap = new Map<string, string>();
       
@@ -287,8 +288,7 @@ export async function POST(request: NextRequest) {
             return { ...h, isin: matchedIsin };
           }
         } else {
-          // No ISIN in Excel, use StockMaster value
-          console.log(`  ✅ Found ISIN for "${stockName}" from StockMaster: ${matchedIsin} (${(stockMasterMatch.similarity * 100).toFixed(1)}% match)`);
+          // No ISIN in Excel, use StockMaster value (reduce logging for performance)
           updatedCount++;
           return { ...h, isin: matchedIsin };
         }
@@ -402,31 +402,10 @@ export async function POST(request: NextRequest) {
         .filter(Boolean)
     );
     
-    // Check if BHEL is in current holdings before deletion
-    const bhelInCurrent = currentHoldingsFromExcel.find(h => {
-      const normalizedIsin = normalizeIsin(h.isin);
-      return normalizedIsin === 'INE257A01026' || h.stockName?.toLowerCase().includes('bhel');
-    });
-    console.log(`BHEL in currentHoldingsFromExcel: ${bhelInCurrent ? 'YES' : 'NO'}`);
-    if (bhelInCurrent) {
-      console.log(`BHEL details:`, bhelInCurrent.stockName, bhelInCurrent.isin, `(normalized: ${normalizeIsin(bhelInCurrent.isin)})`, `Qty: ${bhelInCurrent.openQty}`);
-    }
-
-    // Get old holdings from database
+    // Get old holdings from database (used for comparison, also reused later for optimization)
     const oldHoldings = await Holding.find({ clientId }).lean();
     // Normalize ISINs from database for comparison
     const oldIsins = new Set(oldHoldings.map(h => normalizeIsin(h.isin)).filter(Boolean));
-    
-    // Check if BHEL is in old holdings
-    const bhelInOld = oldHoldings.find((h: any) => {
-      const normalizedIsin = normalizeIsin(h.isin);
-      return normalizedIsin === 'INE257A01026' || h.stockName?.toLowerCase().includes('bhel');
-    });
-    if (bhelInOld) {
-      console.log(`BHEL in old holdings: YES -`, bhelInOld.stockName, bhelInOld.isin, `(normalized: ${normalizeIsin(bhelInOld.isin)})`);
-    } else {
-      console.log(`BHEL in old holdings: NO`);
-    }
 
     // REMOVED: Deletion of "sold stocks" - stocks can be sold and bought again
     // Instead, we'll only keep what's in the current Excel file

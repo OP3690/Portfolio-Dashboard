@@ -193,25 +193,59 @@ export async function findISINByStockName(
 }
 
 /**
- * Batch find ISINs for multiple stock names
+ * Batch find ISINs for multiple stock names (OPTIMIZED - uses pre-fetched StockMaster data)
  * Returns a Map of stockName -> { isin, similarity, method }
  */
 export async function findISINsForStockNames(
   stockNames: string[],
-  threshold: number = 0.7
+  threshold: number = 0.7,
+  allStocks?: any[] // OPTIMIZATION: Accept pre-fetched StockMaster data
 ): Promise<Map<string, { isin: string; similarity: number; method: string }>> {
   const result = new Map<string, { isin: string; similarity: number; method: string }>();
   
   // Use Set to deduplicate stock names
   const uniqueNames = [...new Set(stockNames.map(n => n.trim()).filter(Boolean))];
   
+  // Fetch StockMaster once if not provided
+  let stockMasterData = allStocks;
+  if (!stockMasterData) {
+    await connectDB();
+    stockMasterData = await StockMaster.find({}).lean();
+  }
+  
+  // Process all stock names in memory (no database queries in loop)
   for (const stockName of uniqueNames) {
-    const match = await findISINByStockName(stockName, threshold);
-    if (match) {
+    let bestMatch: {
+      isin: string;
+      stockName: string;
+      similarity: number;
+      method: string;
+    } | null = null;
+    
+    // Find best match from pre-fetched data
+    for (const stock of stockMasterData) {
+      const dbStockName = String(stock.stockName || '').trim();
+      if (!dbStockName || !stock.isin) continue;
+      
+      const match = areSimilarStockNames(stockName, dbStockName);
+      
+      if (match.similarity >= threshold) {
+        if (!bestMatch || match.similarity > bestMatch.similarity) {
+          bestMatch = {
+            isin: stock.isin,
+            stockName: dbStockName,
+            similarity: match.similarity,
+            method: match.method,
+          };
+        }
+      }
+    }
+    
+    if (bestMatch) {
       result.set(stockName.toLowerCase(), {
-        isin: match.isin,
-        similarity: match.similarity,
-        method: match.method,
+        isin: bestMatch.isin,
+        similarity: bestMatch.similarity,
+        method: bestMatch.method,
       });
     }
   }
