@@ -966,6 +966,10 @@ export async function GET(request: NextRequest) {
       console.log(`API: ✅✅✅ Final count matches original: ${finalHoldingsResult.length}`);
     }
     
+    // Get database count for final verification
+    const dbCount = await Holding.countDocuments({ clientId });
+    console.log(`API: 📊 Database count: ${dbCount}, Response count: ${finalHoldingsResult.length}`);
+    
     // Final verification - check if we're missing any holdings
     if (finalHoldingsResult.length !== dbCount) {
       // ABSOLUTE LAST RESORT: Query database directly one more time
@@ -1002,9 +1006,6 @@ export async function GET(request: NextRequest) {
     
     console.log(`API: 🎯 FINAL RESPONSE - Holdings count: ${finalHoldingsResult.length}`);
     console.log(`API: 🎯 FINAL ISINs:`, finalHoldingsResult.map((h: any) => normalizeIsin(h.isin)).sort());
-    
-    const dbCount = await Holding.countDocuments({ clientId });
-    console.log(`API: 📊 Database count: ${dbCount}, Response count: ${finalHoldingsResult.length}`);
     
     // Rebuild if counts don't match
     if (finalHoldingsResult.length !== dbCount) {
