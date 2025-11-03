@@ -2,9 +2,10 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 
-// Initialize server-side cron jobs
+// Initialize server-side cron jobs automatically on server start
+// This runs only on the server side, not in the browser
 if (typeof window === 'undefined') {
-  import('@/lib/serverInit').catch(console.error);
+  require('@/lib/serverInit');
 }
 
 const inter = Inter({

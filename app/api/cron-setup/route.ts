@@ -11,7 +11,7 @@ export async function GET(request: NextRequest) {
     setupDailyStockDataRefresh();
     return NextResponse.json({
       success: true,
-      message: 'Daily stock data refresh cron job has been set up. It will run daily at 11:35 PM IST.',
+      message: 'Daily stock data refresh cron job has been set up. It will run daily at 7:00 PM IST with 250-stock batches and 10-minute pauses.',
     });
   } catch (error: any) {
     return NextResponse.json(
