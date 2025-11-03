@@ -661,10 +661,8 @@ export async function GET(request: NextRequest) {
               cagr = result.cagr;
               holdingPeriodYears = result.holdingPeriodYears;
               holdingPeriodMonths = result.holdingPeriodMonths;
-              }
             } catch (error: any) {
               console.error(`Error calculating CAGR for ${h.isin}:`, error);
-              }
             }
             
             const result = {
