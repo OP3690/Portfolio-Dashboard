@@ -10,6 +10,12 @@ import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths, parse
 // Force dynamic rendering
 export const dynamic = 'force-dynamic';
 
+// Helper function to normalize ISIN (trim and uppercase) - defined at module level for reuse
+const normalizeIsin = (isin: string | null | undefined): string => {
+  if (!isin) return '';
+  return isin.trim().toUpperCase();
+};
+
 export async function GET(request: NextRequest) {
   const startTime = Date.now();
   try {
@@ -61,12 +67,6 @@ export async function GET(request: NextRequest) {
     const searchParams = request.nextUrl.searchParams;
     const clientId = searchParams.get('clientId') || '994826'; // Default client ID
     console.log(`API: Client ID: ${clientId}`);
-
-    // Helper function to normalize ISIN (trim and uppercase) - defined at top level for scope
-    const normalizeIsin = (isin: string | null | undefined): string => {
-      if (!isin) return '';
-      return isin.trim().toUpperCase();
-    };
 
     // Get all holdings
     console.log('API: Fetching holdings...');
