@@ -1,5 +1,5 @@
 import StockMaster from '@/models/StockMaster';
-import { connectDB } from '@/lib/mongodb';
+import connectDB from '@/lib/mongodb';
 
 /**
  * Calculate Levenshtein distance between two strings

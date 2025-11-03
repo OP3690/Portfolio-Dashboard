@@ -150,8 +150,8 @@ export async function GET(request: NextRequest) {
         console.error(`API: Raw holdings stock names:`, holdings.map((h: any) => h.stockName));
         
         // Try a direct query for BHEL
-        const directBhelQuery = await Holding.findOne({ clientId, isin: 'INE257A01026' }).lean();
-        if (directBhelQuery) {
+        const directBhelQuery = await Holding.findOne({ clientId, isin: 'INE257A01026' }).lean() as any;
+        if (directBhelQuery && !Array.isArray(directBhelQuery)) {
           console.error(`API: 🔴 BUT direct query for BHEL WORKS! This is a find() query issue!`);
           console.error(`API: Adding BHEL manually from direct query...`);
           holdings.push(directBhelQuery);
@@ -179,18 +179,20 @@ export async function GET(request: NextRequest) {
           console.error(`API: 🔴 BHEL missing from both find() AND direct query, but count suggests it exists!`);
           console.error(`API: 🔴 Attempting one more direct query with different methods...`);
           // Try once more with different query methods
-          const bhelRetry1 = await Holding.findOne({ clientId, isin: /INE257A01026/i }).lean();
+          const bhelRetry1 = await Holding.findOne({ clientId, isin: /INE257A01026/i }).lean() as any;
           const bhelRetry2 = await Holding.findOne({ 
             clientId, 
             $or: [
               { isin: 'INE257A01026' },
               { stockName: /b\s*h\s*e\s*l|bhel/i }
             ]
-          }).lean();
-          if (bhelRetry1 || bhelRetry2) {
-            const bhelToAdd = bhelRetry1 || bhelRetry2;
-            console.error(`API: ✅ Found BHEL via retry query! Adding...`);
-            holdings.push(bhelToAdd);
+          }).lean() as any;
+          if ((bhelRetry1 && !Array.isArray(bhelRetry1)) || (bhelRetry2 && !Array.isArray(bhelRetry2))) {
+            const bhelToAdd = (bhelRetry1 && !Array.isArray(bhelRetry1)) ? bhelRetry1 : bhelRetry2;
+            if (bhelToAdd) {
+              console.error(`API: ✅ Found BHEL via retry query! Adding...`);
+              holdings.push(bhelToAdd);
+            }
           }
         }
       }
@@ -241,13 +243,12 @@ export async function GET(request: NextRequest) {
               { isin: /INE257A01026/i },
               { stockName: { $regex: /b\s*h\s*e\s*l|bhel/i } }
             ]
-          }).lean();
-          if (bhelEmergency) {
+          }).lean() as any;
+          if (bhelEmergency && !Array.isArray(bhelEmergency)) {
             console.error(`API: ✅ Found BHEL via emergency query! Adding...`);
-            const bhelHolding = Array.isArray(bhelEmergency) ? bhelEmergency[0] : bhelEmergency;
-            if (bhelHolding && (bhelHolding as any).isin) {
-              (bhelHolding as any).isin = normalizeIsin((bhelHolding as any).isin);
-              holdings.push(bhelHolding);
+            if (bhelEmergency.isin) {
+              bhelEmergency.isin = normalizeIsin(bhelEmergency.isin);
+              holdings.push(bhelEmergency);
               console.log(`API: ✅✅✅ BHEL added via emergency query. New count: ${holdings.length}`);
             }
           } else {
@@ -263,17 +264,17 @@ export async function GET(request: NextRequest) {
       
       // Also do a direct query for BHEL to see if it exists - try multiple ways with normalized ISIN
       const bhelIsin = 'INE257A01026';
-      bhelDirectQuery = await Holding.findOne({ clientId, isin: bhelIsin }).lean();
+      bhelDirectQuery = await Holding.findOne({ clientId, isin: bhelIsin }).lean() as any;
       
       // If not found, try with regex to catch whitespace/case variations
       if (!bhelDirectQuery) {
         bhelDirectQuery = await Holding.findOne({ 
           clientId, 
           isin: { $regex: new RegExp(bhelIsin.replace(/./g, (c) => c + '\\s*'), 'i') }
-        }).lean();
+        }).lean() as any;
       }
       
-      if (bhelDirectQuery) {
+      if (bhelDirectQuery && !Array.isArray(bhelDirectQuery)) {
         // Normalize the ISIN in the direct query result
         bhelDirectQuery.isin = normalizeIsin(bhelDirectQuery.isin);
         console.log(`API: ✅ BHEL found via direct query (ISIN):`, bhelDirectQuery.stockName, bhelDirectQuery.isin, `Qty: ${bhelDirectQuery.openQty}`);
@@ -284,16 +285,16 @@ export async function GET(request: NextRequest) {
         const bhelByNameQuery = await Holding.findOne({ 
           clientId, 
           stockName: { $regex: /b\s*h\s*e\s*l|bhel/i } 
-        }).lean();
-        if (bhelByNameQuery) {
+        }).lean() as any;
+        if (bhelByNameQuery && !Array.isArray(bhelByNameQuery)) {
           bhelByNameQuery.isin = normalizeIsin(bhelByNameQuery.isin);
           console.log(`API: ⚠️  Found BHEL by name but ISIN differs:`, bhelByNameQuery.stockName, bhelByNameQuery.isin);
           bhelDirectQuery = bhelByNameQuery;
         }
         
         // Try without clientId filter (to see if it's in a different client)
-        const bhelAnyClient = await Holding.findOne({ isin: bhelIsin }).lean();
-        if (bhelAnyClient) {
+        const bhelAnyClient = await Holding.findOne({ isin: bhelIsin }).lean() as any;
+        if (bhelAnyClient && !Array.isArray(bhelAnyClient)) {
           bhelAnyClient.isin = normalizeIsin(bhelAnyClient.isin);
           console.error(`API: ⚠️  Found BHEL but with different clientId:`, bhelAnyClient.clientId, `Expected:`, clientId);
         }
@@ -749,9 +750,9 @@ export async function GET(request: NextRequest) {
           { isin: /INE257A01026/i },
           { stockName: { $regex: /b\s*h\s*e\s*l|bhel/i } }
         ]
-      }).lean();
+      }).lean() as any;
       
-      if (bhelLastResort) {
+      if (bhelLastResort && !Array.isArray(bhelLastResort)) {
         bhelLastResort.isin = normalizeIsin(bhelLastResort.isin);
         holdings.push(bhelLastResort);
         console.error(`API: ✅✅✅ BHEL FOUND via last resort query and added! ${bhelLastResort.stockName} (${bhelLastResort.isin})`);
