@@ -347,13 +347,11 @@ export async function GET(request: NextRequest) {
         const sparkline = sparklineData.map(d => d.close || 0);
 
         // Price move percentage (for volume spike filter) - compare to previous day
-        const prevDayData = await StockData.findOne({ 
-          isin: stock.isin,
-          date: { $lt: latest.date }
-        })
-        .sort({ date: -1 })
-        .lean() as any;
-        const prevClose = (prevDayData && !Array.isArray(prevDayData) && prevDayData.close) ? prevDayData.close : (price15Days.length > 1 ? price15Days[price15Days.length - 2]?.close : currentPrice);
+        const latestDate = new Date(latest.date);
+        const prevDayData = allPrices
+          .filter((d: any) => new Date(d.date) < latestDate)
+          .sort((a: any, b: any) => new Date(b.date).getTime() - new Date(a.date).getTime())[0];
+        const prevClose = (prevDayData && prevDayData.close) ? prevDayData.close : (price15Days.length > 1 ? price15Days[price15Days.length - 2]?.close : currentPrice);
         const absPriceMove = prevClose > 0 ? Math.abs((currentPrice - prevClose) / prevClose) * 100 : 0;
 
         // Short-term oversold index
