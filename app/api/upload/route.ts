@@ -537,71 +537,7 @@ export async function POST(request: NextRequest) {
     
     // 🚨 CRITICAL: After save loop, verify ALL expected holdings are saved
     console.log(`\n=== POST-LOOP VERIFICATION: Checking for missing holdings ===`);
-    await new Promise(resolve => setTimeout(resolve, 500)); // Wait for all writes to commit
-    
-    const expectedIsins = new Set(currentHoldingsFromExcel.map(h => (h.isin || '').trim().toUpperCase()).filter(Boolean));
-    const actualHoldingsAfterLoop = await Holding.find({ clientId }).lean();
-    const actualIsinsAfterLoop = new Set(actualHoldingsAfterLoop.map(h => (h.isin || '').trim().toUpperCase()).filter(Boolean));
-    
-    const missingIsins = Array.from(expectedIsins).filter(isin => !actualIsinsAfterLoop.has(isin));
-    
-    if (missingIsins.length > 0) {
-      console.error(`❌❌❌ ${missingIsins.length} HOLDINGS MISSING AFTER SAVE LOOP!`);
-      console.error(`   Missing ISINs:`, missingIsins);
-      
-      // Try to save each missing holding
-      for (const missingIsin of missingIsins) {
-        const missingHolding = currentHoldingsFromExcel.find(h => (h.isin || '').trim().toUpperCase() === missingIsin);
-        if (missingHolding) {
-          console.error(`🚨 Attempting to save missing holding: ${missingHolding.stockName} (${missingIsin})`);
-          try {
-            const guaranteedSaveData = {
-              stockName: missingHolding.stockName || '',
-              sectorName: missingHolding.sectorName || '',
-              isin: missingIsin,
-              portfolioPercentage: missingHolding.portfolioPercentage ?? 0,
-              openQty: missingHolding.openQty ?? 0,
-              marketPrice: missingHolding.marketPrice ?? 0,
-              marketValue: missingHolding.marketValue ?? 0,
-              investmentAmount: missingHolding.investmentAmount ?? 0,
-              avgCost: missingHolding.avgCost ?? 0,
-              profitLossTillDate: missingHolding.profitLossTillDate ?? 0,
-              profitLossTillDatePercent: missingHolding.profitLossTillDatePercent ?? 0,
-              clientId,
-              clientName: excelData.clientName || '',
-              asOnDate: excelData.asOnDate || new Date(),
-              lastUpdated: new Date(),
-            };
-            
-            // Delete any existing entries first
-            await Holding.deleteMany({ clientId, isin: missingIsin });
-            
-            // Save using create (most reliable)
-            const guaranteedResult = await Holding.create(guaranteedSaveData);
-            console.error(`✅✅✅ GUARANTEED SAVE SUCCESS! ${missingHolding.stockName} saved with _id:`, guaranteedResult._id);
-            
-            // Verify it was saved
-            await new Promise(resolve => setTimeout(resolve, 200));
-            const verifyGuaranteed = await Holding.findOne({ clientId, isin: missingIsin }).lean();
-            if (verifyGuaranteed) {
-              console.error(`✅✅✅ GUARANTEED SAVE VERIFIED! ${missingHolding.stockName} confirmed in database`);
-            } else {
-              console.error(`❌❌❌ GUARANTEED SAVE FAILED! ${missingHolding.stockName} still not found!`);
-            }
-          } catch (guaranteedError: any) {
-            console.error(`❌❌❌ GUARANTEED SAVE ERROR for ${missingHolding.stockName}:`, guaranteedError.message);
-            console.error(`   Error code:`, guaranteedError.code);
-            if (guaranteedError.errors) {
-              console.error(`   Validation errors:`, JSON.stringify(guaranteedError.errors, null, 2));
-            }
-          }
-        }
-      }
-    } else {
-      console.log(`✅ All expected holdings found in database after save loop`);
-    }
-    
-    // Simple verification - no excessive queries
+    // Bulk write complete - no verification needed
     console.log(`\n✅ Holdings saved successfully via bulk write`);
 
     // Update Transactions - OPTIMIZED: Use bulk write instead of individual queries
@@ -735,21 +671,12 @@ export async function POST(request: NextRequest) {
       console.error('Error processing unrealized P&L:', error);
     }
 
-    // Trigger stock data update for holdings
-    const holdingsIsins = excelData.holdings.map(h => h.isin).filter(Boolean);
-    if (holdingsIsins.length > 0) {
-      // Run in background (non-blocking)
+    // Trigger stock data update for holdings (non-blocking, background)
+    if (currentHoldingsFromExcel.length > 0) {
       updateDailyStockDataForHoldings(
-        excelData.holdings.map(h => ({ isin: h.isin }))
+        currentHoldingsFromExcel.map(h => ({ isin: h.isin }))
       ).catch(console.error);
     }
-
-    // Calculate counts for response
-    const transactionsCount = excelData.transactions.length;
-    const realizedCount = excelData.realizedProfitLoss.length;
-    const unrealizedCount = excelData.unrealizedProfitLoss.length;
-    
-    const totalRecords = currentHoldingsFromExcel.length + transactionsCount + realizedCount + unrealizedCount;
     
     // Build summary message
     const totalUniqueStocks = currentHoldingsFromExcel.length;
