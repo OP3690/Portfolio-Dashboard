@@ -331,57 +331,103 @@ export async function GET(request: NextRequest) {
       );
     }
     
-    // Update holdings with current prices from StockData
-    console.log('API: Updating holdings with current prices from database...');
+    // OPTIMIZATION: Fetch ALL latest prices in parallel using Promise.all - MUCH faster!
+    console.log('API: Fetching latest prices for all holdings in parallel...');
     const StockData = (await import('@/models/StockData')).default;
+    
+    // Get unique ISINs from holdings
+    const uniqueIsins = [...new Set(holdings.map((h: any) => h.isin).filter(Boolean))];
+    
+    // Use aggregation pipeline to get latest price for each ISIN in ONE query (fastest)
+    const latestPricesMap = new Map<string, number>();
+    
+    try {
+      // Aggregate to get the latest date and price for each ISIN in one query
+      const latestPrices = await StockData.aggregate([
+        { $match: { isin: { $in: uniqueIsins } } },
+        { $sort: { isin: 1, date: -1 } },
+        {
+          $group: {
+            _id: '$isin',
+            latestDate: { $first: '$date' },
+            latestPrice: { $first: '$close' },
+          }
+        }
+      ]).exec();
+      
+      // Build map for fast lookup
+      latestPrices.forEach((item: any) => {
+        if (item.latestPrice && item.latestPrice > 0) {
+          latestPricesMap.set(item._id, item.latestPrice);
+        }
+      });
+      
+      console.log(`API: ✅ Fetched latest prices for ${latestPricesMap.size} holdings in one aggregation query`);
+    } catch (aggregateError) {
+      console.warn('API: Aggregate query failed, falling back to parallel Promise.all...', aggregateError);
+      
+      // Fallback: Parallel Promise.all (still much faster than sequential)
+      const pricePromises = uniqueIsins.map(async (isin) => {
+        try {
+          const latestData: any = await StockData.findOne({ isin })
+            .sort({ date: -1 })
+            .lean();
+          
+          if (latestData && latestData.close && latestData.close > 0) {
+            return { isin, price: latestData.close };
+          }
+          return { isin, price: null };
+        } catch (error) {
+          console.error(`Error fetching price for ${isin}:`, error);
+          return { isin, price: null };
+        }
+      });
+      
+      const priceResults = await Promise.all(pricePromises);
+      priceResults.forEach(({ isin, price }) => {
+        if (price && price > 0) {
+          latestPricesMap.set(isin, price);
+        }
+      });
+      
+      console.log(`API: ✅ Fetched latest prices for ${latestPricesMap.size} holdings via parallel queries`);
+    }
+    
+    // Update all holdings with prices from the map (very fast)
+    let updatedCount = 0;
     for (let i = 0; i < holdings.length; i++) {
       const holding = holdings[i] as any;
       if (!holding.isin) continue;
       
-      try {
-        // Get the most recent stock price from StockData
-        const latestData: any = await StockData.findOne({ isin: holding.isin })
-          .sort({ date: -1 })
-          .lean();
+      const currentPrice = latestPricesMap.get(holding.isin);
+      
+      if (currentPrice && currentPrice > 0) {
+        const currentMarketValue = (holding.openQty || 0) * currentPrice;
         
-        if (latestData && latestData.close && latestData.close > 0) {
-          const currentPrice = latestData.close;
-          const currentMarketValue = (holding.openQty || 0) * currentPrice;
-          
-          // Update holding with current price and market value
-          holding.marketPrice = currentPrice;
-          holding.marketValue = currentMarketValue;
-          
-          // Recalculate profit/loss with updated market value
-          const investmentAmount = holding.investmentAmount || 0;
-          holding.profitLossTillDate = currentMarketValue - investmentAmount;
-          holding.profitLossTillDatePercent = investmentAmount > 0 
-            ? ((currentMarketValue - investmentAmount) / investmentAmount) * 100 
-            : 0;
-        } else {
-          // No StockData found - keep Excel values but ensure marketPrice and marketValue exist
-          // Use Excel values from holdings sheet (already present in holding object)
-          if (!holding.marketPrice && holding.avgCost) {
-            holding.marketPrice = holding.avgCost; // Fallback to avg cost if no market price
-          }
-          if (!holding.marketValue && holding.marketPrice && holding.openQty) {
-            holding.marketValue = holding.marketPrice * holding.openQty;
-          }
-          console.log(`No StockData for ${holding.stockName} (${holding.isin}), using Excel values: Price=${holding.marketPrice}, Value=${holding.marketValue}`);
-        }
-      } catch (error) {
-        console.error(`Error updating price for ${holding.isin}:`, error);
-        // Continue with original values if update fails
-        // Ensure marketPrice and marketValue exist even if update fails
+        // Update holding with current price and market value
+        holding.marketPrice = currentPrice;
+        holding.marketValue = currentMarketValue;
+        
+        // Recalculate profit/loss with updated market value
+        const investmentAmount = holding.investmentAmount || 0;
+        holding.profitLossTillDate = currentMarketValue - investmentAmount;
+        holding.profitLossTillDatePercent = investmentAmount > 0 
+          ? ((currentMarketValue - investmentAmount) / investmentAmount) * 100 
+          : 0;
+        
+        updatedCount++;
+      } else {
+        // No StockData found - keep Excel values but ensure marketPrice and marketValue exist
         if (!holding.marketPrice && holding.avgCost) {
-          holding.marketPrice = holding.avgCost;
+          holding.marketPrice = holding.avgCost; // Fallback to avg cost if no market price
         }
         if (!holding.marketValue && holding.marketPrice && holding.openQty) {
           holding.marketValue = holding.marketPrice * holding.openQty;
         }
       }
     }
-    console.log(`API: Completed updating holdings with current prices. Total holdings: ${holdings.length}`);
+    
+    console.log(`API: ✅ Updated ${updatedCount}/${holdings.length} holdings with latest prices`);
     
     // Ensure no holdings are filtered out - log all holdings for debugging
       console.log(`API: Holdings summary:`);

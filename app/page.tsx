@@ -34,18 +34,27 @@ export default function Dashboard() {
         return;
       }
 
-      // Verify token with backend
-      const response = await fetch(`/api/auth/verify?token=${encodeURIComponent(token)}`);
-      const data = await response.json();
+      // Verify token with backend and fetch data in parallel for faster loading
+      const [authResponse] = await Promise.all([
+        fetch(`/api/auth/verify?token=${encodeURIComponent(token)}`),
+        // Pre-fetch dashboard data in parallel (don't wait for auth response)
+        fetch('/api/dashboard?clientId=994826', {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+          signal: AbortSignal.timeout(120000),
+        }).catch(() => null) // Ignore errors, will fetch again after auth
+      ]);
 
-      if (!data.authenticated) {
+      const authData = await authResponse.json();
+
+      if (!authData.authenticated) {
         localStorage.removeItem('authToken');
         localStorage.removeItem('userEmail');
         router.push('/login');
         return;
       }
 
-      // Authenticated, proceed to load dashboard
+      // Authenticated, proceed to load dashboard immediately
       setAuthLoading(false);
       fetchDashboardData();
     } catch (err) {
