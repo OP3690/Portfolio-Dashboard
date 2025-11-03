@@ -340,12 +340,13 @@ export async function GET(request: NextRequest) {
     
     // Use aggregation pipeline to get latest price for each ISIN in ONE query (fastest)
     const latestPricesMap = new Map<string, number>();
+    const latestDatesMap = new Map<string, Date>(); // Track dates for debugging
     
     try {
       // Aggregate to get the latest date and price for each ISIN in one query
       const latestPrices = await StockData.aggregate([
         { $match: { isin: { $in: uniqueIsins } } },
-        { $sort: { isin: 1, date: -1 } },
+        { $sort: { date: -1 } }, // Sort by date descending first
         {
           $group: {
             _id: '$isin',
@@ -355,12 +356,30 @@ export async function GET(request: NextRequest) {
         }
       ]).exec();
       
-      // Build map for fast lookup
+      // Get today's date for comparison
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      // Build map for fast lookup and track dates
+      let staleCount = 0;
       latestPrices.forEach((item: any) => {
         if (item.latestPrice && item.latestPrice > 0) {
           latestPricesMap.set(item._id, item.latestPrice);
+          const priceDate = new Date(item.latestDate);
+          priceDate.setHours(0, 0, 0, 0);
+          latestDatesMap.set(item._id, priceDate);
+          
+          // Check if price is stale (more than 1 day old)
+          const daysDiff = Math.floor((today.getTime() - priceDate.getTime()) / (1000 * 60 * 60 * 24));
+          if (daysDiff > 1) {
+            staleCount++;
+          }
         }
       });
+      
+      if (staleCount > 0) {
+        console.log(`API: ⚠️  Warning: ${staleCount} holdings have prices older than yesterday. Consider refreshing stock data.`);
+      }
       
       console.log(`API: ✅ Fetched latest prices for ${latestPricesMap.size} holdings in one aggregation query`);
     } catch (aggregateError) {
@@ -395,11 +414,15 @@ export async function GET(request: NextRequest) {
     
     // Update all holdings with prices from the map (very fast)
     let updatedCount = 0;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
     for (let i = 0; i < holdings.length; i++) {
       const holding = holdings[i] as any;
       if (!holding.isin) continue;
       
       const currentPrice = latestPricesMap.get(holding.isin);
+      const priceDate = latestDatesMap.get(holding.isin);
       
       if (currentPrice && currentPrice > 0) {
         const currentMarketValue = (holding.openQty || 0) * currentPrice;
@@ -407,6 +430,18 @@ export async function GET(request: NextRequest) {
         // Update holding with current price and market value
         holding.marketPrice = currentPrice;
         holding.marketValue = currentMarketValue;
+        
+        // Add metadata about price date for debugging
+        if (priceDate) {
+          const daysDiff = Math.floor((today.getTime() - priceDate.getTime()) / (1000 * 60 * 60 * 24));
+          holding._priceDate = priceDate; // Include for debugging
+          holding._priceDaysOld = daysDiff; // Days since last price update
+          
+          // Log if Black Box price is stale for debugging
+          if (holding.stockName?.toLowerCase().includes('black box') || holding.isin === 'INE676A01027') {
+            console.log(`API: 🔍 Black Box price: ₹${currentPrice} from ${priceDate.toISOString().split('T')[0]} (${daysDiff} days old)`);
+          }
+        }
         
         // Recalculate profit/loss with updated market value
         const investmentAmount = holding.investmentAmount || 0;
