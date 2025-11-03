@@ -332,21 +332,34 @@ export async function GET(request: NextRequest) {
     }
     
     // OPTIMIZATION: Fetch ALL latest prices in parallel using Promise.all - MUCH faster!
-    console.log('API: Fetching latest prices for all holdings in parallel...');
+    console.log('API: Fetching latest prices for all holdings (prioritizing today\'s date)...');
     const StockData = (await import('@/models/StockData')).default;
     
     // Get unique ISINs from holdings
     const uniqueIsins = [...new Set(holdings.map((h: any) => h.isin).filter(Boolean))];
     
     // Use aggregation pipeline to get latest price for each ISIN in ONE query (fastest)
+    // CRITICAL: Prioritize today's date, then fall back to latest available
     const latestPricesMap = new Map<string, number>();
     const latestDatesMap = new Map<string, Date>(); // Track dates for debugging
     
+    // Get today's date range (start and end of today)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayEnd = new Date(today);
+    todayEnd.setHours(23, 59, 59, 999);
+    
     try {
-      // Aggregate to get the latest date and price for each ISIN in one query
-      const latestPrices = await StockData.aggregate([
-        { $match: { isin: { $in: uniqueIsins } } },
-        { $sort: { date: -1 } }, // Sort by date descending first
+      // TWO-PASS APPROACH: First get today's prices, then fill gaps with latest available
+      // Step 1: Get today's prices
+      const todayPrices = await StockData.aggregate([
+        { 
+          $match: { 
+            isin: { $in: uniqueIsins },
+            date: { $gte: today, $lte: todayEnd }
+          } 
+        },
+        { $sort: { date: -1 } },
         {
           $group: {
             _id: '$isin',
@@ -356,32 +369,64 @@ export async function GET(request: NextRequest) {
         }
       ]).exec();
       
-      // Get today's date for comparison
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      // Step 2: Get latest prices for ISINs that don't have today's data
+      const isinsWithToday = new Set(todayPrices.map((p: any) => p._id));
+      const isinsNeedingLatest = uniqueIsins.filter(isin => !isinsWithToday.has(isin));
       
-      // Build map for fast lookup and track dates
+      let latestPrices: any[] = [];
+      if (isinsNeedingLatest.length > 0) {
+        latestPrices = await StockData.aggregate([
+          { $match: { isin: { $in: isinsNeedingLatest } } },
+          { $sort: { date: -1 } },
+          {
+            $group: {
+              _id: '$isin',
+              latestDate: { $first: '$date' },
+              latestPrice: { $first: '$close' },
+            }
+          }
+        ]).exec();
+      }
+      
+      // Combine today's prices with latest prices (today takes precedence)
+      const allPrices = [...todayPrices, ...latestPrices];
+      
+      // Build map for fast lookup and track dates (today's prices take precedence)
+      let todayCount = 0;
       let staleCount = 0;
-      latestPrices.forEach((item: any) => {
+      
+      allPrices.forEach((item: any) => {
         if (item.latestPrice && item.latestPrice > 0) {
-          latestPricesMap.set(item._id, item.latestPrice);
-          const priceDate = new Date(item.latestDate);
-          priceDate.setHours(0, 0, 0, 0);
-          latestDatesMap.set(item._id, priceDate);
-          
-          // Check if price is stale (more than 1 day old)
-          const daysDiff = Math.floor((today.getTime() - priceDate.getTime()) / (1000 * 60 * 60 * 24));
-          if (daysDiff > 1) {
-            staleCount++;
+          // Only set if not already set (today's prices were added first, so they win)
+          if (!latestPricesMap.has(item._id)) {
+            latestPricesMap.set(item._id, item.latestPrice);
+            const priceDate = new Date(item.latestDate);
+            priceDate.setHours(0, 0, 0, 0);
+            latestDatesMap.set(item._id, priceDate);
+            
+            // Check if this is today's price
+            if (priceDate.getTime() === today.getTime()) {
+              todayCount++;
+            } else {
+              // Check if price is stale (more than 1 day old)
+              const daysDiff = Math.floor((today.getTime() - priceDate.getTime()) / (1000 * 60 * 60 * 24));
+              if (daysDiff > 1) {
+                staleCount++;
+              }
+            }
           }
         }
       });
       
-      if (staleCount > 0) {
-        console.log(`API: ⚠️  Warning: ${staleCount} holdings have prices older than yesterday. Consider refreshing stock data.`);
+      console.log(`API: ✅ Fetched prices for ${latestPricesMap.size} holdings: ${todayCount} from today, ${latestPricesMap.size - todayCount} from earlier dates`);
+      
+      if (todayCount < uniqueIsins.length) {
+        console.log(`API: ⚠️  Warning: ${uniqueIsins.length - todayCount} holdings don't have today's price. Run "Refresh Stock Data" to get latest prices.`);
       }
       
-      console.log(`API: ✅ Fetched latest prices for ${latestPricesMap.size} holdings in one aggregation query`);
+      if (staleCount > 0) {
+        console.log(`API: ⚠️  Warning: ${staleCount} holdings have prices older than yesterday.`);
+      }
     } catch (aggregateError) {
       console.warn('API: Aggregate query failed, falling back to parallel Promise.all...', aggregateError);
       

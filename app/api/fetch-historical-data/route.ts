@@ -41,23 +41,43 @@ export async function POST(request: NextRequest) {
       const isinsNeedingFetch: string[] = [];
       let foundInDB = 0;
       
-      // Check database first - only fetch from API if missing recent data
+      // Check database first - CRITICAL: Check specifically for TODAY's data
+      // Only mark as "found" if we have TODAY's price, not just any recent price
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const todayEnd = new Date(today);
+      todayEnd.setHours(23, 59, 59, 999);
+      
       for (const isin of uniqueIsins) {
-        const latestData: any = await StockData.findOne({ 
+        // First check for today's data specifically
+        const todayData: any = await StockData.findOne({ 
           isin,
-          date: { $gte: threeDaysAgo }
+          date: { $gte: today, $lte: todayEnd }
         })
           .sort({ date: -1 })
           .lean();
         
-        if (!latestData || !latestData.close || latestData.close <= 0) {
-          isinsNeedingFetch.push(isin);
-        } else {
+        if (todayData && todayData.close && todayData.close > 0) {
           foundInDB++;
+        } else {
+          // No today's data - check if we have any recent data (for reporting)
+          const recentData: any = await StockData.findOne({ 
+            isin,
+            date: { $gte: threeDaysAgo }
+          })
+          .sort({ date: -1 })
+          .lean();
+          
+          // Even if we have recent data, we need today's price - mark for fetch
+          isinsNeedingFetch.push(isin);
+          
+          if (recentData && recentData.close && recentData.close > 0) {
+            console.log(`   ⚠️  ${isin} has recent data (${recentData.date}) but not today's - will fetch`);
+          }
         }
       }
       
-      console.log(`✅ Found ${foundInDB} stocks with recent data in database, ${isinsNeedingFetch.length} need fetching from API`);
+      console.log(`✅ Found ${foundInDB} stocks with TODAY's data in database, ${isinsNeedingFetch.length} need fetching from API`);
       
       // Only fetch missing ones - process in parallel batches to be faster
       let totalFetched = 0;
