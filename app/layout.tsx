@@ -4,8 +4,12 @@ import "./globals.css";
 
 // Initialize server-side cron jobs automatically on server start
 // This runs only on the server side, not in the browser
+// The serverInit module will automatically set up the cron job when imported
 if (typeof window === 'undefined') {
-  require('@/lib/serverInit');
+  // Use dynamic import to ensure it only runs on server
+  import('@/lib/serverInit').catch((err) => {
+    console.error('Failed to initialize server cron jobs:', err);
+  });
 }
 
 const inter = Inter({
