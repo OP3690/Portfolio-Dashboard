@@ -923,8 +923,8 @@ export async function POST(request: NextRequest) {
             console.error(`✅ FINAL SAVE SUCCESS for ${missingHolding.stockName}`);
             
             // Add to finalHoldings array
-            const verifyFinal = await Holding.findOne({ clientId, isin: missingIsin }).lean();
-            if (verifyFinal) {
+            const verifyFinal = await Holding.findOne({ clientId, isin: missingIsin }).lean() as any;
+            if (verifyFinal && !Array.isArray(verifyFinal)) {
               finalHoldings.push(verifyFinal);
               finalHoldingsCount = finalHoldings.length;
             }
