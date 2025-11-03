@@ -167,169 +167,34 @@ export async function POST(request: NextRequest) {
     console.log(`\n📊 Processing ${currentHoldingsFromExcel.length} total holdings from Excel:`);
     console.log(`   ✅ Current holdings (Open Qty > 0): ${currentHoldings.length}`);
     console.log(`   📤 Historical holdings (Closed Qty > 0, Open Qty = 0): ${historicalHoldings.length}`);
-    console.log(`🔍 Looking up ISINs for all holdings from stock names...`);
     
-    // Get all stock names that need ISIN lookup (include those with existing ISINs too, for validation)
-    const allStockNames = currentHoldingsFromExcel.map(h => String(h.stockName || '').trim()).filter(Boolean);
-    const uniqueStockNames = [...new Set(allStockNames.map(name => name.toLowerCase()))];
-    console.log(`   Total unique stock names: ${uniqueStockNames.length}`);
+    // Excel already has ISINs - just normalize them (no lookup needed)
+    console.log(`✅ Using ISINs directly from Excel (no lookup needed)...`);
     
-    // Strategy 1: PRIMARY - Query StockMaster collection for ISINs (this is the master file)
-    // This should be the primary source since the user maintains a master stock list
-    console.log(`\n📋 Strategy 1: Querying StockMaster collection (primary source)...`);
-    const stockMasterMap = new Map<string, { isin: string; stockName: string; similarity: number }>();
-    
-    // Get all stocks from StockMaster that might match
-    const allStockMasters = await StockMaster.find({}).lean();
-    console.log(`   Found ${allStockMasters.length} stocks in StockMaster collection`);
-    
-    // Build a map for exact matches first
-    const exactMatchMap = new Map<string, string>();
-    allStockMasters.forEach((stock: any) => {
-      const stockName = String(stock.stockName || '').trim().toLowerCase();
-      const isin = normalizeIsin(stock.isin);
-      if (stockName && isin) {
-        exactMatchMap.set(stockName, isin);
-      }
-    });
-    
-    // Try exact matches first
-    let exactMatches = 0;
-    uniqueStockNames.forEach(stockNameKey => {
-      const exactMatch = exactMatchMap.get(stockNameKey);
-      if (exactMatch) {
-        // Find the original stock name (with correct casing) from Excel
-        const originalStockName = allStockNames.find(n => n.toLowerCase() === stockNameKey) || stockNameKey;
-        stockMasterMap.set(stockNameKey, {
-          isin: exactMatch,
-          stockName: originalStockName,
-          similarity: 1.0
-        });
-        exactMatches++;
-      }
-    });
-    console.log(`   ✅ Found ${exactMatches} exact matches from StockMaster`);
-    
-    // Strategy 2: Use fuzzy matching from StockMaster for remaining stocks (OPTIMIZED: pass pre-fetched data)
-    const stockNamesNeedingFuzzyMatch = uniqueStockNames.filter(name => !stockMasterMap.has(name));
-    if (stockNamesNeedingFuzzyMatch.length > 0) {
-      console.log(`🔍 Using fuzzy matching for ${stockNamesNeedingFuzzyMatch.length} stocks...`);
-      const fuzzyMatchMap = await findISINsForStockNames(stockNamesNeedingFuzzyMatch, 0.7, allStockMasters);
-      console.log(`   ✅ Found ${fuzzyMatchMap.size} matches via fuzzy matching`);
-      
-      // Add fuzzy matches to stockMasterMap
-      fuzzyMatchMap.forEach((match, stockNameKey) => {
-        const originalStockName = allStockNames.find(n => n.toLowerCase() === stockNameKey) || stockNameKey;
-        stockMasterMap.set(stockNameKey, {
-          isin: match.isin,
-          stockName: originalStockName,
-          similarity: match.similarity
-        });
-      });
-    }
-    
-    // Strategy 3: Fallback to existing holdings in database (for historical data)
-    // OPTIMIZATION: Pre-fetch holdings once and reuse for later operations
-    const oldHoldings = await Holding.find({ clientId }).lean();
-    const stockNamesStillNeedingIsin = uniqueStockNames.filter(name => !stockMasterMap.has(name));
-    if (stockNamesStillNeedingIsin.length > 0) {
-      console.log(`💾 Checking existing holdings for ${stockNamesStillNeedingIsin.length} stocks...`);
-      const existingHoldingsMap = new Map<string, string>();
-      
-      oldHoldings.forEach((h: any) => {
-        const stockName = String(h.stockName || '').trim().toLowerCase();
-        const isin = normalizeIsin(h.isin);
-        if (stockName && isin && !existingHoldingsMap.has(stockName)) {
-          existingHoldingsMap.set(stockName, isin);
-        }
-      });
-      
-      let fallbackMatches = 0;
-      stockNamesStillNeedingIsin.forEach(stockNameKey => {
-        const foundIsin = existingHoldingsMap.get(stockNameKey);
-        if (foundIsin) {
-          const originalStockName = allStockNames.find(n => n.toLowerCase() === stockNameKey) || stockNameKey;
-          stockMasterMap.set(stockNameKey, {
-            isin: foundIsin,
-            stockName: originalStockName,
-            similarity: 1.0 // Exact match from existing holdings
-          });
-          fallbackMatches++;
-        }
-      });
-      console.log(`   ✅ Found ${fallbackMatches} matches from existing holdings`);
-    }
-    
-    // Update all holdings with ISINs from StockMaster (preferred) or fallback sources
-    console.log(`\n🔄 Updating holdings with ISINs...`);
-    let updatedCount = 0;
-    let validatedCount = 0;
+    // Normalize ISINs from Excel and validate
+    let validIsinCount = 0;
     let missingIsinCount = 0;
     
     currentHoldingsFromExcel = currentHoldingsFromExcel.map(h => {
-      const stockName = String(h.stockName || '').trim();
-      const stockNameKey = stockName.toLowerCase();
       const existingIsin = normalizeIsin(h.isin);
-      
-      // Get ISIN from StockMaster (primary source)
-      const stockMasterMatch = stockMasterMap.get(stockNameKey);
-      
-      if (stockMasterMatch) {
-        const matchedIsin = normalizeIsin(stockMasterMatch.isin);
-        
-        // If Excel already has an ISIN, validate it matches
-        if (existingIsin) {
-          if (existingIsin === matchedIsin) {
-            validatedCount++;
-            return h; // Keep existing ISIN if it matches
-          } else {
-            console.warn(`  ⚠️  ISIN mismatch for "${stockName}": Excel has ${existingIsin}, StockMaster has ${matchedIsin}. Using StockMaster value.`);
-            updatedCount++;
-            return { ...h, isin: matchedIsin };
-          }
-        } else {
-          // No ISIN in Excel, use StockMaster value (reduce logging for performance)
-          updatedCount++;
-          return { ...h, isin: matchedIsin };
-        }
+      if (existingIsin && existingIsin.length >= 10) {
+        // Valid ISIN (should be 12 characters, but accept 10+)
+        validIsinCount++;
+        return { ...h, isin: existingIsin }; // Ensure normalized ISIN
       } else {
-        // No match found in StockMaster or existing holdings
-        if (existingIsin) {
-          // Excel has an ISIN, keep it but warn
-          console.warn(`  ⚠️  "${stockName}" has ISIN ${existingIsin} in Excel but not found in StockMaster. Keeping Excel value.`);
-          return h;
-        } else {
-          // No ISIN anywhere
-          console.error(`  ❌ Could not find ISIN for "${stockName}" in StockMaster or existing holdings!`);
-          missingIsinCount++;
-          return h;
-        }
+        missingIsinCount++;
+        console.warn(`  ⚠️  "${h.stockName}" has invalid/missing ISIN: "${h.isin}"`);
+        return h;
       }
     });
     
-    console.log(`\n📊 ISIN Lookup Summary:`);
-    console.log(`   ✅ Exact matches from StockMaster: ${exactMatches}`);
-    console.log(`   🔍 Fuzzy matches from StockMaster: ${stockMasterMap.size - exactMatches}`);
-    console.log(`   🔄 Holdings updated with ISINs: ${updatedCount}`);
-    console.log(`   ✓ Holdings validated (ISIN already correct): ${validatedCount}`);
-    console.log(`   ❌ Holdings missing ISIN: ${missingIsinCount}`);
-    
-    // Log which holdings are missing ISINs
+    console.log(`   ✅ Valid ISINs: ${validIsinCount}`);
     if (missingIsinCount > 0) {
-      console.log(`\n⚠️  Holdings WITHOUT ISIN (will be skipped):`);
-      currentHoldingsFromExcel.forEach(h => {
-        const stockName = String(h.stockName || '').trim();
-        const stockNameKey = stockName.toLowerCase();
-        const existingIsin = normalizeIsin(h.isin);
-        const stockMasterMatch = stockMasterMap.get(stockNameKey);
-        
-        if (!stockMasterMatch && !existingIsin) {
-          const openQty = h.openQty || 0;
-          const closedQty = h.closedQty || 0;
-          console.log(`   ❌ "${stockName}" - Open Qty: ${openQty}, Closed Qty: ${closedQty}`);
-        }
-      });
+      console.log(`   ❌ Missing/Invalid ISINs: ${missingIsinCount}`);
     }
+    
+    // Pre-fetch old holdings for comparison (reused later)
+    const oldHoldings = await Holding.find({ clientId }).lean();
     
     // Final filter: Only process holdings with ISIN (required for database operations)
     const validHoldings = currentHoldingsFromExcel.filter(h => h.isin && normalizeIsin(h.isin) !== '');
