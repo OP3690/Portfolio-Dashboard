@@ -32,101 +32,123 @@ export async function POST(request: NextRequest) {
       const holdings = await Holding.find({ clientId }).select('isin').lean();
       const uniqueIsins = [...new Set(holdings.map((h: any) => h.isin).filter(Boolean))];
       
-      console.log(`🔄 Refreshing latest 3 days of data (including PE, MarketCap) for ${uniqueIsins.length} holdings (including today)...`);
+      console.log(`🔄 Refreshing latest 3 days of data for ${uniqueIsins.length} holdings...`);
       
+      // First, check database for recent data (last 3 days)
+      const threeDaysAgo = new Date();
+      threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+      
+      const isinsNeedingFetch: string[] = [];
+      let foundInDB = 0;
+      
+      // Check database first - only fetch from API if missing recent data
+      for (const isin of uniqueIsins) {
+        const latestData: any = await StockData.findOne({ 
+          isin,
+          date: { $gte: threeDaysAgo }
+        })
+          .sort({ date: -1 })
+          .lean();
+        
+        if (!latestData || !latestData.close || latestData.close <= 0) {
+          isinsNeedingFetch.push(isin);
+        } else {
+          foundInDB++;
+        }
+      }
+      
+      console.log(`✅ Found ${foundInDB} stocks with recent data in database, ${isinsNeedingFetch.length} need fetching from API`);
+      
+      // Only fetch missing ones - process in parallel batches to be faster
       let totalFetched = 0;
       let stocksProcessed = 0;
       let stocksWith5YearData = 0;
       let stocksFetched5Year = 0;
       const errors: string[] = [];
       
-      // Get stock names for better reporting
       const StockMaster = (await import('@/models/StockMaster')).default;
       
-      // Process stocks that need 5-year data first (slower), then refresh others (faster)
-      const stocksNeeding5Year: string[] = [];
-      const stocksNeedingRefresh: string[] = [];
-      
-      // Pre-check which stocks need what
-      for (const holdingIsin of uniqueIsins) {
-        const has5YearData = await hasComplete5YearData(holdingIsin);
-        if (!has5YearData) {
-          stocksNeeding5Year.push(holdingIsin);
-        } else {
-          stocksNeedingRefresh.push(holdingIsin);
-        }
-      }
-      
-      console.log(`📊 Summary: ${stocksNeeding5Year.length} stocks need 5-year data, ${stocksNeedingRefresh.length} stocks need refresh`);
-      
-      // Process stocks needing 5-year data first
-      for (let i = 0; i < stocksNeeding5Year.length; i++) {
-        const holdingIsin = stocksNeeding5Year[i];
-        try {
-          const stockMaster = await StockMaster.findOne({ isin: holdingIsin }).lean();
-          const stockName = stockMaster ? (stockMaster as any).stockName : holdingIsin;
-          console.log(`📦 [${i + 1}/${stocksNeeding5Year.length}] Fetching initial 5-year data for ${stockName} (${holdingIsin})...`);
+      if (isinsNeedingFetch.length > 0) {
+        // Quick check: separate stocks that need 5-year vs refresh (parallel)
+        const checkPromises = isinsNeedingFetch.map(async (isin) => {
+          const has5Year = await hasComplete5YearData(isin);
+          return { isin, has5Year };
+        });
+        
+        const checkResults = await Promise.all(checkPromises);
+        const stocksNeeding5Year = checkResults.filter(r => !r.has5Year).map(r => r.isin);
+        const stocksNeedingRefresh = checkResults.filter(r => r.has5Year).map(r => r.isin);
+        
+        console.log(`📊 ${stocksNeeding5Year.length} stocks need 5-year data, ${stocksNeedingRefresh.length} need refresh`);
+        
+        // Process stocks needing refresh in parallel batches (faster)
+        const REFRESH_BATCH_SIZE = 10;
+        for (let i = 0; i < stocksNeedingRefresh.length; i += REFRESH_BATCH_SIZE) {
+          const batch = stocksNeedingRefresh.slice(i, i + REFRESH_BATCH_SIZE);
+          const batchPromises = batch.map(async (holdingIsin) => {
+            try {
+              const count = await fetchAndStoreHistoricalData(holdingIsin, false);
+              return { success: true, count, isin: holdingIsin };
+            } catch (error: any) {
+              return { success: false, error: error.message, isin: holdingIsin };
+            }
+          });
           
-          const count = await fetchAndStoreHistoricalData(holdingIsin, true); // forceFullUpdate = true
-          stocksFetched5Year++;
-          totalFetched += count;
-          stocksProcessed++;
-          console.log(`✅ Fetched ${count} records (5 years) for ${stockName}`);
-        } catch (error: any) {
-          console.error(`Error fetching 5-year data for ${holdingIsin}:`, error);
-          errors.push(`${holdingIsin}: ${error.message || 'Unknown error'}`);
-        }
-        
-        // Add delay to avoid rate limiting (longer delay for 5-year fetches)
-        if (i < stocksNeeding5Year.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second for 5-year fetches
-        }
-      }
-      
-      // Then refresh stocks with existing data (faster)
-      for (let i = 0; i < stocksNeedingRefresh.length; i++) {
-        const holdingIsin = stocksNeedingRefresh[i];
-        try {
-          const count = await fetchAndStoreHistoricalData(holdingIsin, false); // forceFullUpdate = false
-          stocksWith5YearData++;
-          totalFetched += count;
-          stocksProcessed++;
-          if ((i + 1) % 10 === 0) {
-            console.log(`🔄 Progress: ${i + 1}/${stocksNeedingRefresh.length} stocks refreshed (last 3 days)`);
+          const batchResults = await Promise.all(batchPromises);
+          batchResults.forEach(result => {
+            if (result.success) {
+              stocksWith5YearData++;
+              totalFetched += result.count || 0;
+              stocksProcessed++;
+            } else {
+              errors.push(`${result.isin}: ${result.error || 'Unknown error'}`);
+            }
+          });
+          
+          // Small delay between batches
+          if (i + REFRESH_BATCH_SIZE < stocksNeedingRefresh.length) {
+            await new Promise(resolve => setTimeout(resolve, 200));
           }
-        } catch (error: any) {
-          console.error(`Error refreshing ${holdingIsin}:`, error);
-          errors.push(`${holdingIsin}: ${error.message || 'Unknown error'}`);
         }
         
-        // Add delay to avoid rate limiting (shorter delay for refreshes)
-        if (i < stocksNeedingRefresh.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 500)); // 500ms for refreshes
+        // Process stocks needing 5-year data (slower, sequential with delays)
+        for (let i = 0; i < stocksNeeding5Year.length; i++) {
+          const holdingIsin = stocksNeeding5Year[i];
+          try {
+            const count = await fetchAndStoreHistoricalData(holdingIsin, true);
+            stocksFetched5Year++;
+            totalFetched += count;
+            stocksProcessed++;
+          } catch (error: any) {
+            console.error(`Error fetching 5-year data for ${holdingIsin}:`, error);
+            errors.push(`${holdingIsin}: ${error.message || 'Unknown error'}`);
+          }
+          
+          if (i < stocksNeeding5Year.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 800));
+          }
         }
       }
       
-      console.log(`✅ Refresh completed: ${stocksProcessed} processed (${stocksWith5YearData} refreshed last 3 days, ${stocksFetched5Year} fetched 5-year data), ${totalFetched} total records`);
+      console.log(`✅ Refresh completed: ${stocksProcessed} processed (${stocksWith5YearData} refreshed, ${stocksFetched5Year} fetched 5-year), ${totalFetched} records`);
       
-      // Update lastUpdated timestamp for all holdings to reflect the refresh time
+      // Update lastUpdated timestamp
       const refreshTime = new Date();
       try {
         await Holding.updateMany(
           { clientId },
           { $set: { lastUpdated: refreshTime } }
         );
-        console.log(`📅 Updated lastUpdated timestamp for holdings to: ${refreshTime.toISOString()}`);
       } catch (updateError) {
-        console.error('Error updating holdings timestamp:', updateError);
         // Continue even if timestamp update fails
       }
       
-      // Create detailed message
-      let message = `Successfully processed ${stocksProcessed} stocks (${totalFetched} records).`;
-      if (stocksWith5YearData > 0) {
-        message += ` ${stocksWith5YearData} stock(s) refreshed (last 3 days).`;
-      }
-      if (stocksFetched5Year > 0) {
-        message += ` ${stocksFetched5Year} stock(s) fetched initial 5-year data.`;
+      // Create message
+      let message = `Found ${foundInDB} stocks already up-to-date in database.`;
+      if (stocksProcessed > 0) {
+        message += ` Refreshed ${stocksProcessed} stocks (${totalFetched} records).`;
+      } else {
+        message += ` All stocks are up-to-date!`;
       }
       
       return NextResponse.json({
@@ -135,6 +157,7 @@ export async function POST(request: NextRequest) {
         stocksProcessed,
         stocksWith5YearData,
         stocksFetched5Year,
+        foundInDatabase: foundInDB,
         totalRecords: totalFetched,
         refreshTime: refreshTime.toISOString(),
         errors: errors.length > 0 ? errors : undefined,
