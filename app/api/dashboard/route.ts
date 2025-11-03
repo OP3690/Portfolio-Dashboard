@@ -629,54 +629,10 @@ export async function GET(request: NextRequest) {
     holdings = Array.from(holdingsMap.values());
     console.log(`API: ✅ Final holdings count after merge: ${holdings.length}`);
     
-    // Verify BHEL is present
-    const bhelCheck = holdings.find((h: any) => normalizeIsin(h.isin) === 'INE257A01026' || h.stockName?.toLowerCase().includes('bhel'));
-    if (bhelCheck) {
-      console.log(`API: ✅ BHEL confirmed in final holdings:`, bhelCheck.stockName, bhelCheck.isin);
-    } else {
-      console.error(`API: ❌ BHEL STILL NOT in final holdings! Attempting direct query...`);
-      // Last resort: Direct query and add if found
-      const bhelLastResort = await Holding.findOne({ 
-        clientId,
-        $or: [
-          { isin: 'INE257A01026' },
-          { isin: /INE257A01026/i },
-          { stockName: { $regex: /b\s*h\s*e\s*l|bhel/i } }
-        ]
-      }).lean() as any;
-      
-      if (bhelLastResort && !Array.isArray(bhelLastResort)) {
-        bhelLastResort.isin = normalizeIsin(bhelLastResort.isin);
-        holdings.push(bhelLastResort);
-        console.error(`API: ✅✅✅ BHEL FOUND via last resort query and added! ${bhelLastResort.stockName} (${bhelLastResort.isin})`);
-      } else {
-        console.error(`API: ❌❌❌ BHEL NOT FOUND in database at all!`);
-      }
-    }
-    
     console.log(`API: ✅ All ISINs before processing:`, holdings.map((h: any) => h.isin));
-    
-    // CRITICAL: Verify BHEL is still present before Promise.allSettled
-    const bhelBeforeProcessing = holdings.find((h: any) => 
-      normalizeIsin(h.isin) === 'INE257A01026' || h.stockName?.toLowerCase().includes('bhel')
-    );
-    if (bhelBeforeProcessing) {
-      console.log(`API: ✅✅✅ BHEL confirmed BEFORE Promise.allSettled: ${bhelBeforeProcessing.stockName} (${bhelBeforeProcessing.isin})`);
-    } else {
-      console.error(`API: ❌❌❌ BHEL MISSING BEFORE Promise.allSettled!`);
-      console.error(`API: Holdings count: ${holdings.length}`);
-      console.error(`API: All ISINs:`, holdings.map((h: any) => h.isin));
-      // Re-fetch from database immediately
       console.error(`API: 🔴 RE-FETCHING FROM DATABASE...`);
       const reFetchedHoldings = await Holding.find({ clientId }).lean();
-      const bhelInReFetch = reFetchedHoldings.find((h: any) => 
-        normalizeIsin(h.isin) === 'INE257A01026' || h.stockName?.toLowerCase().includes('bhel')
       );
-      if (bhelInReFetch) {
-        console.error(`API: ✅ BHEL found in re-fetch! Adding it back...`);
-        bhelInReFetch.isin = normalizeIsin(bhelInReFetch.isin);
-        holdings.push(bhelInReFetch);
-        console.error(`API: ✅ Holdings count after adding BHEL: ${holdings.length}`);
       }
     }
     
@@ -686,22 +642,8 @@ export async function GET(request: NextRequest) {
     console.log(`API: 📋 Original holdings count: ${originalHoldingsCount}`);
     console.log(`API: 📋 Original ISINs:`, Array.from(originalHoldingsIsins).sort());
     
-    // 🚨 DIAGNOSTIC LOG: Raw holdings ISINs BEFORE processing (as suggested by user)
-    console.log(`🚨 Raw holdings before processing:`, holdings.map((h: any) => normalizeIsin(h.isin)).sort());
-    const bhelBeforeProcessingIsin = holdings.find((h: any) => 
-      normalizeIsin(h.isin) === 'INE257A01026' || h.stockName?.toLowerCase().includes('bhel')
-    );
-    if (bhelBeforeProcessingIsin) {
-      console.log(`🚨 BHEL ISIN before processing: "${bhelBeforeProcessingIsin.isin}" (normalized: "${normalizeIsin(bhelBeforeProcessingIsin.isin)}")`);
-    } else {
-      console.error(`🚨 BHEL NOT FOUND in raw holdings before processing!`);
-    }
     
     const processedHoldingsPromise = Promise.allSettled(holdings.map(async (h: any, index: number) => {
-          // Log BHEL specifically
-          const isBhel = normalizeIsin(h.isin) === 'INE257A01026' || h.stockName?.toLowerCase().includes('bhel');
-          if (isBhel) {
-            console.log(`API: 🔵 Processing BHEL at index ${index}:`, h.stockName, h.isin);
           }
           
           try {
@@ -710,8 +652,6 @@ export async function GET(request: NextRequest) {
             const holdingNormalizedIsin = normalizeIsin(h.isin);
             const stockTransactions = transactions.filter(t => normalizeIsin(t.isin) === holdingNormalizedIsin);
             
-            if (isBhel) {
-              console.log(`API: 🔵 BHEL found ${stockTransactions.length} transactions`);
             }
             
             let stockXIRR = 0;
@@ -721,13 +661,9 @@ export async function GET(request: NextRequest) {
             
             try {
               stockXIRR = calculateStockXIRR(stockTransactions, h);
-              if (isBhel) {
-                console.log(`API: 🔵 BHEL XIRR calculated: ${stockXIRR}`);
               }
             } catch (error: any) {
               console.error(`Error calculating XIRR for ${h.isin}:`, error);
-              if (isBhel) {
-                console.error(`API: ❌ BHEL XIRR calculation failed:`, error.message);
               }
             }
             
@@ -736,13 +672,9 @@ export async function GET(request: NextRequest) {
               cagr = result.cagr;
               holdingPeriodYears = result.holdingPeriodYears;
               holdingPeriodMonths = result.holdingPeriodMonths;
-              if (isBhel) {
-                console.log(`API: 🔵 BHEL CAGR calculated: ${cagr}, Period: ${holdingPeriodYears}Y ${holdingPeriodMonths}M`);
               }
             } catch (error: any) {
               console.error(`Error calculating CAGR for ${h.isin}:`, error);
-              if (isBhel) {
-                console.error(`API: ❌ BHEL CAGR calculation failed:`, error.message);
               }
             }
             
@@ -756,15 +688,11 @@ export async function GET(request: NextRequest) {
               holdingPeriodMonths: holdingPeriodMonths,
             };
             
-            if (isBhel) {
-              console.log(`API: ✅ BHEL processing completed successfully`);
             }
             
             return result;
           } catch (error: any) {
             console.error(`Error processing holding ${h.isin}:`, error);
-            if (isBhel) {
-              console.error(`API: ❌❌❌ CRITICAL: BHEL processing failed!`, error.message, error.stack);
             }
             return {
               ...h,
@@ -784,17 +712,7 @@ export async function GET(request: NextRequest) {
             rejected: results.filter(r => r.status === 'rejected').length,
           });
           
-          // Log BHEL result specifically
-          const bhelIndex = holdings.findIndex((h: any) => 
-            normalizeIsin(h.isin) === 'INE257A01026' || h.stockName?.toLowerCase().includes('bhel')
           );
-          if (bhelIndex !== -1) {
-            const bhelResult = results[bhelIndex];
-            console.log(`✅ BHEL result from Promise.allSettled:`, {
-              status: bhelResult.status,
-              hasValue: bhelResult.status === 'fulfilled' ? !!bhelResult.value : false,
-              valueIsin: bhelResult.status === 'fulfilled' && bhelResult.value ? normalizeIsin(bhelResult.value.isin) : 'N/A',
-              rejection: bhelResult.status === 'rejected' ? String(bhelResult.reason) : 'N/A',
             });
           }
           
@@ -812,15 +730,12 @@ export async function GET(request: NextRequest) {
             }
             
             const originalIsin = normalizeIsin(original.isin);
-            const isBhel = originalIsin === 'INE257A01026' || original.stockName?.toLowerCase().includes('bhel');
             
             if (result.status === 'fulfilled' && result.value) {
               // Successfully processed
               const processedIsin = normalizeIsin(result.value.isin);
               processedHoldings.push(result.value);
               processedIsins.add(processedIsin);
-              if (isBhel) {
-                console.log(`API: ✅ BHEL processed successfully: ${result.value.stockName} (${processedIsin})`);
               }
             } else {
               // ✅ FIX: Processing failed - ALWAYS use original with defaults (never drop)
@@ -839,10 +754,7 @@ export async function GET(request: NextRequest) {
               };
               processedHoldings.push(failedHolding);
               processedIsins.add(originalIsin);
-              if (isBhel) {
-                console.error(`API: ⚠️  BHEL processing ${result.status === 'rejected' ? 'REJECTED' : 'RETURNED NULL'}, using original with defaults: ${original.stockName} (${originalIsin})`);
                 if (result.status === 'rejected') {
-                  console.error(`API: BHEL rejection reason:`, result.reason);
                 }
               }
             }
@@ -858,9 +770,6 @@ export async function GET(request: NextRequest) {
             console.error(`API: ❌❌❌ ${missingFromProcessed.length} holdings MISSED by Promise.allSettled! Adding them...`);
             missingFromProcessed.forEach((original: any) => {
               const key = normalizeIsin(original.isin);
-              const isBhel = key === 'INE257A01026' || original.stockName?.toLowerCase().includes('bhel');
-              if (isBhel) {
-                console.error(`API: 🔵🔵🔵 CRITICAL: BHEL was MISSED! Adding it back...`);
               }
               processedHoldings.push({
                 ...original,
@@ -878,14 +787,8 @@ export async function GET(request: NextRequest) {
             console.log(`API: ✅ Added ${missingFromProcessed.length} missing holdings. New count: ${processedHoldings.length}`);
           }
           
-          // Verify BHEL is in processed holdings
-          const bhelInProcessed = processedHoldings.find((h: any) => 
-            normalizeIsin(h.isin) === 'INE257A01026' || h.stockName?.toLowerCase().includes('bhel')
           );
-          if (bhelInProcessed) {
-            console.log(`API: ✅✅✅ BHEL confirmed in processed holdings: ${bhelInProcessed.stockName} (${bhelInProcessed.isin})`);
           } else {
-            console.error(`API: ❌❌❌ BHEL NOT in processed holdings after Promise.allSettled!`);
           }
           
           console.log(`API: Processed ${processedHoldings.length} holdings (should be ${holdings.length})`);
@@ -946,23 +849,9 @@ export async function GET(request: NextRequest) {
             console.log(`✅✅✅ Holdings count maintained: ${processedHoldings.length} (expected: ${originalHoldingsCount})`);
           }
           
-          const bhelProcessed = processedHoldings.find((h: any) => normalizeIsin(h.isin) === 'INE257A01026' || h.stockName?.toLowerCase().includes('bhel'));
-          if (bhelProcessed) {
-            console.log(`API: ✅✅✅ BHEL confirmed in processed holdings:`, bhelProcessed.stockName, bhelProcessed.isin);
           } else {
-            console.error(`API: ❌❌❌ BHEL STILL NOT in processed holdings after all safeguards!`);
-            // Check if BHEL was in the original holdings array
-            const bhelIndex = holdings.findIndex((h: any) => normalizeIsin(h.isin) === 'INE257A01026');
-            if (bhelIndex !== -1) {
-              console.error(`API: BHEL WAS at index ${bhelIndex} in original holdings, but missing after processing!`);
-              const resultForBhel = results[bhelIndex];
-              console.error(`API: Result for BHEL:`, {
-                status: resultForBhel.status,
-                value: resultForBhel.status === 'fulfilled' ? resultForBhel.value : null,
-                reason: resultForBhel.status === 'rejected' ? resultForBhel.reason : null,
               });
             } else {
-              console.error(`API: BHEL was NOT in original holdings array either!`);
             }
           }
           
@@ -1008,40 +897,6 @@ export async function GET(request: NextRequest) {
             }
           }
           
-          // FINAL SAFEGUARD: If BHEL is still missing from processed holdings but exists in database, add it
-          const bhelFinalCheck = finalProcessedHoldings.find((h: any) => normalizeIsin(h.isin) === 'INE257A01026');
-          if (!bhelFinalCheck) {
-            console.error(`API: 🔧 CRITICAL: BHEL still missing! Adding via emergency fix...`);
-            
-            // Try multiple ways to get BHEL
-            let bhelToAdd = bhelDirectQuery;
-            if (!bhelToAdd) {
-              bhelToAdd = await Holding.findOne({ 
-                clientId,
-                $or: [
-                  { isin: 'INE257A01026' },
-                  { stockName: { $regex: /b\s*h\s*e\s*l|bhel/i } }
-                ]
-              }).lean();
-            }
-            
-            if (bhelToAdd) {
-              finalProcessedHoldings.push({
-                ...bhelToAdd,
-                _id: (bhelToAdd._id?.toString && typeof bhelToAdd._id.toString === 'function') 
-                  ? bhelToAdd._id.toString() 
-                  : String(bhelToAdd._id || ''),
-                isin: normalizeIsin(bhelToAdd.isin),
-                xirr: 0,
-                cagr: 0,
-                holdingPeriodYears: 0,
-                holdingPeriodMonths: 0,
-              });
-              console.error(`API: ✅✅✅ BHEL added to processed holdings via emergency fix! New count: ${finalProcessedHoldings.length}`);
-            } else {
-              console.error(`API: ❌❌❌ BHEL NOT FOUND in database for emergency fix!`);
-            }
-          }
           
           console.log(`=== END API RESPONSE PREPARATION ===`);
           console.log(`API: Final processed holdings count: ${finalProcessedHoldings.length}`);
@@ -1149,38 +1004,11 @@ export async function GET(request: NextRequest) {
     }
     
     // Final verification
-    const bhelFinal = finalHoldingsResult.find((h: any) => normalizeIsin(h.isin) === 'INE257A01026');
-    if (bhelFinal) {
-      console.log(`API: ✅✅✅ BHEL confirmed in FINAL response: ${bhelFinal.stockName} (${bhelFinal.isin})`);
     } else {
-      console.error(`API: ❌❌❌ BHEL STILL MISSING from final response!`);
       
       // ABSOLUTE LAST RESORT: Query database directly one more time
-      console.error(`API: 🔴🔴🔴 ABSOLUTE LAST RESORT: Querying database one final time for BHEL...`);
       const dbFinalQuery = await Holding.find({ clientId }).lean();
       console.log(`API: Database query returned ${dbFinalQuery.length} holdings`);
-      
-      // Find BHEL in database
-      const bhelInDb = dbFinalQuery.find((h: any) => 
-        normalizeIsin(h.isin) === 'INE257A01026' || h.stockName?.toLowerCase().includes('bhel')
-      );
-      
-      if (bhelInDb) {
-        console.error(`API: ✅ BHEL found in database! Adding directly to response...`);
-        bhelInDb.isin = normalizeIsin(bhelInDb.isin);
-        const bhelToAdd = {
-          ...bhelInDb,
-          _id: (bhelInDb._id?.toString && typeof bhelInDb._id.toString === 'function') 
-            ? bhelInDb._id.toString() 
-            : String(bhelInDb._id || ''),
-          xirr: 0,
-          cagr: 0,
-          holdingPeriodYears: 0,
-          holdingPeriodMonths: 0,
-        };
-        finalHoldingsResult.push(bhelToAdd);
-        console.error(`API: ✅✅✅ BHEL added directly from database! New count: ${finalHoldingsResult.length}`);
-      }
       
       // Also check if we're missing any other holdings
       const dbIsins = new Set(dbFinalQuery.map((h: any) => normalizeIsin(h.isin)).filter(Boolean));
@@ -1210,70 +1038,20 @@ export async function GET(request: NextRequest) {
       }
     }
     
-    // CRITICAL FINAL CHECK: Always ensure BHEL is present before sending response
-    const finalBhelCheckBeforeResponse = finalHoldingsResult.find((h: any) => 
-      normalizeIsin(h.isin) === 'INE257A01026' || h.stockName?.toLowerCase().includes('bhel')
-    );
-    
-    if (!finalBhelCheckBeforeResponse) {
-      console.error(`API: 🔴🔴🔴 CRITICAL: BHEL MISSING from final response!`);
-      console.error(`API: Final holdings count: ${finalHoldingsResult.length}`);
-      console.error(`API: Attempting ONE FINAL database query...`);
-      
-      // One last database query
-      const finalDbQuery = await Holding.find({ clientId }).lean();
-      const bhelInFinalDb = finalDbQuery.find((h: any) => 
-        normalizeIsin(h.isin) === 'INE257A01026' || h.stockName?.toLowerCase().includes('bhel')
-      );
-      
-      if (bhelInFinalDb) {
-        console.error(`API: ✅ BHEL EXISTS in database! Adding to final response...`);
-        const bhelFinal = {
-          ...bhelInFinalDb,
-          _id: String(bhelInFinalDb._id || ''),
-          isin: normalizeIsin(bhelInFinalDb.isin),
-          xirr: 0,
-          cagr: 0,
-          holdingPeriodYears: 0,
-          holdingPeriodMonths: 0,
-        };
-        finalHoldingsResult.push(bhelFinal);
-        console.error(`API: ✅✅✅ BHEL added to final response. New count: ${finalHoldingsResult.length}`);
-      } else {
-        console.error(`API: ❌ BHEL NOT in database at all. It was never saved during upload.`);
-      }
-    } else {
-      console.log(`API: ✅✅✅ BHEL confirmed in final response: ${finalBhelCheckBeforeResponse.stockName} (${finalBhelCheckBeforeResponse.isin})`);
-    }
-    
     console.log(`API: 🎯 FINAL RESPONSE - Holdings count: ${finalHoldingsResult.length}`);
     console.log(`API: 🎯 FINAL ISINs:`, finalHoldingsResult.map((h: any) => normalizeIsin(h.isin)).sort());
     
-    // FINAL CHECK: Always verify BHEL is present and rebuild if missing
-    const finalBhelCheck = finalHoldingsResult.find((h: any) => 
-      normalizeIsin(h.isin) === 'INE257A01026' || h.stockName?.toLowerCase().includes('bhel')
-    );
     const dbCount = await Holding.countDocuments({ clientId });
-    console.log(`API: 📊 Database count: ${dbCount}, Response count: ${finalHoldingsResult.length}, BHEL present: ${!!finalBhelCheck}`);
+    console.log(`API: 📊 Database count: ${dbCount}, Response count: ${finalHoldingsResult.length}`);
     
-    // ALWAYS rebuild if BHEL is missing OR if counts don't match
-    if (finalHoldingsResult.length !== dbCount || !finalBhelCheck) {
-      console.error(`API: ⚠️  REBUILD REQUIRED! Response: ${finalHoldingsResult.length}, DB: ${dbCount}, BHEL: ${!!finalBhelCheck}`);
+    // Rebuild if counts don't match
+    if (finalHoldingsResult.length !== dbCount) {
+      console.error(`API: ⚠️  REBUILD REQUIRED! Response: ${finalHoldingsResult.length}, DB: ${dbCount}`);
       console.error(`API: 🔴🔴🔴 USING DATABASE AS SOURCE OF TRUTH - Rebuilding from scratch...`);
       
       // Use database as source of truth
       const dbAllHoldings = await Holding.find({ clientId }).lean();
       console.log(`API: Fetched ${dbAllHoldings.length} holdings directly from database`);
-      
-      // Verify BHEL in raw database query
-      const bhelInRawDb = dbAllHoldings.find((h: any) => 
-        normalizeIsin(h.isin) === 'INE257A01026' || h.stockName?.toLowerCase().includes('bhel')
-      );
-      if (bhelInRawDb) {
-        console.log(`API: ✅ BHEL FOUND in database raw query: ${bhelInRawDb.stockName} (${bhelInRawDb.isin})`);
-      } else {
-        console.error(`API: ❌ BHEL NOT in database! This means upload didn't save it properly.`);
-      }
       
       // Process each one minimally (just calculate metrics)
       const dbProcessedHoldings = await Promise.all(
@@ -1320,113 +1098,69 @@ export async function GET(request: NextRequest) {
       finalHoldingsResult = dbProcessedHoldings;
       console.log(`API: ✅✅✅ Rebuilt from database. Final count: ${finalHoldingsResult.length}`);
       
-      // Verify BHEL is in rebuilt result
-      const bhelInRebuilt = finalHoldingsResult.find((h: any) => 
-        normalizeIsin(h.isin) === 'INE257A01026' || h.stockName?.toLowerCase().includes('bhel')
       );
-      if (bhelInRebuilt) {
-        console.log(`API: ✅✅✅ BHEL confirmed in rebuilt result: ${bhelInRebuilt.stockName} (${bhelInRebuilt.isin})`);
       } else {
-        console.error(`API: ❌❌❌ BHEL STILL MISSING after rebuild! This means BHEL is NOT in database.`);
       }
       
       console.log(`API: ✅✅✅ All ISINs:`, finalHoldingsResult.map((h: any) => h.isin).sort());
     } else {
-      // Even if counts match, verify BHEL is present
-      if (!finalBhelCheck) {
-        console.error(`API: ⚠️  Counts match (${finalHoldingsResult.length}) but BHEL missing! Adding from database...`);
-        const bhelDirectQueryFinal = await Holding.findOne({ 
           clientId, 
           $or: [
-            { isin: 'INE257A01026' },
-            { stockName: { $regex: /b\s*h\s*e\s*l|bhel/i } }
           ]
         }).lean() as any;
         
-        if (bhelDirectQueryFinal && !Array.isArray(bhelDirectQueryFinal)) {
-          console.error(`API: ✅ BHEL found in database! Adding to response...`);
-          bhelDirectQueryFinal.isin = normalizeIsin(bhelDirectQueryFinal.isin);
           const stockTransactionsFinal = transactions.filter((t: any) => 
-            normalizeIsin(t.isin) === 'INE257A01026'
           );
           let stockXIRR = 0;
           let cagr = 0;
           let holdingPeriodYears = 0;
           let holdingPeriodMonths = 0;
           try {
-            stockXIRR = calculateStockXIRR(stockTransactionsFinal, bhelDirectQueryFinal);
-            const result = calculateStockCAGRAndHoldingPeriod(stockTransactionsFinal, bhelDirectQueryFinal);
             cagr = result.cagr;
             holdingPeriodYears = result.holdingPeriodYears;
             holdingPeriodMonths = result.holdingPeriodMonths;
           } catch (e) {
-            console.error(`API: Error calculating metrics for BHEL:`, e);
           }
           finalHoldingsResult.push({
-            ...bhelDirectQueryFinal,
-            _id: String(bhelDirectQueryFinal._id || ''),
             xirr: stockXIRR,
             cagr: cagr,
             holdingPeriodYears: holdingPeriodYears,
             holdingPeriodMonths: holdingPeriodMonths,
           });
-          console.error(`API: ✅✅✅ BHEL added to final result. New count: ${finalHoldingsResult.length}`);
         } else {
-          console.error(`API: ❌ BHEL NOT in database at all! Upload must have failed to save it.`);
         }
       }
     }
     
     // ABSOLUTE FINAL VERIFICATION before sending response
-    const finalResponseBhel = finalHoldingsResult.find((h: any) => 
-      normalizeIsin(h.isin) === 'INE257A01026' || h.stockName?.toLowerCase().includes('bhel')
     );
     
-    // If BHEL is still missing, query database ONE MORE TIME and add it
-    if (!finalResponseBhel) {
-      console.error(`API: ❌❌❌ FINAL VERIFICATION: BHEL MISSING! Querying database one last time...`);
-      const lastChanceBhel = await Holding.findOne({ 
         clientId,
         $or: [
-          { isin: 'INE257A01026' },
-          { isin: /INE257A01026/i },
-          { stockName: { $regex: /b\s*h\s*e\s*l|bhel/i } }
         ]
       }).lean() as any;
       
-      if (lastChanceBhel && !Array.isArray(lastChanceBhel)) {
-        console.error(`API: ✅✅✅ FOUND BHEL in final database query! Adding to response...`);
-        lastChanceBhel.isin = normalizeIsin(lastChanceBhel.isin);
         const stockTransactionsFinal = transactions.filter((t: any) => 
-          normalizeIsin(t.isin) === 'INE257A01026'
         );
         let stockXIRR = 0;
         let cagr = 0;
         let holdingPeriodYears = 0;
         let holdingPeriodMonths = 0;
         try {
-          stockXIRR = calculateStockXIRR(stockTransactionsFinal, lastChanceBhel);
-          const result = calculateStockCAGRAndHoldingPeriod(stockTransactionsFinal, lastChanceBhel);
           cagr = result.cagr;
           holdingPeriodYears = result.holdingPeriodYears;
           holdingPeriodMonths = result.holdingPeriodMonths;
         } catch (e) {
-          console.error(`API: Error calculating metrics for BHEL:`, e);
         }
         finalHoldingsResult.push({
-          ...lastChanceBhel,
-          _id: String(lastChanceBhel._id || ''),
           xirr: stockXIRR,
           cagr: cagr,
           holdingPeriodYears: holdingPeriodYears,
           holdingPeriodMonths: holdingPeriodMonths,
         });
-        console.error(`API: ✅✅✅ BHEL added in final verification. New count: ${finalHoldingsResult.length}`);
       } else {
-        console.error(`API: ❌ BHEL NOT in database! Upload verification was wrong.`);
       }
     } else {
-      console.log(`API: ✅✅✅ FINAL VERIFICATION: BHEL will be in response: ${finalResponseBhel.stockName} (${finalResponseBhel.isin})`);
     }
     
     // ✅ OPTION 3: Final Safety Net - Compare DB ISINs with Response ISINs (as suggested by user)
@@ -1486,27 +1220,16 @@ export async function GET(request: NextRequest) {
       
       console.log(`API: ✅✅✅ Final safety net complete. New response count: ${finalHoldingsResult.length}`);
       
-      // Verify BHEL one more time
-      const bhelAfterSafetyNet = finalHoldingsResult.find((h: any) => 
-        normalizeIsin(h.isin) === 'INE257A01026' || h.stockName?.toLowerCase().includes('bhel')
       );
-      if (bhelAfterSafetyNet) {
-        console.log(`API: ✅✅✅ BHEL confirmed after safety net: ${bhelAfterSafetyNet.stockName} (${bhelAfterSafetyNet.isin})`);
       } else {
-        console.error(`API: ❌❌❌ BHEL still missing after safety net!`);
       }
     } else {
       console.log(`API: ✅✅✅ Final safety net: All DB holdings are in response (${finalHoldingsResult.length}/${dbAllHoldingsFinalCheck.length})`);
     }
     
-    // ABSOLUTE FINAL CHECK: If BHEL is still missing or count doesn't match, rebuild from database
     const finalDbCountCheck = await Holding.countDocuments({ clientId });
-    const finalResponseHasBhel = finalHoldingsResult.find((h: any) => 
-      normalizeIsin(h.isin) === 'INE257A01026' || h.stockName?.toLowerCase().includes('bhel')
     );
     
-    if (!finalResponseHasBhel || finalHoldingsResult.length !== finalDbCountCheck) {
-      console.error(`API: 🔴🔴🔴 CRITICAL: Final check failed! BHEL: ${!!finalResponseHasBhel}, Count: ${finalHoldingsResult.length}/${finalDbCountCheck}`);
       console.error(`API: 🔴 REBUILDING ENTIRE RESPONSE FROM DATABASE...`);
       
       // Rebuild from scratch using database as source of truth
@@ -1593,27 +1316,16 @@ export async function GET(request: NextRequest) {
       
       console.error(`API: ✅✅✅ Rebuilt response from database. Final count: ${finalHoldingsResult.length}`);
       
-      // Verify BHEL one last time
-      const bhelInRebuilt = finalHoldingsResult.find((h: any) => 
-        normalizeIsin(h.isin) === 'INE257A01026' || h.stockName?.toLowerCase().includes('bhel')
       );
-      if (bhelInRebuilt) {
-        console.error(`API: ✅✅✅ BHEL CONFIRMED in rebuilt response: ${bhelInRebuilt.stockName} (${bhelInRebuilt.isin})`);
       } else {
-        console.error(`API: ❌❌❌ BHEL STILL MISSING after rebuild! Database query must be wrong.`);
       }
     }
     
     // LAST CHECK: Log what we're actually returning
     console.log(`API: 🎯 RETURNING: ${finalHoldingsResult.length} holdings`);
     console.log(`API: 🎯 RETURNING ISINs:`, finalHoldingsResult.map((h: any) => normalizeIsin(h.isin)).sort());
-    const bhelInReturn = finalHoldingsResult.find((h: any) => 
-      normalizeIsin(h.isin) === 'INE257A01026' || h.stockName?.toLowerCase().includes('bhel')
     );
-    if (bhelInReturn) {
-      console.log(`API: ✅✅✅ RETURNING WITH BHEL: ${bhelInReturn.stockName} (${bhelInReturn.isin})`);
     } else {
-      console.error(`API: ❌❌❌ RETURNING WITHOUT BHEL!`);
       
       // ULTIMATE LAST RESORT: Query database one final time and rebuild if needed
       const ultimateDbCount = await Holding.countDocuments({ clientId });
@@ -1640,11 +1352,7 @@ export async function GET(request: NextRequest) {
         finalHoldingsResult = rebuiltHoldings;
         console.error(`API: ✅ Rebuilt response with ${finalHoldingsResult.length} holdings`);
         
-        // Verify BHEL again
-        const rebuiltBhelCheck = finalHoldingsResult.find((h: any) => 
-          normalizeIsin(h.isin) === 'INE257A01026' || h.stockName?.toLowerCase().includes('bhel')
         );
-        console.error(`API: ${rebuiltBhelCheck ? '✅' : '❌'} BHEL after rebuild: ${rebuiltBhelCheck ? rebuiltBhelCheck.stockName : 'NOT FOUND'}`);
       }
     }
     
