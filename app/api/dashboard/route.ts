@@ -2346,8 +2346,8 @@ async function calculateMonthlyReturns(holdings: any[], transactions: any[]): Pr
   
   // Process in batches to avoid overwhelming the database
   // Optimize: Use indexed query with date range filter to reduce data transfer
+  // Note: minDate is already defined above (line 2314) - reuse it
   const BATCH_SIZE = 20; // Increased batch size for better performance
-  const minDate = startOfMonth(subYears(new Date(), 5)); // Only fetch last 5 years
   
   console.log(`📊 Fetching stock prices for ${uniqueIsins.length} ISINs for monthly returns calculation...`);
   
@@ -2357,6 +2357,7 @@ async function calculateMonthlyReturns(holdings: any[], transactions: any[]): Pr
       await Promise.all(batch.map(async (isin) => {
         try {
           // Optimize: Only fetch data for the last 5 years with indexed query
+          // minDate is defined earlier in the function (line 2314)
           const prices = await StockData.find({ 
             isin,
             date: { $gte: minDate } // Only fetch last 5 years
