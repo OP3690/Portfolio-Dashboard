@@ -1499,9 +1499,9 @@ export async function GET(request: NextRequest) {
           { isin: /INE257A01026/i },
           { stockName: { $regex: /b\s*h\s*e\s*l|bhel/i } }
         ]
-      }).lean();
+      }).lean() as any;
       
-      if (lastChanceBhel) {
+      if (lastChanceBhel && !Array.isArray(lastChanceBhel)) {
         console.error(`API: ✅✅✅ FOUND BHEL in final database query! Adding to response...`);
         lastChanceBhel.isin = normalizeIsin(lastChanceBhel.isin);
         const stockTransactionsFinal = transactions.filter((t: any) => 
