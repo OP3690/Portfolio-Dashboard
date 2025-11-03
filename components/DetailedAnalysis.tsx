@@ -820,7 +820,8 @@ export default function DetailedAnalysis({ holdings }: DetailedAnalysisProps) {
                         </g>
                       );
                     }
-                    return null;
+                    // Default dot (small circle) - must always return an Element
+                    return <circle cx={cx} cy={cy} r={2} fill="#8884d8" />;
                   }}
                   activeDot={{ r: 6 }}
                   name="Close Price"
