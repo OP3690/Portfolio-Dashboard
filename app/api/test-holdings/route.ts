@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import connectToDatabase from '@/lib/mongodb';
+import connectDB from '@/lib/mongodb';
 import Holding from '@/models/Holding';
 
 export async function GET(request: NextRequest) {
   try {
-    await connectToDatabase();
+    await connectDB();
     
     const searchParams = request.nextUrl.searchParams;
     const clientId = searchParams.get('clientId') || '994826';
