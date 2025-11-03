@@ -71,83 +71,10 @@ export async function GET(request: NextRequest) {
     // Get all holdings
     console.log('API: Fetching holdings...');
     let holdings: any[] = [];
-    let bhelDirectQuery: any = null; // Declare outside try block so it's accessible later
     
     try {
-      // First, get raw count directly from database
-      const totalCount = await Holding.countDocuments({ clientId });
-      console.log(`API: Raw count from database (countDocuments): ${totalCount}`);
-      
-      // CRITICAL: Direct query for BHEL FIRST to verify it exists
-      bhelDirectQuery = await Holding.findOne({ clientId, isin: 'INE257A01026' }).lean() as any;
-      if (!bhelDirectQuery) {
-        // Try with regex in case of whitespace issues
-        bhelDirectQuery = await Holding.findOne({ 
-          clientId, 
-          isin: { $regex: /INE257A01026/i }
-        }).lean() as any;
-      }
-      if (!bhelDirectQuery) {
-        // Try by name
-        bhelDirectQuery = await Holding.findOne({ 
-          clientId, 
-          stockName: { $regex: /b\s*h\s*e\s*l|bhel/i } 
-        }).lean() as any;
-      }
-      
-      if (bhelDirectQuery) {
-        console.log(`API: ✅ BHEL found via direct query BEFORE main fetch:`, bhelDirectQuery.stockName, bhelDirectQuery.isin);
-      } else {
-        console.log(`API: ⚠️  BHEL NOT found via direct query before main fetch`);
-      }
-      
-      // Try to fetch with explicit read concern to ensure we get the latest data
-      // CRITICAL: Use find().lean() with NO filters except clientId, and NO limit
       holdings = await Holding.find({ clientId }).lean();
-      console.log(`API: 📊 Initial fetch from database: ${holdings.length} holdings (expected: ${totalCount})`);
-      console.log(`API: 📊 Raw ISINs from DB:`, holdings.map((h: any) => h.isin).sort());
-      
-      // CRITICAL: If find() returned fewer holdings than countDocuments, something is wrong
-      if (holdings.length < totalCount) {
-        console.error(`API: 🔴🔴🔴 CRITICAL: find() returned ${holdings.length} but countDocuments says ${totalCount}!`);
-        console.error(`API: 🔴 This is a MongoDB query issue - find() is not returning all documents!`);
-        
-        // Try to fetch using a different method - iterate through all documents
-        console.error(`API: 🔴 Attempting to fetch all holdings using alternative method...`);
-        const allHoldingsAlternative: any[] = [];
-        const batchSize = 100;
-        let skip = 0;
-        let batchCount = 0;
-        
-        while (skip < totalCount && batchCount < 100) { // Safety limit
-          const batch = await Holding.find({ clientId }).skip(skip).limit(batchSize).lean();
-          if (batch.length === 0) break;
-          allHoldingsAlternative.push(...batch);
-          skip += batch.length;
-          batchCount++;
-          if (batch.length < batchSize) break;
-        }
-        
-        console.error(`API: 🔴 Alternative fetch method returned ${allHoldingsAlternative.length} holdings`);
-        if (allHoldingsAlternative.length === totalCount) {
-          console.error(`API: ✅ Alternative method worked! Using those results instead.`);
-          holdings = allHoldingsAlternative;
-        }
-      }
-      
-      // Verify BHEL is in the raw query results BEFORE any normalization
-      const rawBhelCheck = holdings.find((h: any) => {
-        const rawIsin = String(h.isin || '').trim();
-        const isBhelIsin = rawIsin.toUpperCase() === 'INE257A01026';
-        const isBhelName = String(h.stockName || '').toLowerCase().includes('bhel');
-        return isBhelIsin || isBhelName;
-      });
-      
-      if (rawBhelCheck) {
-        console.log(`API: ✅✅✅ BHEL found in RAW query BEFORE normalization: "${rawBhelCheck.stockName}" (raw ISIN: "${rawBhelCheck.isin}")`);
-      } else {
-        console.error(`API: ❌❌❌ BHEL NOT in raw query! This means the find({ clientId }) query itself is missing BHEL!`);
-        console.error(`API: Raw holdings stock names:`, holdings.map((h: any) => h.stockName));
+      console.log(`API: 📊 Fetched ${holdings.length} holdings from database`);
         
         // Try a direct query for BHEL
         const directBhelQuery = await Holding.findOne({ clientId, isin: 'INE257A01026' }).lean() as any;
@@ -297,26 +224,6 @@ export async function GET(request: NextRequest) {
         if (bhelAnyClient && !Array.isArray(bhelAnyClient)) {
           bhelAnyClient.isin = normalizeIsin(bhelAnyClient.isin);
           console.error(`API: ⚠️  Found BHEL but with different clientId:`, bhelAnyClient.clientId, `Expected:`, clientId);
-        }
-      }
-      
-      // Also check all holdings for any ISIN that contains "257A01026" (in case of typos)
-      const similarIsins = holdings.filter((h: any) => h.isin && h.isin.includes('257A01026'));
-      if (similarIsins.length > 0) {
-        console.log(`API: Found holdings with similar ISIN:`, similarIsins.map((h: any) => ({ isin: h.isin, stockName: h.stockName })));
-      }
-      
-      // Check specifically for BHEL in the fetched holdings (using normalized ISIN)
-      const bhelInDb = holdings.find((h: any) => normalizeIsin(h.isin) === bhelIsin || h.stockName?.toLowerCase().includes('bhel'));
-      if (bhelInDb) {
-        console.log(`API: ✅ BHEL found in database:`, bhelInDb.stockName, bhelInDb.isin, `Qty: ${bhelInDb.openQty}`);
-      } else {
-        console.warn(`API: ⚠️  BHEL NOT found in database query results!`);
-        if (bhelDirectQuery) {
-          console.error(`API: ⚠️  CRITICAL: BHEL exists in database but was NOT returned by find({ clientId })!`);
-          console.error(`API: This suggests a query filtering issue. Adding BHEL manually...`);
-          holdings.push(bhelDirectQuery);
-          console.log(`API: Added BHEL to holdings array. New count: ${holdings.length}`);
         }
       }
     } catch (holdingsError: any) {
@@ -2464,55 +2371,73 @@ async function calculateMonthlyReturns(holdings: any[], transactions: any[]): Pr
   // Get unique ISINs from holdings
   const uniqueIsins = [...new Set(holdings.map(h => h.isin).filter(Boolean))];
   
-  // Pre-fetch all stock prices for all ISINs at once to optimize performance
-  // Use batch processing to avoid memory issues with large datasets
+  // OPTIMIZED: Use MongoDB aggregation to fetch ALL prices in ONE query (much faster)
   const StockData = (await import('@/models/StockData')).default;
   const priceDataMap = new Map<string, Array<{ date: Date; close: number }>>();
   
-  // Process in batches to avoid overwhelming the database
-  // Optimize: Use indexed query with date range filter to reduce data transfer
-  // Note: minDate is already defined above (line 2314) - reuse it
-  const BATCH_SIZE = 20; // Increased batch size for better performance
+  console.log(`📊 Fetching stock prices for ${uniqueIsins.length} ISINs for monthly returns calculation (using aggregation)...`);
   
-  console.log(`📊 Fetching stock prices for ${uniqueIsins.length} ISINs for monthly returns calculation...`);
-  
-  for (let i = 0; i < uniqueIsins.length; i += BATCH_SIZE) {
-    const batch = uniqueIsins.slice(i, i + BATCH_SIZE);
-    try {
+  try {
+    // Fetch all prices for all ISINs in one aggregation query
+    const allPrices: any[] = await StockData.aggregate([
+      {
+        $match: {
+          isin: { $in: uniqueIsins },
+          date: { $gte: minDate }
+        }
+      },
+      {
+        $sort: { isin: 1, date: 1 }
+      },
+      {
+        $project: {
+          isin: 1,
+          date: 1,
+          close: 1
+        }
+      }
+    ]).exec();
+    
+    // Group prices by ISIN
+    allPrices.forEach((p: any) => {
+      if (!priceDataMap.has(p.isin)) {
+        priceDataMap.set(p.isin, []);
+      }
+      priceDataMap.get(p.isin)!.push({
+        date: new Date(p.date),
+        close: p.close || 0
+      });
+    });
+    
+    console.log(`✅ Fetched price data for ${priceDataMap.size} ISINs. Data points: ${Array.from(priceDataMap.values()).reduce((sum, arr) => sum + arr.length, 0)}`);
+  } catch (error) {
+    console.error(`Error in aggregation query, falling back to batch queries:`, error);
+    // Fallback to batch processing if aggregation fails
+    const BATCH_SIZE = 20;
+    for (let i = 0; i < uniqueIsins.length; i += BATCH_SIZE) {
+      const batch = uniqueIsins.slice(i, i + BATCH_SIZE);
       await Promise.all(batch.map(async (isin) => {
         try {
-          // Optimize: Only fetch data for the last 5 years with indexed query
-          // minDate is defined earlier in the function (line 2314)
           const prices = await StockData.find({ 
             isin,
-            date: { $gte: minDate } // Only fetch last 5 years
+            date: { $gte: minDate }
           })
             .sort({ date: 1 })
             .select('date close')
-            .lean()
-            .limit(2000); // Limit to prevent huge queries
+            .lean();
           
           if (prices.length > 0) {
             priceDataMap.set(isin, prices.map((p: any) => ({
               date: new Date(p.date),
               close: p.close || 0
             })));
-          } else {
-            // If no data found, set empty array
-            priceDataMap.set(isin, []);
           }
-        } catch (error) {
-          console.error(`Error fetching prices for ${isin}:`, error);
+        } catch (err) {
           priceDataMap.set(isin, []);
         }
       }));
-    } catch (error) {
-      console.error(`Error processing batch ${i}-${i + BATCH_SIZE}:`, error);
-      // Continue with next batch
     }
   }
-  
-  console.log(`✅ Fetched price data for ${priceDataMap.size} ISINs. Data points: ${Array.from(priceDataMap.values()).reduce((sum, arr) => sum + arr.length, 0)}`);
   
   // Helper function to get price from cached data
   const getCachedPrice = (isin: string, targetDate: Date): number => {
