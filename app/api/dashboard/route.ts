@@ -744,7 +744,6 @@ export async function GET(request: NextRequest) {
             console.error(`API: ❌❌❌ ${missingFromProcessed.length} holdings MISSED by Promise.allSettled! Adding them...`);
             missingFromProcessed.forEach((original: any) => {
               const key = normalizeIsin(original.isin);
-              }
               processedHoldings.push({
                 ...original,
                 _id: (original._id?.toString && typeof original._id.toString === 'function') 
@@ -759,10 +758,6 @@ export async function GET(request: NextRequest) {
               processedIsins.add(key);
             });
             console.log(`API: ✅ Added ${missingFromProcessed.length} missing holdings. New count: ${processedHoldings.length}`);
-          }
-          
-          );
-          } else {
           }
           
           console.log(`API: Processed ${processedHoldings.length} holdings (should be ${holdings.length})`);
@@ -821,12 +816,6 @@ export async function GET(request: NextRequest) {
             console.error(`🚨🚨🚨 CRITICAL: Holdings count dropped from ${originalHoldingsCount} to ${processedHoldings.length}!`);
           } else {
             console.log(`✅✅✅ Holdings count maintained: ${processedHoldings.length} (expected: ${originalHoldingsCount})`);
-          }
-          
-          } else {
-              });
-            } else {
-            }
           }
           
           // FINAL SAFEGUARD: Verify ALL expected holdings are present
@@ -977,9 +966,8 @@ export async function GET(request: NextRequest) {
       console.log(`API: ✅✅✅ Final count matches original: ${finalHoldingsResult.length}`);
     }
     
-    // Final verification
-    } else {
-      
+    // Final verification - check if we're missing any holdings
+    if (finalHoldingsResult.length !== dbCount) {
       // ABSOLUTE LAST RESORT: Query database directly one more time
       const dbFinalQuery = await Holding.find({ clientId }).lean();
       console.log(`API: Database query returned ${dbFinalQuery.length} holdings`);
@@ -1071,70 +1059,7 @@ export async function GET(request: NextRequest) {
       
       finalHoldingsResult = dbProcessedHoldings;
       console.log(`API: ✅✅✅ Rebuilt from database. Final count: ${finalHoldingsResult.length}`);
-      
-      );
-      } else {
-      }
-      
       console.log(`API: ✅✅✅ All ISINs:`, finalHoldingsResult.map((h: any) => h.isin).sort());
-    } else {
-          clientId, 
-          $or: [
-          ]
-        }).lean() as any;
-        
-          const stockTransactionsFinal = transactions.filter((t: any) => 
-          );
-          let stockXIRR = 0;
-          let cagr = 0;
-          let holdingPeriodYears = 0;
-          let holdingPeriodMonths = 0;
-          try {
-            cagr = result.cagr;
-            holdingPeriodYears = result.holdingPeriodYears;
-            holdingPeriodMonths = result.holdingPeriodMonths;
-          } catch (e) {
-          }
-          finalHoldingsResult.push({
-            xirr: stockXIRR,
-            cagr: cagr,
-            holdingPeriodYears: holdingPeriodYears,
-            holdingPeriodMonths: holdingPeriodMonths,
-          });
-        } else {
-        }
-      }
-    }
-    
-    // ABSOLUTE FINAL VERIFICATION before sending response
-    );
-    
-        clientId,
-        $or: [
-        ]
-      }).lean() as any;
-      
-        const stockTransactionsFinal = transactions.filter((t: any) => 
-        );
-        let stockXIRR = 0;
-        let cagr = 0;
-        let holdingPeriodYears = 0;
-        let holdingPeriodMonths = 0;
-        try {
-          cagr = result.cagr;
-          holdingPeriodYears = result.holdingPeriodYears;
-          holdingPeriodMonths = result.holdingPeriodMonths;
-        } catch (e) {
-        }
-        finalHoldingsResult.push({
-          xirr: stockXIRR,
-          cagr: cagr,
-          holdingPeriodYears: holdingPeriodYears,
-          holdingPeriodMonths: holdingPeriodMonths,
-        });
-      } else {
-      }
-    } else {
     }
     
     // ✅ OPTION 3: Final Safety Net - Compare DB ISINs with Response ISINs (as suggested by user)
