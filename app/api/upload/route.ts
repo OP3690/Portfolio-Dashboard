@@ -465,9 +465,9 @@ export async function POST(request: NextRequest) {
       const existing = await Holding.findOne({
         clientId,
         isin: normalizedIsin,
-      }).lean();
+      }).lean() as any;
 
-      if (!existing) {
+      if (!existing || Array.isArray(existing)) {
         // New stock - add it
         newStocksCount++;
         if (isBhel) {
