@@ -1291,8 +1291,8 @@ export async function POST(request: NextRequest) {
             
             // Re-query using Mongoose and add to array
             await new Promise(resolve => setTimeout(resolve, 300));
-            const verifyRaw = await Holding.findOne({ clientId, isin: missingIsin }).lean();
-            if (verifyRaw) {
+            const verifyRaw = await Holding.findOne({ clientId, isin: missingIsin }).lean() as any;
+            if (verifyRaw && !Array.isArray(verifyRaw)) {
               console.error(`✅✅✅ RAW INSERT VERIFIED! ${missingHolding.stockName} saved via raw MongoDB!`);
               absoluteFinalHoldings.push(verifyRaw);
               absoluteFinalHoldings = [...new Map(absoluteFinalHoldings.map((h: any) => [h.isin, h])).values()]; // Remove duplicates
