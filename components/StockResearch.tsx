@@ -342,7 +342,7 @@ export default function StockResearch() {
       // Apply filters immediately with the final filter values
       // Use onApplyWithFilters if provided (preferred for immediate application with values)
       if (onApplyWithFilters) {
-        onApplyWithFilters(finalFilters[signalType]);
+        onApplyWithFilters(finalFilters);
       } else {
         // Fallback: call regular onApply, which will trigger applyFilters in parent
         // The parent will read the latest filters state which was updated via onChange
@@ -363,210 +363,234 @@ export default function StockResearch() {
           <div className="mt-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
             <style dangerouslySetInnerHTML={{ __html: numberInputStyles }} />
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {signalType === 'volumeSpikes' && (
-                <>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Min Vol Spike (%)</label>
-                    <input
-                      type="number"
-                      {...getInputProps('minVolSpike', filters.minVolSpike)}
+              {signalType === 'volumeSpikes' && (() => {
+                const volFilters = filters as FilterState['volumeSpikes'];
+                const volActiveFilters = activeFilters as FilterState['volumeSpikes'];
+                return (
+                  <>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Vol Spike (%)</label>
+                      <input
+                        type="number"
+                        {...getInputProps('minVolSpike', volFilters.minVolSpike)}
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Active: {volActiveFilters.minVolSpike}</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Price Move (%)</label>
+                      <input
+                        type="number"
+                        {...getInputProps('minPriceMove', volFilters.minPriceMove, '0.1')}
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Active: {volActiveFilters.minPriceMove}</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Price (₹)</label>
+                      <input
+                        type="number"
+                        {...getInputProps('minPrice', volFilters.minPrice)}
                       className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
                     />
-                    <p className="text-xs text-gray-500 mt-1">Active: {activeFilters.minVolSpike}</p>
+                    <p className="text-xs text-gray-500 mt-1">Active: {volActiveFilters.minPrice}</p>
                   </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Min Price Move (%)</label>
-                    <input
-                      type="number"
-                      {...getInputProps('minPriceMove', filters.minPriceMove, '0.1')}
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Active: {activeFilters.minPriceMove}</p>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Min Price (₹)</label>
-                    <input
-                      type="number"
-                      {...getInputProps('minPrice', filters.minPrice)}
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Active: {activeFilters.minPrice}</p>
-                  </div>
-                </>
-              )}
+                  </>
+                );
+              })()}
               
-              {signalType === 'deepPullbacks' && (
-                <>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Max % from 52W High</label>
-                    <input
-                      type="number"
-                      {...getInputProps('maxFromHigh', filters.maxFromHigh)}
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Active: {activeFilters.maxFromHigh}</p>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Min Volume</label>
-                    <input
-                      type="number"
-                      {...getInputProps('minVol', filters.minVol)}
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Active: {activeFilters.minVol}</p>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Min Price (₹)</label>
-                    <input
-                      type="number"
-                      {...getInputProps('minPrice', filters.minPrice)}
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Active: {activeFilters.minPrice}</p>
-                  </div>
-                </>
-              )}
+              {signalType === 'deepPullbacks' && (() => {
+                const pullbackFilters = filters as FilterState['deepPullbacks'];
+                const pullbackActiveFilters = activeFilters as FilterState['deepPullbacks'];
+                return (
+                  <>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Max % from 52W High</label>
+                      <input
+                        type="number"
+                        {...getInputProps('maxFromHigh', pullbackFilters.maxFromHigh)}
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Active: {pullbackActiveFilters.maxFromHigh}</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Volume</label>
+                      <input
+                        type="number"
+                        {...getInputProps('minVol', pullbackFilters.minVol)}
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Active: {pullbackActiveFilters.minVol}</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Price (₹)</label>
+                      <input
+                        type="number"
+                        {...getInputProps('minPrice', pullbackFilters.minPrice)}
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Active: {pullbackActiveFilters.minPrice}</p>
+                    </div>
+                  </>
+                );
+              })()}
               
-              {signalType === 'capitulated' && (
-                <>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Max % from 52W High</label>
-                    <input
-                      type="number"
-                      {...getInputProps('maxFromHigh', filters.maxFromHigh)}
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Active: {activeFilters.maxFromHigh}</p>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Min Vol Spike (%)</label>
-                    <input
-                      type="number"
-                      {...getInputProps('minVolSpike', filters.minVolSpike)}
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Active: {activeFilters.minVolSpike}</p>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Min Price (₹)</label>
-                    <input
-                      type="number"
-                      {...getInputProps('minPrice', filters.minPrice)}
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Active: {activeFilters.minPrice}</p>
-                  </div>
-                </>
-              )}
+              {signalType === 'capitulated' && (() => {
+                const capFilters = filters as FilterState['capitulated'];
+                const capActiveFilters = activeFilters as FilterState['capitulated'];
+                return (
+                  <>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Max % from 52W High</label>
+                      <input
+                        type="number"
+                        {...getInputProps('maxFromHigh', capFilters.maxFromHigh)}
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Active: {capActiveFilters.maxFromHigh}</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Vol Spike (%)</label>
+                      <input
+                        type="number"
+                        {...getInputProps('minVolSpike', capFilters.minVolSpike)}
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Active: {capActiveFilters.minVolSpike}</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Price (₹)</label>
+                      <input
+                        type="number"
+                        {...getInputProps('minPrice', capFilters.minPrice)}
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Active: {capActiveFilters.minPrice}</p>
+                    </div>
+                  </>
+                );
+              })()}
               
-              {signalType === 'fiveDayDecliners' && (
-                <>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Min Down Days</label>
-                    <input
-                      type="number"
-                      min="1"
-                      max="5"
-                      {...getInputProps('minDownDays', filters.minDownDays)}
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Active: {activeFilters.minDownDays}</p>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Max 5D Return (%)</label>
-                    <input
-                      type="number"
-                      {...getInputProps('maxReturn', filters.maxReturn, '0.1')}
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Active: {activeFilters.maxReturn}</p>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Min Price (₹)</label>
-                    <input
-                      type="number"
-                      {...getInputProps('minPrice', filters.minPrice)}
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Active: {activeFilters.minPrice}</p>
-                  </div>
-                </>
-              )}
+              {signalType === 'fiveDayDecliners' && (() => {
+                const declinerFilters = filters as FilterState['fiveDayDecliners'];
+                const declinerActiveFilters = activeFilters as FilterState['fiveDayDecliners'];
+                return (
+                  <>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Down Days</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="5"
+                        {...getInputProps('minDownDays', declinerFilters.minDownDays)}
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Active: {declinerActiveFilters.minDownDays}</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Max 5D Return (%)</label>
+                      <input
+                        type="number"
+                        {...getInputProps('maxReturn', declinerFilters.maxReturn, '0.1')}
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Active: {declinerActiveFilters.maxReturn}</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Price (₹)</label>
+                      <input
+                        type="number"
+                        {...getInputProps('minPrice', declinerFilters.minPrice)}
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Active: {declinerActiveFilters.minPrice}</p>
+                    </div>
+                  </>
+                );
+              })()}
               
-              {signalType === 'fiveDayClimbers' && (
-                <>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Min Up Days</label>
-                    <input
-                      type="number"
-                      min="1"
-                      max="5"
-                      {...getInputProps('minUpDays', filters.minUpDays)}
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Active: {activeFilters.minUpDays}</p>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Min 5D Return (%)</label>
-                    <input
-                      type="number"
-                      {...getInputProps('minReturn', filters.minReturn, '0.1')}
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Active: {activeFilters.minReturn}</p>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Min Price (₹)</label>
-                    <input
-                      type="number"
-                      {...getInputProps('minPrice', filters.minPrice)}
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Active: {activeFilters.minPrice}</p>
-                  </div>
-                </>
-              )}
+              {signalType === 'fiveDayClimbers' && (() => {
+                const climberFilters = filters as FilterState['fiveDayClimbers'];
+                const climberActiveFilters = activeFilters as FilterState['fiveDayClimbers'];
+                return (
+                  <>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Up Days</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="5"
+                        {...getInputProps('minUpDays', climberFilters.minUpDays)}
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Active: {climberActiveFilters.minUpDays}</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Min 5D Return (%)</label>
+                      <input
+                        type="number"
+                        {...getInputProps('minReturn', climberFilters.minReturn, '0.1')}
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Active: {climberActiveFilters.minReturn}</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Price (₹)</label>
+                      <input
+                        type="number"
+                        {...getInputProps('minPrice', climberFilters.minPrice)}
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Active: {climberActiveFilters.minPrice}</p>
+                    </div>
+                  </>
+                );
+              })()}
               
-              {signalType === 'tightRangeBreakouts' && (
-                <>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Max Range (%)</label>
-                    <input
-                      type="number"
-                      {...getInputProps('maxRange', filters.maxRange)}
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Active: {activeFilters.maxRange}</p>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Min BO Score</label>
-                    <input
-                      type="number"
-                      {...getInputProps('minBoScore', filters.minBoScore, '0.1')}
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Active: {activeFilters.minBoScore}</p>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Min Vol Spike (%)</label>
-                    <input
-                      type="number"
-                      {...getInputProps('minVolSpike', filters.minVolSpike)}
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Active: {activeFilters.minVolSpike}</p>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Min Price (₹)</label>
-                    <input
-                      type="number"
-                      {...getInputProps('minPrice', filters.minPrice)}
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Active: {activeFilters.minPrice}</p>
-                  </div>
-                </>
-              )}
+              {signalType === 'tightRangeBreakouts' && (() => {
+                const breakoutFilters = filters as FilterState['tightRangeBreakouts'];
+                const breakoutActiveFilters = activeFilters as FilterState['tightRangeBreakouts'];
+                return (
+                  <>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Max Range (%)</label>
+                      <input
+                        type="number"
+                        {...getInputProps('maxRange', breakoutFilters.maxRange)}
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Active: {breakoutActiveFilters.maxRange}</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Min BO Score</label>
+                      <input
+                        type="number"
+                        {...getInputProps('minBoScore', breakoutFilters.minBoScore, '0.1')}
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Active: {breakoutActiveFilters.minBoScore}</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Vol Spike (%)</label>
+                      <input
+                        type="number"
+                        {...getInputProps('minVolSpike', breakoutFilters.minVolSpike)}
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Active: {breakoutActiveFilters.minVolSpike}</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Price (₹)</label>
+                      <input
+                        type="number"
+                        {...getInputProps('minPrice', breakoutFilters.minPrice)}
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Active: {breakoutActiveFilters.minPrice}</p>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
             
             <div className="flex gap-2 mt-4">

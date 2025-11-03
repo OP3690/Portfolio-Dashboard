@@ -198,9 +198,9 @@ async function fetchStockFundamentals(symbol: string, exchange: string): Promise
               // v7 doesn't have PE data, but at least we get some fundamentals
             };
           }
-        } catch (v7Error) {
+        } catch (v7Error: any) {
           // All methods failed
-          console.debug(`All methods failed for ${yahooSymbol}:`, v7Error.message);
+          console.debug(`All methods failed for ${yahooSymbol}:`, v7Error?.message || v7Error);
         }
       }
     }
@@ -234,7 +234,8 @@ export async function fetchNSEHistoricalData(
       fundamentals = await fetchStockFundamentals(symbol, exchange);
       // Log if we successfully got fundamentals
       if (fundamentals && Object.keys(fundamentals).length > 0) {
-        console.log(`✅ Fetched fundamentals for ${symbol}: PE=${fundamentals.trailingPE || 'N/A'}, MarketCap=${fundamentals.marketCap || 'N/A'}`);
+        const fundData = fundamentals as any;
+        console.log(`✅ Fetched fundamentals for ${symbol}: PE=${fundData.trailingPE || 'N/A'}, MarketCap=${fundData.marketCap || 'N/A'}`);
       }
     } catch (error: any) {
       // Silently continue - fundamentals fetch might fail due to API restrictions
@@ -278,15 +279,16 @@ export async function fetchNSEHistoricalData(
         }
         
         // Use fundamentals 52W high/low if available, otherwise use calculated
-        const effective52WHigh = fundamentals.fiftyTwoWeekHigh || calculated52WHigh;
-        const effective52WLow = fundamentals.fiftyTwoWeekLow || calculated52WLow;
+        const fundData = fundamentals as any;
+        const effective52WHigh = fundData.fiftyTwoWeekHigh || calculated52WHigh;
+        const effective52WLow = fundData.fiftyTwoWeekLow || calculated52WLow;
         
         // Calculate average volume from historical data
         const volumes: number[] = quotes.volume ? quotes.volume.filter((v: number) => v && v > 0) : [];
         const calculatedAvgVolume = volumes.length > 0 
           ? volumes.reduce((a, b) => a + b, 0) / volumes.length 
           : undefined;
-        const effectiveAvgVolume = fundamentals.averageVolume || calculatedAvgVolume;
+        const effectiveAvgVolume = fundData.averageVolume || calculatedAvgVolume;
         
         const data: OHLCData[] = [];
         for (let i = 0; i < timestamps.length; i++) {
@@ -303,18 +305,18 @@ export async function fetchNSEHistoricalData(
               close: closePrice,
               volume: currentVolume,
               // Price / Range - use fundamentals for latest, calculated for historical
-              currentPrice: isLatestDate ? (fundamentals.currentPrice || closePrice) : closePrice,
+              currentPrice: isLatestDate ? (fundData.currentPrice || closePrice) : closePrice,
               fiftyTwoWeekHigh: effective52WHigh,
               fiftyTwoWeekLow: effective52WLow,
               // Volume metrics
               averageVolume: effectiveAvgVolume,
-              regularMarketVolume: isLatestDate ? (fundamentals.regularMarketVolume || currentVolume) : currentVolume,
+              regularMarketVolume: isLatestDate ? (fundData.regularMarketVolume || currentVolume) : currentVolume,
               // Fundamentals - store for latest date, will propagate to historical
-              trailingPE: isLatestDate ? fundamentals.trailingPE : undefined,
-              forwardPE: isLatestDate ? fundamentals.forwardPE : undefined,
-              priceToBook: isLatestDate ? fundamentals.priceToBook : undefined,
-              marketCap: isLatestDate ? fundamentals.marketCap : undefined,
-              dividendYield: isLatestDate ? fundamentals.dividendYield : undefined,
+              trailingPE: isLatestDate ? fundData.trailingPE : undefined,
+              forwardPE: isLatestDate ? fundData.forwardPE : undefined,
+              priceToBook: isLatestDate ? fundData.priceToBook : undefined,
+              marketCap: isLatestDate ? fundData.marketCap : undefined,
+              dividendYield: isLatestDate ? fundData.dividendYield : undefined,
             });
           }
         }
@@ -504,25 +506,26 @@ export async function fetchAndStoreHistoricalData(isin: string, forceFullUpdate:
         { trailingPE: { $exists: true, $ne: null } },
         { marketCap: { $exists: true, $ne: null } },
         { fiftyTwoWeekHigh: { $exists: true, $ne: null } }
-      ] 
+      ]
     })
       .sort({ date: -1 })
-      .lean();
+      .lean() as any;
     
     // Find the latest date in fetched data that has fundamentals
     const latestFetchedData = ohlcData.length > 0 ? ohlcData[ohlcData.length - 1] : null;
     
     // Use fetched values if available, otherwise use latest from database
+    const existingData = (latestExistingData && !Array.isArray(latestExistingData)) ? latestExistingData : null;
     const effectiveFundamentals = {
-      trailingPE: latestFetchedData?.trailingPE || latestExistingData?.trailingPE,
-      forwardPE: latestFetchedData?.forwardPE || latestExistingData?.forwardPE,
-      priceToBook: latestFetchedData?.priceToBook || latestExistingData?.priceToBook,
-      marketCap: latestFetchedData?.marketCap || latestExistingData?.marketCap,
-      dividendYield: latestFetchedData?.dividendYield || latestExistingData?.dividendYield,
-      fiftyTwoWeekHigh: latestFetchedData?.fiftyTwoWeekHigh || latestExistingData?.fiftyTwoWeekHigh,
-      fiftyTwoWeekLow: latestFetchedData?.fiftyTwoWeekLow || latestExistingData?.fiftyTwoWeekLow,
-      averageVolume: latestFetchedData?.averageVolume || latestExistingData?.averageVolume,
-      regularMarketVolume: latestFetchedData?.regularMarketVolume || latestExistingData?.regularMarketVolume,
+      trailingPE: latestFetchedData?.trailingPE || existingData?.trailingPE,
+      forwardPE: latestFetchedData?.forwardPE || existingData?.forwardPE,
+      priceToBook: latestFetchedData?.priceToBook || existingData?.priceToBook,
+      marketCap: latestFetchedData?.marketCap || existingData?.marketCap,
+      dividendYield: latestFetchedData?.dividendYield || existingData?.dividendYield,
+      fiftyTwoWeekHigh: latestFetchedData?.fiftyTwoWeekHigh || existingData?.fiftyTwoWeekHigh,
+      fiftyTwoWeekLow: latestFetchedData?.fiftyTwoWeekLow || existingData?.fiftyTwoWeekLow,
+      averageVolume: latestFetchedData?.averageVolume || existingData?.averageVolume,
+      regularMarketVolume: latestFetchedData?.regularMarketVolume || existingData?.regularMarketVolume,
     };
     
     for (const data of ohlcData) {
