@@ -665,7 +665,7 @@ export async function GET(request: NextRequest) {
               console.error(`Error calculating CAGR for ${h.isin}:`, error);
             }
             
-            const result = {
+            return {
               ...h,
               _id: (h._id?.toString && typeof h._id.toString === 'function') ? h._id.toString() : String(h._id || ''),
               isin: holdingNormalizedIsin, // Ensure ISIN is normalized in result
@@ -674,13 +674,8 @@ export async function GET(request: NextRequest) {
               holdingPeriodYears: holdingPeriodYears,
               holdingPeriodMonths: holdingPeriodMonths,
             };
-            
-            }
-            
-            return result;
           } catch (error: any) {
             console.error(`Error processing holding ${h.isin}:`, error);
-            }
             return {
               ...h,
               _id: (h._id?.toString && typeof h._id.toString === 'function') ? h._id.toString() : String(h._id || ''),
