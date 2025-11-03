@@ -264,7 +264,7 @@ export default function DetailedAnalysis({ holdings }: DetailedAnalysisProps) {
       annualizedReturn = years > 0 ? (Math.pow(lastPrice / firstPrice, 1 / years) - 1) * 100 : 0;
     }
 
-    // Get first price for max drawdown calculation
+    // Get first price for max drawdown calculation (outside if/else block for scope)
     const firstPrice = sortedData.length > 0 ? sortedData[0].close : 0;
 
     // Calculate volatility (standard deviation of daily returns)
