@@ -1647,8 +1647,8 @@ export async function GET(request: NextRequest) {
             const missingHolding = await Holding.findOne({ 
               clientId, 
               isin: missingIsin 
-            }).lean();
-            if (missingHolding) {
+            }).lean() as any;
+            if (missingHolding && !Array.isArray(missingHolding)) {
               console.error(`API: 🔴 But findOne({ clientId, isin: "${missingIsin}" }) WORKS! Adding manually...`);
               allDbHoldingsFinal.push(missingHolding);
             }
