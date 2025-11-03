@@ -26,13 +26,27 @@ export async function POST(request: NextRequest) {
     if (refreshLatest === true) {
       const Holding = (await import('@/models/Holding')).default;
       const StockData = (await import('@/models/StockData')).default;
+      const StockMaster = (await import('@/models/StockMaster')).default;
       const searchParams = request.nextUrl.searchParams;
       const clientId = searchParams.get('clientId') || '994826';
       
+      // Get holdings ISINs (priority 1)
       const holdings = await Holding.find({ clientId }).select('isin').lean();
-      const uniqueIsins = [...new Set(holdings.map((h: any) => h.isin).filter(Boolean))];
+      const holdingsIsins = new Set([...new Set(holdings.map((h: any) => h.isin).filter(Boolean))]);
       
-      console.log(`🔄 Refreshing latest 3 days of data for ${uniqueIsins.length} holdings...`);
+      // Get ALL stocks from StockMaster (for Stock Research)
+      const allStocks = await StockMaster.find({}).select('isin').lean();
+      const allStockIsins = new Set([...new Set(allStocks.map((s: any) => s.isin).filter(Boolean))]);
+      
+      // Combine: Holdings first (priority), then rest of stocks
+      const priorityIsins = Array.from(holdingsIsins);
+      const otherIsins = Array.from(allStockIsins).filter(isin => !holdingsIsins.has(isin));
+      const uniqueIsins = [...priorityIsins, ...otherIsins];
+      
+      console.log(`🔄 Refreshing latest 3 days of data:`);
+      console.log(`   - Priority (Holdings): ${priorityIsins.length} stocks`);
+      console.log(`   - Additional (All Stocks): ${otherIsins.length} stocks`);
+      console.log(`   - Total: ${uniqueIsins.length} stocks`);
       
       // First, check database for recent data (last 3 days)
       const threeDaysAgo = new Date();
@@ -79,6 +93,13 @@ export async function POST(request: NextRequest) {
       
       console.log(`✅ Found ${foundInDB} stocks with TODAY's data in database, ${isinsNeedingFetch.length} need fetching from API`);
       
+      // Separate holdings (priority) from other stocks
+      const holdingsNeedingFetch = isinsNeedingFetch.filter(isin => holdingsIsins.has(isin));
+      const otherStocksNeedingFetch = isinsNeedingFetch.filter(isin => !holdingsIsins.has(isin));
+      
+      console.log(`   - Priority (Holdings) needing fetch: ${holdingsNeedingFetch.length}`);
+      console.log(`   - Additional stocks needing fetch: ${otherStocksNeedingFetch.length}`);
+      
       // Only fetch missing ones - process in parallel batches to be faster
       let totalFetched = 0;
       let stocksProcessed = 0;
@@ -86,11 +107,12 @@ export async function POST(request: NextRequest) {
       let stocksFetched5Year = 0;
       const errors: string[] = [];
       
-      const StockMaster = (await import('@/models/StockMaster')).default;
+      // Process holdings first (priority), then other stocks
+      const isinsNeedingFetchOrdered = [...holdingsNeedingFetch, ...otherStocksNeedingFetch];
       
-      if (isinsNeedingFetch.length > 0) {
+      if (isinsNeedingFetchOrdered.length > 0) {
         // Quick check: separate stocks that need 5-year vs refresh (parallel)
-        const checkPromises = isinsNeedingFetch.map(async (isin) => {
+        const checkPromises = isinsNeedingFetchOrdered.map(async (isin) => {
           const has5Year = await hasComplete5YearData(isin);
           return { isin, has5Year };
         });

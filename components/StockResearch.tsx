@@ -143,6 +143,12 @@ export default function StockResearch() {
       }
       
       const response = await fetch(`/api/stock-research?${params.toString()}`);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP error! status: ${response.status}, ${errorText}`);
+      }
+      
       const result = await response.json();
       
       if (result.success) {

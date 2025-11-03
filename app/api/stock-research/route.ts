@@ -8,9 +8,8 @@ import { subDays, subMonths } from 'date-fns';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
-  await connectDB();
-  
   try {
+    await connectDB();
     const searchParams = request.nextUrl.searchParams;
     
     // Get filter parameters for each signal type
