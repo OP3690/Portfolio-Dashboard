@@ -70,8 +70,8 @@ export async function GET(request: NextRequest) {
     // Get the latest date in the database (not "today" which might be in the future)
     const latestRecord = await StockData.findOne({})
       .sort({ date: -1 })
-      .lean();
-    const latestDate = latestRecord?.date ? new Date(latestRecord.date) : new Date();
+      .lean() as any;
+    const latestDate = (latestRecord && !Array.isArray(latestRecord) && latestRecord.date) ? new Date(latestRecord.date) : new Date();
     
     // Set today to the latest available date in the database
     const today = latestDate;
@@ -143,9 +143,9 @@ export async function GET(request: NextRequest) {
       try {
         const latest = await StockData.findOne({ isin: stock.isin })
           .sort({ date: -1 })
-          .lean();
+          .lean() as any;
         
-        if (!latest || !latest.close || latest.close < 30) {
+        if (!latest || Array.isArray(latest) || !latest.close || latest.close < 30) {
           skippedCount++;
           continue;
         }
@@ -261,8 +261,8 @@ export async function GET(request: NextRequest) {
           date: { $lt: latest.date }
         })
         .sort({ date: -1 })
-        .lean();
-        const prevClose = prevDayData?.close || (price15Days.length > 1 ? price15Days[price15Days.length - 2]?.close : currentPrice);
+        .lean() as any;
+        const prevClose = (prevDayData && !Array.isArray(prevDayData) && prevDayData.close) ? prevDayData.close : (price15Days.length > 1 ? price15Days[price15Days.length - 2]?.close : currentPrice);
         const absPriceMove = prevClose > 0 ? Math.abs((currentPrice - prevClose) / prevClose) * 100 : 0;
 
         // Short-term oversold index
