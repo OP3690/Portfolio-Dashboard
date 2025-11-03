@@ -507,7 +507,7 @@ export async function POST(request: NextRequest) {
     
     // Prepare bulk operations
     const bulkOps: any[] = [];
-    const now = new Date();
+    // Note: 'now' is already defined earlier in the function (line 153)
     
     for (const holding of holdingsWithIsin) {
       const normalizedIsin = normalizeIsin(holding.isin); // Use helper function for consistency
