@@ -458,9 +458,8 @@ export async function GET(request: NextRequest) {
     }
     
     // Update all holdings with prices from the map (very fast)
+    // Note: 'today' is already defined above (line 347)
     let updatedCount = 0;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
     
     for (let i = 0; i < holdings.length; i++) {
       const holding = holdings[i] as any;
