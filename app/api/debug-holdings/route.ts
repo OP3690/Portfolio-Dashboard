@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
       } : {
         found: false,
         message: 'BHEL (INE257A01026) not found in database',
-        directQuery: bhelDirect ? {
+        directQuery: (bhelDirect && !Array.isArray(bhelDirect)) ? {
           found: true,
           stockName: bhelDirect.stockName,
           isin: bhelDirect.isin,
