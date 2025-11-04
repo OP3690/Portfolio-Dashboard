@@ -220,10 +220,21 @@ export async function GET(request: NextRequest) {
     
   } catch (error: any) {
     console.error('❌ Migration failed:', error);
+    
+    // Provide helpful error messages for common issues
+    let errorMessage = error.message || 'Migration failed';
+    if (error.message && error.message.includes('IP') && error.message.includes('whitelist')) {
+      errorMessage = error.message + '\n\n📋 SOLUTION: Please whitelist IP addresses in MongoDB Atlas:\n1. Go to MongoDB Atlas Dashboard\n2. Select your cluster\n3. Go to "Network Access"\n4. Click "Add IP Address"\n5. Click "Allow Access from Anywhere" (adds 0.0.0.0/0)\n6. Wait 1-2 minutes for changes to apply\n7. Try migration again\n\nSee MONGODB_IP_WHITELIST.md for detailed instructions.';
+    } else if (error.message && error.message.includes('authentication')) {
+      errorMessage = error.message + '\n\n📋 SOLUTION: Check your MongoDB connection string credentials (username/password).';
+    } else if (error.message && error.message.includes('ENOTFOUND') || error.message.includes('getaddrinfo')) {
+      errorMessage = error.message + '\n\n📋 SOLUTION: Check your MongoDB connection string - cluster hostname may be incorrect.';
+    }
+    
     return NextResponse.json(
       {
         success: false,
-        error: error.message || 'Migration failed',
+        error: errorMessage,
       },
       { status: 500 }
     );
