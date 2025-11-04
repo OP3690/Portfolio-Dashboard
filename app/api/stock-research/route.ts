@@ -70,9 +70,13 @@ export async function GET(request: NextRequest) {
     }
 
     // Get the latest date in the database (not "today" which might be in the future)
-    const latestRecord = await StockData.findOne({})
-      .sort({ date: -1 })
-      .lean() as any;
+    // Use aggregation with allowDiskUse for large collections
+    const latestRecordResult = await StockData.aggregate([
+      { $sort: { date: -1 } },
+      { $limit: 1 },
+      { $project: { date: 1 } }
+    ], { allowDiskUse: true }).exec();
+    const latestRecord = latestRecordResult && latestRecordResult.length > 0 ? latestRecordResult[0] : null;
     const latestDate = (latestRecord && !Array.isArray(latestRecord) && latestRecord.date) ? new Date(latestRecord.date) : new Date();
     
     // Set today to the latest available date in the database
@@ -135,28 +139,28 @@ export async function GET(request: NextRequest) {
       tightRangeBreakouts: [] as any[],
     };
 
-    // Limit to 300 stocks for performance - prioritize holdings first
+    // Process ALL stocks - no limit for comprehensive analysis
     const Holding = (await import('@/models/Holding')).default;
     const holdings = await Holding.find({}).select('isin').lean();
     const holdingsIsins = new Set(holdings.map((h: any) => h.isin).filter(Boolean));
     
-    // Prioritize holdings, then add other stocks up to 300 total
+    // Prioritize holdings first, then process all other stocks
     const stocksToProcess: any[] = [];
     for (const stock of allStocks) {
       if (holdingsIsins.has(stock.isin)) {
         stocksToProcess.push(stock);
       }
     }
-    // Add non-holdings up to 300 total
+    // Add all non-holdings
     for (const stock of allStocks) {
-      if (!holdingsIsins.has(stock.isin) && stocksToProcess.length < 300) {
+      if (!holdingsIsins.has(stock.isin)) {
         stocksToProcess.push(stock);
       }
     }
     
-    console.log(`Processing ${stocksToProcess.length} stocks (${holdingsIsins.size} holdings + ${stocksToProcess.length - holdingsIsins.size} others)...`);
+    console.log(`Processing ALL ${stocksToProcess.length} stocks (${holdingsIsins.size} holdings + ${stocksToProcess.length - holdingsIsins.size} others)...`);
 
-    // Fetch all latest prices in one aggregation
+    // Fetch all latest prices in one aggregation - use allowDiskUse for large sorts
     const isins = stocksToProcess.map(s => s.isin);
     const latestPricesMap = new Map<string, any>();
     const latestPricesData = await StockData.aggregate([
@@ -174,7 +178,7 @@ export async function GET(request: NextRequest) {
           latest: { $first: '$$ROOT' }
         }
       }
-    ]).exec();
+    ], { allowDiskUse: true }).exec();
     
     latestPricesData.forEach((item: any) => {
       if (item.latest && item.latest.close && item.latest.close >= 30) {
@@ -182,7 +186,7 @@ export async function GET(request: NextRequest) {
       }
     });
 
-    // Fetch all 365-day data in one aggregation for all stocks
+    // Fetch all 365-day data in one aggregation for all stocks - use allowDiskUse for large sorts
     const oneYearAgoDate = subDays(today, 365);
     const allPriceData = await StockData.aggregate([
       {
@@ -200,7 +204,7 @@ export async function GET(request: NextRequest) {
           prices: { $push: '$$ROOT' }
         }
       }
-    ]).exec();
+    ], { allowDiskUse: true }).exec();
 
     // Build price data maps for fast lookup
     const priceDataMap = new Map<string, any[]>();
