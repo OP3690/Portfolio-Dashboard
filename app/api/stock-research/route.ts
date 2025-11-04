@@ -203,54 +203,49 @@ export async function GET(request: NextRequest) {
       }
     });
 
-    // Fetch all 365-day data - optimized to avoid large sorts
-    // Process in batches to avoid memory issues
+    // Fetch all 365-day data - optimized to avoid memory issues
+    // Use individual queries per stock to avoid $group memory limits
     const oneYearAgoDate = subDays(today, 365);
     const priceDataMap = new Map<string, any[]>();
     
-    // Process ISINs in batches to avoid memory limit
-    const BATCH_SIZE = 500; // Process 500 stocks at a time
+    // Process ISINs in smaller batches using individual queries
+    // This avoids $group memory limits when pushing large arrays
+    const BATCH_SIZE = 100; // Smaller batches to avoid memory issues
+    console.log(`📊 Fetching 365-day data for ${isins.length} stocks in batches of ${BATCH_SIZE}...`);
+    
     for (let i = 0; i < isins.length; i += BATCH_SIZE) {
       const batchIsins = isins.slice(i, i + BATCH_SIZE);
       
-      const batchPriceData = await StockData.aggregate([
-        {
-          $match: {
-            isin: { $in: batchIsins },
+      // Use Promise.all for parallel processing within batch
+      await Promise.all(batchIsins.map(async (isin) => {
+        try {
+          const prices = await StockData.find({
+            isin,
             date: { $gte: oneYearAgoDate, $lte: today }
+          })
+            .sort({ date: 1 })
+            .select('date open high low close volume')
+            .lean();
+          
+          if (prices.length > 0) {
+            priceDataMap.set(isin, prices.map((p: any) => ({
+              date: p.date,
+              open: p.open,
+              high: p.high,
+              low: p.low,
+              close: p.close,
+              volume: p.volume
+            })));
           }
-        },
-        {
-          $group: {
-            _id: '$isin',
-            prices: { 
-              $push: {
-                date: '$date',
-                open: '$open',
-                high: '$high',
-                low: '$low',
-                close: '$close',
-                volume: '$volume'
-              }
-            }
-          }
-        },
-        {
-          $project: {
-            _id: 1,
-            prices: {
-              $sortArray: {
-                input: '$prices',
-                sortBy: { date: 1 }
-              }
-            }
-          }
+        } catch (error) {
+          console.error(`Error fetching data for ${isin}:`, error);
         }
-      ], { allowDiskUse: true }).exec();
+      }));
       
-      batchPriceData.forEach((item: any) => {
-        priceDataMap.set(item._id, item.prices || []);
-      });
+      // Log progress every 100 stocks
+      if ((i + BATCH_SIZE) % 500 === 0 || i + BATCH_SIZE >= isins.length) {
+        console.log(`   📊 Progress: ${Math.min(i + BATCH_SIZE, isins.length)}/${isins.length} stocks processed`);
+      }
     }
     
     console.log(`✅ Fetched price data for ${priceDataMap.size} stocks`);
