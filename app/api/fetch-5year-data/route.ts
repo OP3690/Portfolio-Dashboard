@@ -18,8 +18,6 @@ export const dynamic = 'force-dynamic';
  * - Skip stocks that already have 5-year data
  */
 export async function GET(request: NextRequest) {
-  const startTime = Date.now();
-  
   try {
     await connectDB();
     
@@ -81,107 +79,96 @@ export async function GET(request: NextRequest) {
       });
     }
     
-    // Process stocks in batches
-    const BATCH_SIZE = 10; // Smaller batch for 5-year fetches (they take longer)
-    const DELAY_BETWEEN_BATCHES = 2000; // 2 seconds between batches
-    const DELAY_BETWEEN_STOCKS = 500; // 500ms between stocks
-    
-    let totalFetched = 0;
-    let stocksProcessed = 0;
-    let stocksSkipped = 0;
-    const errors: string[] = [];
-    const results: any[] = [];
-    
-    console.log(`\n🚀 Processing ${isinsNeeding5YearData.length} stocks in batches of ${BATCH_SIZE}...`);
-    console.log(`⏰ Estimated time: ~${Math.ceil((isinsNeeding5YearData.length / BATCH_SIZE) * (DELAY_BETWEEN_BATCHES / 1000 / 60))} minutes\n`);
-    
-    // Process in batches
-    for (let i = 0; i < isinsNeeding5YearData.length; i += BATCH_SIZE) {
-      const batch = isinsNeeding5YearData.slice(i, i + BATCH_SIZE);
-      const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
-      const totalBatches = Math.ceil(isinsNeeding5YearData.length / BATCH_SIZE);
+    // Return immediately to prevent Vercel timeout, then process in background
+    // This allows the function to complete within the timeout limit while work continues
+    const processBatches = async () => {
+      const startTime = Date.now();
+      const BATCH_SIZE = 5; // Smaller batch for 5-year fetches (they take much longer)
+      const DELAY_BETWEEN_BATCHES = 3000; // 3 seconds between batches
       
-      console.log(`\n📦 Batch ${batchNumber}/${totalBatches} (Processing ${batch.length} stocks)...`);
+      let totalFetched = 0;
+      let stocksProcessed = 0;
+      let stocksSkipped = 0;
+      const errors: string[] = [];
       
-      // Process batch in parallel
-      const batchPromises = batch.map(async (isin) => {
-        try {
-          // Fetch 5-year data (forceFullUpdate = true)
-          const count = await fetchAndStoreHistoricalData(isin, true);
-          return { isin, count, success: true };
-        } catch (error: any) {
-          console.error(`   ❌ Error fetching 5-year data for ${isin}:`, error.message);
-          return { isin, count: 0, success: false, error: error.message };
+      console.log(`\n🚀 Processing ${isinsNeeding5YearData.length} stocks in batches of ${BATCH_SIZE}...`);
+      console.log(`⏰ Estimated time: ~${Math.ceil((isinsNeeding5YearData.length / BATCH_SIZE) * (DELAY_BETWEEN_BATCHES / 1000 / 60))} minutes\n`);
+      
+      // Process in batches
+      for (let i = 0; i < isinsNeeding5YearData.length; i += BATCH_SIZE) {
+        const batch = isinsNeeding5YearData.slice(i, i + BATCH_SIZE);
+        const batchNumber = Math.floor(i / BATCH_SIZE) + 1;
+        const totalBatches = Math.ceil(isinsNeeding5YearData.length / BATCH_SIZE);
+        
+        console.log(`\n📦 Batch ${batchNumber}/${totalBatches} (Processing ${batch.length} stocks)...`);
+        
+        // Process batch in parallel
+        const batchPromises = batch.map(async (isin) => {
+          try {
+            // Fetch 5-year data (forceFullUpdate = true)
+            const count = await fetchAndStoreHistoricalData(isin, true);
+            return { isin, count, success: true };
+          } catch (error: any) {
+            console.error(`   ❌ Error fetching 5-year data for ${isin}:`, error.message);
+            return { isin, count: 0, success: false, error: error.message };
+          }
+        });
+        
+        const batchResults = await Promise.all(batchPromises);
+        
+        // Process results
+        for (const result of batchResults) {
+          if (result.success && result.count > 0) {
+            totalFetched += result.count;
+            stocksProcessed++;
+          } else if (result.success && result.count === 0) {
+            stocksSkipped++;
+          } else {
+            errors.push(`${result.isin}: ${result.error || 'Unknown error'}`);
+          }
         }
-      });
-      
-      const batchResults = await Promise.all(batchPromises);
-      
-      // Process results
-      for (const result of batchResults) {
-        if (result.success && result.count > 0) {
-          totalFetched += result.count;
-          stocksProcessed++;
-          results.push({
-            isin: result.isin,
-            status: 'success',
-            documentsFetched: result.count,
-          });
-        } else if (result.success && result.count === 0) {
-          stocksSkipped++;
-          results.push({
-            isin: result.isin,
-            status: 'skipped',
-            reason: 'No data available',
-          });
-        } else {
-          errors.push(`${result.isin}: ${result.error || 'Unknown error'}`);
-          results.push({
-            isin: result.isin,
-            status: 'error',
-            error: result.error,
-          });
+        
+        console.log(`   ✅ Batch ${batchNumber} completed: ${batchResults.filter(r => r.success && r.count > 0).length} successful, ${batchResults.filter(r => !r.success).length} failed`);
+        console.log(`   📊 Progress: ${Math.min(i + BATCH_SIZE, isinsNeeding5YearData.length)}/${isinsNeeding5YearData.length} stocks processed`);
+        console.log(`   📊 Total documents fetched so far: ${totalFetched}`);
+        
+        // Delay between batches (except after last batch)
+        if (i + BATCH_SIZE < isinsNeeding5YearData.length) {
+          console.log(`   ⏸️  Waiting ${DELAY_BETWEEN_BATCHES / 1000} seconds before next batch...`);
+          await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_BATCHES));
         }
       }
       
-      console.log(`   ✅ Batch ${batchNumber} completed: ${batchResults.filter(r => r.success && r.count > 0).length} successful, ${batchResults.filter(r => !r.success).length} failed`);
-      console.log(`   📊 Progress: ${Math.min(i + BATCH_SIZE, isinsNeeding5YearData.length)}/${isinsNeeding5YearData.length} stocks processed`);
-      console.log(`   📊 Total documents fetched so far: ${totalFetched}`);
+      const endTime = Date.now();
+      const duration = ((endTime - startTime) / 1000 / 60).toFixed(2);
       
-      // Delay between batches (except after last batch)
-      if (i + BATCH_SIZE < isinsNeeding5YearData.length) {
-        console.log(`   ⏸️  Waiting ${DELAY_BETWEEN_BATCHES / 1000} seconds before next batch...`);
-        await new Promise(resolve => setTimeout(resolve, DELAY_BETWEEN_BATCHES));
-      }
-    }
+      console.log('\n✅ ========================================');
+      console.log('✅ 5-year data fetch completed!');
+      console.log(`✅ Total stocks processed: ${stocksProcessed}/${isinsNeeding5YearData.length}`);
+      console.log(`✅ Total documents fetched: ${totalFetched}`);
+      console.log(`✅ Stocks skipped: ${stocksSkipped}`);
+      console.log(`✅ Errors: ${errors.length}`);
+      console.log(`⏱️  Total duration: ${duration} minutes`);
+      console.log('✅ ========================================\n');
+    };
     
-    const endTime = Date.now();
-    const duration = ((endTime - startTime) / 1000 / 60).toFixed(2);
+    // Start processing in background (don't await)
+    processBatches().catch((error) => {
+      console.error('\n❌ Background processing failed:', error);
+    });
     
-    console.log('\n✅ ========================================');
-    console.log('✅ 5-year data fetch completed!');
-    console.log(`✅ Total stocks processed: ${stocksProcessed}/${isinsNeeding5YearData.length}`);
-    console.log(`✅ Total documents fetched: ${totalFetched}`);
-    console.log(`✅ Stocks skipped: ${stocksSkipped}`);
-    console.log(`✅ Errors: ${errors.length}`);
-    console.log(`⏱️  Total duration: ${duration} minutes`);
-    console.log('✅ ========================================\n');
-    
+    // Return immediately to prevent timeout
     return NextResponse.json({
       success: true,
-      message: '5-year historical data fetch completed',
+      message: '5-year historical data fetch started in background. Check server logs for progress.',
+      status: 'processing',
       summary: {
         totalStocks: uniqueIsins.length,
         stocksWith5YearData: isinsWith5YearData.size,
         stocksNeedingData: isinsNeeding5YearData.length,
-        stocksProcessed: stocksProcessed,
-        stocksSkipped: stocksSkipped,
-        stocksFailed: errors.length,
-        totalDocumentsFetched: totalFetched,
-        durationMinutes: parseFloat(duration),
+        estimatedDurationMinutes: Math.ceil((isinsNeeding5YearData.length / 5) * (3 / 60)),
       },
-      results: results.slice(0, 100), // Return first 100 results to avoid huge response
-      errors: errors.slice(0, 50), // Return first 50 errors
+      note: 'This is a long-running process. Processing continues in the background. Check Vercel logs for progress.',
     });
     
   } catch (error: any) {
@@ -192,7 +179,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        error: error.message || 'Failed to fetch 5-year historical data',
+        error: error.message || 'Failed to start 5-year historical data fetch',
       },
       { status: 500 }
     );
