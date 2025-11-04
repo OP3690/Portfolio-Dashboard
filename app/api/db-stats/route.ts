@@ -31,20 +31,21 @@ export async function GET(request: NextRequest) {
     const collectionStats = await Promise.all(
       collections.map(async (collection) => {
         try {
-          const stats = await db.collection(collection.name).stats();
+          // Use db.command to get collection stats (native MongoDB driver method)
+          const statsResult = await db.command({ collStats: collection.name });
           const count = await db.collection(collection.name).countDocuments();
           
           return {
             name: collection.name,
             count: count,
-            size: stats.size,
-            storageSize: stats.storageSize,
-            totalIndexSize: stats.totalIndexSize,
-            avgObjSize: stats.avgObjSize,
-            nindexes: stats.nindexes,
-            sizeFormatted: formatBytes(stats.size),
-            storageSizeFormatted: formatBytes(stats.storageSize),
-            totalIndexSizeFormatted: formatBytes(stats.totalIndexSize),
+            size: statsResult.size || 0,
+            storageSize: statsResult.storageSize || 0,
+            totalIndexSize: statsResult.totalIndexSize || 0,
+            avgObjSize: statsResult.avgObjSize || 0,
+            nindexes: statsResult.nindexes || 0,
+            sizeFormatted: formatBytes(statsResult.size || 0),
+            storageSizeFormatted: formatBytes(statsResult.storageSize || 0),
+            totalIndexSizeFormatted: formatBytes(statsResult.totalIndexSize || 0),
           };
         } catch (error: any) {
           return {
