@@ -79,7 +79,9 @@ export async function GET(request: NextRequest) {
         for (let i = 0; i < batchIsins.length; i++) {
           const isin = batchIsins[i];
           try {
-            // Fetch last 3 days including today (forceFullUpdate = false)
+            // Fetch last 3 days including today ONLY (forceFullUpdate = false)
+            // This ensures we only fetch and update today + last 2 days, not full 5 years
+            // Duplicate prevention: StockData has unique index on (isin, date) - duplicates automatically prevented
             const count = await fetchAndStoreHistoricalData(isin, false);
             totalFetched += count;
             stocksProcessed++;
