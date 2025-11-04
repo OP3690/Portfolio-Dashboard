@@ -350,6 +350,13 @@ export default function Navigation({ onUploadSuccess, activeTab = 'dashboard', o
                 >
                   Stock Research
                 </button>
+                <button
+                  onClick={() => window.location.href = '/db-stats'}
+                  className="px-4 py-2 text-sm font-medium rounded-lg transition-colors text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+                  title="Database Statistics"
+                >
+                  DB Stats
+                </button>
               </div>
             </div>
             <div className="flex items-center gap-2 sm:gap-3">
