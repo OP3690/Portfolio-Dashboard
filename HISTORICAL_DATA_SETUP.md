@@ -157,9 +157,21 @@ The cron job logs:
 ## Usage Instructions
 
 ### Step 1: Initial 5-Year Data Fetch
+
+**Option A: Using Standalone Script (Recommended)**
+1. Open terminal in your project directory
+2. Run: `node scripts/fetch-5year-data.js`
+3. The script will:
+   - Connect to MongoDB
+   - Check which stocks need 5-year data
+   - Fetch and store data in batches
+   - Show progress updates
+   - Complete automatically (may take 1-2 hours)
+
+**Option B: Using API Endpoint**
 1. Visit: `https://YOUR-APP-URL.vercel.app/api/fetch-5year-data`
-2. Wait for completion (may take 1-2 hours for all stocks)
-3. Check response for summary
+2. Note: This returns immediately and processes in background (check Vercel logs)
+3. May timeout on Vercel free tier - use the script instead
 
 ### Step 2: Verify Data
 1. Check database stats: `https://YOUR-APP-URL.vercel.app/db-stats`
@@ -277,10 +289,96 @@ db.stockdatas.getIndexes();
 }
 ```
 
+## Standalone Script Usage
+
+### Running the Script
+
+```bash
+# Navigate to project directory
+cd portfolio-dashboard
+
+# Run the script
+node scripts/fetch-5year-data.js
+```
+
+### What the Script Does
+
+1. **Connects to MongoDB** using connection string from `.env.local` or environment variables
+2. **Fetches all stocks** from `StockMaster` collection
+3. **Checks existing data** to see which stocks already have 5-year data (>= 1000 records)
+4. **Processes in batches**:
+   - Batch size: 5 stocks at a time (5-year fetches take longer)
+   - Delay: 3 seconds between batches
+   - Processes stocks in parallel within each batch
+5. **Fetches historical data** from Yahoo Finance API
+6. **Stores in database** using upsert (updates if exists, inserts if not)
+7. **Prevents duplicates** via unique index on `(isin, date)`
+
+### Script Output
+
+The script provides real-time progress:
+- Stocks processed
+- Documents fetched
+- Errors encountered
+- Estimated time remaining
+- Final summary
+
+### Example Output
+
+```
+🔄 ========================================
+🔄 Starting 5-year historical data fetch for all stocks...
+🕐 Time: 1/15/2025, 10:30:00 AM
+🔄 ========================================
+
+✅ Loaded environment variables from .env.local
+🔗 Connecting to MongoDB...
+✅ Connected to MongoDB
+
+📊 Fetching all stocks from StockMaster...
+✅ Found 2189 unique stocks in StockMaster
+
+📋 Checking which stocks already have 5-year data...
+✅ 1500 stocks already have 5-year data
+📦 689 stocks need 5-year data fetch
+
+🚀 Processing 689 stocks in batches of 5...
+⏰ Estimated time: ~138 minutes
+
+📦 Batch 1/138 (Processing 5 stocks)...
+   📊 Fetching 5-year data for INE001A01036 (RELIANCE.NS)...
+   ✅ Stored 1250 records for INE001A01036 (RELIANCE)
+   ...
+   ✅ Batch 1 completed in 2.45 minutes
+   📊 Progress: 5/689 stocks processed
+   📊 Total documents fetched so far: 6,250
+   ⏸️  Waiting 3 seconds before next batch...
+
+...
+
+✅ ========================================
+✅ 5-year data fetch completed!
+✅ Total stocks processed: 689/689
+✅ Total documents fetched: 861,250
+✅ Stocks skipped: 5
+✅ Errors: 2
+⏱️  Total duration: 142.35 minutes
+✅ ========================================
+```
+
+### Requirements
+
+- Node.js installed
+- MongoDB connection string in `.env.local` or environment variables
+- Internet connection for fetching data from Yahoo Finance
+- Sufficient time (1-2 hours for ~2000 stocks)
+
 ## Notes
 
 - **Rate Limiting**: The system includes delays between batches to avoid hitting external API rate limits
 - **Error Handling**: Errors are logged but don't stop the entire process
 - **Resumable**: If a fetch fails, you can run it again - it will skip stocks that already have data
 - **Idempotent**: Running the same fetch multiple times is safe - duplicates are prevented
+- **No Timeout Issues**: The standalone script runs locally and doesn't have Vercel timeout limits
+- **Progress Tracking**: Real-time progress updates in the console
 
