@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Toast from './Toast';
 
 interface NavigationProps {
@@ -17,7 +17,35 @@ export default function Navigation({ onUploadSuccess, activeTab = 'dashboard', o
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info'; isVisible: boolean } | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [latestStockDate, setLatestStockDate] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Fetch latest stock date on component mount and after refresh
+  const fetchLatestStockDate = async () => {
+    try {
+      const response = await fetch('/api/latest-stock-date');
+      const data = await response.json();
+      if (data.success && data.formattedDate) {
+        setLatestStockDate(data.formattedDate);
+      }
+    } catch (error) {
+      console.error('Error fetching latest stock date:', error);
+    }
+  };
+
+  useEffect(() => {
+    fetchLatestStockDate();
+  }, []);
+
+  // Refresh latest date after successful data refresh
+  useEffect(() => {
+    if (toast?.type === 'success' && toast.message.includes('refreshed')) {
+      // Refresh the date after a short delay to allow database update
+      setTimeout(() => {
+        fetchLatestStockDate();
+      }, 2000);
+    }
+  }, [toast]);
 
   const handleRefreshStockData = async () => {
     setFetchingData(true);
@@ -325,6 +353,11 @@ export default function Navigation({ onUploadSuccess, activeTab = 'dashboard', o
               </div>
             </div>
             <div className="flex items-center gap-2 sm:gap-3">
+              {latestStockDate && (
+                <div className="text-sm text-gray-600 font-medium">
+                  Latest Stock Date: <span className="text-gray-900 font-semibold">{latestStockDate}</span>
+                </div>
+              )}
               <button
                 onClick={handleRefreshStockData}
                 disabled={fetchingData}
