@@ -253,8 +253,7 @@ export async function GET(request: NextRequest) {
       });
     }
     
-    // priceDataMap is already built from batch processing above
-    // No need to rebuild it
+    console.log(`✅ Fetched price data for ${priceDataMap.size} stocks`);
 
     let processedCount = 0;
     let skippedCount = 0;
