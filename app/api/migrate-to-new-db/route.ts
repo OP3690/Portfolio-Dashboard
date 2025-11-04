@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import mongoose from 'mongoose';
+import mongoose, { Connection } from 'mongoose';
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic';
@@ -18,8 +18,8 @@ export async function GET(request: NextRequest) {
   const searchParams = request.nextUrl.searchParams;
   const deleteOld = searchParams.get('deleteOld') === 'true';
   
-  let oldConnection: typeof mongoose | null = null;
-  let newConnection: typeof mongoose | null = null;
+  let oldConnection: Connection | null = null;
+  let newConnection: Connection | null = null;
   
   try {
     console.log('🔄 Starting database migration...');
@@ -28,13 +28,15 @@ export async function GET(request: NextRequest) {
     
     // Connect to old database
     console.log('\n1️⃣ Connecting to OLD database...');
-    oldConnection = await mongoose.createConnection(OLD_MONGODB_URI).asPromise();
+    oldConnection = mongoose.createConnection(OLD_MONGODB_URI);
+    await oldConnection.asPromise();
     const oldDb = oldConnection.db;
     console.log('✅ Connected to OLD database:', oldDb.databaseName);
     
     // Connect to new database
     console.log('\n2️⃣ Connecting to NEW database...');
-    newConnection = await mongoose.createConnection(NEW_MONGODB_URI).asPromise();
+    newConnection = mongoose.createConnection(NEW_MONGODB_URI);
+    await newConnection.asPromise();
     const newDb = newConnection.db;
     console.log('✅ Connected to NEW database:', newDb.databaseName);
     
