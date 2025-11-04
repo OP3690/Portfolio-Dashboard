@@ -160,48 +160,39 @@ export async function GET(request: NextRequest) {
     
     console.log(`Processing ALL ${stocksToProcess.length} stocks (${holdingsIsins.size} holdings + ${stocksToProcess.length - holdingsIsins.size} others)...`);
 
-    // Fetch all latest prices in one aggregation - use allowDiskUse for large sorts
+    // Fetch all latest prices - use individual queries to avoid $group memory limits
     const isins = stocksToProcess.map(s => s.isin);
     const latestPricesMap = new Map<string, any>();
     
-    // Optimized: Group first, then sort within each group to reduce memory
-    const latestPricesData = await StockData.aggregate([
-      {
-        $match: {
-          isin: { $in: isins }
-        }
-      },
-      {
-        $group: {
-          _id: '$isin',
-          latestDate: { $max: '$date' },
-          allData: { $push: '$$ROOT' }
-        }
-      },
-      {
-        $project: {
-          _id: 1,
-          latest: {
-            $arrayElemAt: [
-              {
-                $filter: {
-                  input: '$allData',
-                  as: 'item',
-                  cond: { $eq: ['$$item.date', '$latestDate'] }
-                }
-              },
-              0
-            ]
-          }
-        }
-      }
-    ], { allowDiskUse: true }).exec();
+    console.log(`📊 Fetching latest prices for ${isins.length} stocks...`);
     
-    latestPricesData.forEach((item: any) => {
-      if (item.latest && item.latest.close && item.latest.close >= 30) {
-        latestPricesMap.set(item._id, item.latest);
+    // Process in batches using individual queries to avoid $group memory limits
+    const LATEST_PRICE_BATCH_SIZE = 100;
+    for (let i = 0; i < isins.length; i += LATEST_PRICE_BATCH_SIZE) {
+      const batchIsins = isins.slice(i, i + LATEST_PRICE_BATCH_SIZE);
+      
+      // Use Promise.all for parallel processing
+      await Promise.all(batchIsins.map(async (isin) => {
+        try {
+          const latest = await StockData.findOne({ isin })
+            .sort({ date: -1 })
+            .lean() as any;
+          
+          if (latest && latest.close && latest.close >= 30) {
+            latestPricesMap.set(isin, latest);
+          }
+        } catch (error) {
+          console.error(`Error fetching latest price for ${isin}:`, error);
+        }
+      }));
+      
+      // Log progress
+      if ((i + LATEST_PRICE_BATCH_SIZE) % 500 === 0 || i + LATEST_PRICE_BATCH_SIZE >= isins.length) {
+        console.log(`   📊 Latest prices progress: ${Math.min(i + LATEST_PRICE_BATCH_SIZE, isins.length)}/${isins.length} stocks`);
       }
-    });
+    }
+    
+    console.log(`✅ Fetched latest prices for ${latestPricesMap.size} stocks`);
 
     // Fetch all 365-day data - optimized to avoid memory issues
     // Use individual queries per stock to avoid $group memory limits
