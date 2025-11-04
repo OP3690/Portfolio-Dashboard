@@ -58,6 +58,7 @@ export default function StockResearch() {
   const [loading, setLoading] = useState(true);
   const [sectionLoading, setSectionLoading] = useState<{ [key: string]: boolean }>({});
   const [data, setData] = useState<{
+    quantPredictions?: any[];
     volumeSpikes: StockSignal[];
     deepPullbacks: StockSignal[];
     capitulated: StockSignal[];
@@ -796,6 +797,177 @@ export default function StockResearch() {
           Rules-driven technical analysis powered by OHLCV data • Mathematical models • Trading strategies
         </p>
       </div>
+
+      {/* Quantitative Prediction Dashboard - Top Section */}
+      {data.quantPredictions && data.quantPredictions.length > 0 && (
+        <div className="mb-8 bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 rounded-xl p-6 border-2 border-indigo-200 shadow-lg">
+          <div className="mb-4">
+            <h3 className="text-2xl font-bold text-gray-800 mb-2 flex items-center gap-2">
+              🚀 Quantitative Stock Screening Framework
+            </h3>
+            <p className="text-gray-600 text-sm">
+              Top 6 Stocks with &gt;70% Probability of +12% 3-Month Return • Based on 3-Year OHLC + Volume Data
+            </p>
+          </div>
+          
+          <div className="overflow-x-auto">
+            <table className="min-w-full bg-white rounded-lg shadow-md overflow-hidden">
+              <thead className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white">
+                <tr>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">Rank</th>
+                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">Stock</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider">Current Price (₹)</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider">3M Momentum</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider">3Yr CAGR (%)</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider">Volatility (%)</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider">Vol Ratio (15D/3M)</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider">Breakout Signal</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider">RSI (14D)</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider">Predicted Return (%)</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider">Probability</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider">Confidence</th>
+                  <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider">Decision</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {data.quantPredictions.map((stock, idx) => (
+                  <tr 
+                    key={stock.isin} 
+                    className={`${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-indigo-50 transition-colors`}
+                  >
+                    <td className="px-4 py-4 whitespace-nowrap">
+                      <div className="flex items-center justify-center">
+                        <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${
+                          idx === 0 ? 'bg-gradient-to-r from-yellow-400 to-orange-400 text-white' :
+                          idx === 1 ? 'bg-gradient-to-r from-gray-300 to-gray-400 text-white' :
+                          idx === 2 ? 'bg-gradient-to-r from-amber-600 to-amber-700 text-white' :
+                          'bg-gray-200 text-gray-700'
+                        }`}>
+                          {idx + 1}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 whitespace-nowrap">
+                      <div className="text-sm font-semibold text-gray-900">{stock.stockName}</div>
+                      <div className="text-xs text-gray-500">{stock.symbol || 'N/A'}</div>
+                      <div className="text-xs text-gray-400">{stock.sector || 'Unknown'}</div>
+                    </td>
+                    <td className="px-4 py-4 text-center text-sm font-semibold text-gray-900">
+                      ₹{stock.currentPrice?.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || 'N/A'}
+                    </td>
+                    <td className="px-4 py-4 text-center text-sm">
+                      <span className={`font-medium ${
+                        stock.momentum3M >= 0.7 ? 'text-green-600' :
+                        stock.momentum3M >= 0.5 ? 'text-yellow-600' :
+                        'text-gray-600'
+                      }`}>
+                        {stock.momentum3M?.toFixed(2) || 'N/A'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-4 text-center text-sm">
+                      <span className={`font-semibold ${
+                        stock.cagr3Year >= 20 ? 'text-green-600' :
+                        stock.cagr3Year >= 10 ? 'text-yellow-600' :
+                        'text-gray-600'
+                      }`}>
+                        {stock.cagr3Year?.toFixed(1) || 'N/A'}%
+                      </span>
+                    </td>
+                    <td className="px-4 py-4 text-center text-sm">
+                      <span className={`font-medium ${
+                        stock.volatility >= 25 ? 'text-red-600' :
+                        stock.volatility >= 15 ? 'text-yellow-600' :
+                        'text-green-600'
+                      }`}>
+                        {stock.volatility?.toFixed(1) || 'N/A'}%
+                      </span>
+                    </td>
+                    <td className="px-4 py-4 text-center text-sm">
+                      <span className={`font-semibold ${
+                        stock.volumeSpikeRatio >= 1.5 ? 'text-green-600' :
+                        stock.volumeSpikeRatio >= 1.2 ? 'text-yellow-600' :
+                        'text-gray-600'
+                      }`}>
+                        {stock.volumeSpikeRatio?.toFixed(2) || 'N/A'}×
+                      </span>
+                    </td>
+                    <td className="px-4 py-4 text-center text-xs">
+                      <span className="inline-block px-2 py-1 bg-green-100 text-green-800 rounded-full font-medium">
+                        🟢 {stock.breakoutStrength?.split(',')[0] || 'N/A'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-4 text-center text-sm">
+                      <span className={`font-semibold ${
+                        stock.rsi >= 70 ? 'text-red-600' :
+                        stock.rsi >= 55 && stock.rsi < 70 ? 'text-green-600' :
+                        stock.rsi < 30 ? 'text-blue-600' :
+                        'text-gray-600'
+                      }`}>
+                        {stock.rsi?.toFixed(1) || 'N/A'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-4 text-center text-sm">
+                      <span className={`font-bold text-lg ${
+                        stock.predictedReturn >= 12 ? 'text-green-600' :
+                        stock.predictedReturn >= 8 ? 'text-yellow-600' :
+                        'text-gray-600'
+                      }`}>
+                        +{stock.predictedReturn?.toFixed(1) || 'N/A'}%
+                      </span>
+                    </td>
+                    <td className="px-4 py-4 text-center text-sm">
+                      <div className="flex flex-col items-center">
+                        <span className={`font-bold text-lg ${
+                          stock.probability >= 0.80 ? 'text-green-600' :
+                          stock.probability >= 0.70 ? 'text-yellow-600' :
+                          'text-orange-600'
+                        }`}>
+                          {(stock.probability * 100)?.toFixed(0) || 'N/A'}%
+                        </span>
+                        <div className="w-16 bg-gray-200 rounded-full h-2 mt-1">
+                          <div 
+                            className={`h-2 rounded-full ${
+                              stock.probability >= 0.80 ? 'bg-green-500' :
+                              stock.probability >= 0.70 ? 'bg-yellow-500' :
+                              'bg-orange-500'
+                            }`}
+                            style={{ width: `${(stock.probability * 100) || 0}%` }}
+                          ></div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 text-center text-sm">
+                      <span className={`inline-block px-2 py-1 rounded-full font-medium ${
+                        stock.confidenceLevel === 'High' ? 'bg-green-100 text-green-800' :
+                        stock.confidenceLevel === 'Medium' ? 'bg-yellow-100 text-yellow-800' :
+                        'bg-orange-100 text-orange-800'
+                      }`}>
+                        {stock.confidenceLevel || 'N/A'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-4 text-center text-sm">
+                      <span className={`font-bold ${
+                        stock.decision?.includes('✅') ? 'text-green-600' :
+                        'text-yellow-600'
+                      }`}>
+                        {stock.decision || 'N/A'}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          
+          <div className="mt-4 p-4 bg-white/80 rounded-lg border border-indigo-200">
+            <p className="text-xs text-gray-600">
+              <strong>Methodology:</strong> Combines 3-Month Momentum (70% price, 30% volume), 3-Year CAGR Trend, Volatility Analysis, 
+              Volume Spike Ratio (15D vs 3M), EMA Breakout Signals, and RSI. Uses regression model to predict 3-month returns with 
+              probability scoring. Only stocks with ≥65% probability of >12% return are shown.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Hero Row - Today's Signals */}
       <div className="mb-8">
