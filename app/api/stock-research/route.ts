@@ -163,6 +163,8 @@ export async function GET(request: NextRequest) {
     // Fetch all latest prices in one aggregation - use allowDiskUse for large sorts
     const isins = stocksToProcess.map(s => s.isin);
     const latestPricesMap = new Map<string, any>();
+    
+    // Optimized: Group first, then sort within each group to reduce memory
     const latestPricesData = await StockData.aggregate([
       {
         $match: {
@@ -170,12 +172,27 @@ export async function GET(request: NextRequest) {
         }
       },
       {
-        $sort: { isin: 1, date: -1 }
-      },
-      {
         $group: {
           _id: '$isin',
-          latest: { $first: '$$ROOT' }
+          latestDate: { $max: '$date' },
+          allData: { $push: '$$ROOT' }
+        }
+      },
+      {
+        $project: {
+          _id: 1,
+          latest: {
+            $arrayElemAt: [
+              {
+                $filter: {
+                  input: '$allData',
+                  as: 'item',
+                  cond: { $eq: ['$$item.date', '$latestDate'] }
+                }
+              },
+              0
+            ]
+          }
         }
       }
     ], { allowDiskUse: true }).exec();
@@ -186,31 +203,58 @@ export async function GET(request: NextRequest) {
       }
     });
 
-    // Fetch all 365-day data in one aggregation for all stocks - use allowDiskUse for large sorts
+    // Fetch all 365-day data - optimized to avoid large sorts
+    // Process in batches to avoid memory issues
     const oneYearAgoDate = subDays(today, 365);
-    const allPriceData = await StockData.aggregate([
-      {
-        $match: {
-          isin: { $in: isins },
-          date: { $gte: oneYearAgoDate, $lte: today }
-        }
-      },
-      {
-        $sort: { isin: 1, date: 1 }
-      },
-      {
-        $group: {
-          _id: '$isin',
-          prices: { $push: '$$ROOT' }
-        }
-      }
-    ], { allowDiskUse: true }).exec();
-
-    // Build price data maps for fast lookup
     const priceDataMap = new Map<string, any[]>();
-    allPriceData.forEach((item: any) => {
-      priceDataMap.set(item._id, item.prices || []);
-    });
+    
+    // Process ISINs in batches to avoid memory limit
+    const BATCH_SIZE = 500; // Process 500 stocks at a time
+    for (let i = 0; i < isins.length; i += BATCH_SIZE) {
+      const batchIsins = isins.slice(i, i + BATCH_SIZE);
+      
+      const batchPriceData = await StockData.aggregate([
+        {
+          $match: {
+            isin: { $in: batchIsins },
+            date: { $gte: oneYearAgoDate, $lte: today }
+          }
+        },
+        {
+          $group: {
+            _id: '$isin',
+            prices: { 
+              $push: {
+                date: '$date',
+                open: '$open',
+                high: '$high',
+                low: '$low',
+                close: '$close',
+                volume: '$volume'
+              }
+            }
+          }
+        },
+        {
+          $project: {
+            _id: 1,
+            prices: {
+              $sortArray: {
+                input: '$prices',
+                sortBy: { date: 1 }
+              }
+            }
+          }
+        }
+      ], { allowDiskUse: true }).exec();
+      
+      batchPriceData.forEach((item: any) => {
+        priceDataMap.set(item._id, item.prices || []);
+      });
+    }
+    
+    // priceDataMap is already built from batch processing above
+    // No need to rebuild it
 
     let processedCount = 0;
     let skippedCount = 0;
