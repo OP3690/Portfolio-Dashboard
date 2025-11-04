@@ -31,6 +31,9 @@ export async function GET(request: NextRequest) {
     oldConnection = mongoose.createConnection(OLD_MONGODB_URI);
     await oldConnection.asPromise();
     const oldDb = oldConnection.db;
+    if (!oldDb) {
+      throw new Error('Failed to get OLD database connection');
+    }
     console.log('✅ Connected to OLD database:', oldDb.databaseName);
     
     // Connect to new database
@@ -38,6 +41,9 @@ export async function GET(request: NextRequest) {
     newConnection = mongoose.createConnection(NEW_MONGODB_URI);
     await newConnection.asPromise();
     const newDb = newConnection.db;
+    if (!newDb) {
+      throw new Error('Failed to get NEW database connection');
+    }
     console.log('✅ Connected to NEW database:', newDb.databaseName);
     
     // Get all collections from old database
