@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { formatCurrency } from '@/lib/utils';
 import PerformanceAnalyticsCharts from './PerformanceAnalyticsCharts';
 import DetailedAnalysis from './DetailedAnalysis';
+import PEIntelligence from './PEIntelligence';
 
 interface StockAnalyticsProps {
   holdings: Array<{
@@ -663,6 +664,12 @@ export default function StockAnalytics({ holdings, transactions }: StockAnalytic
       <div className="mb-6">
         <SectionTitle>Performance Analytics & Trend Detection</SectionTitle>
         <PerformanceAnalyticsCharts clientId="994826" holdings={holdings} transactions={transactions} />
+      </div>
+
+      {/* PE Intelligence Section */}
+      <div className="mb-6">
+        <SectionTitle>PE Intelligence & Analytics</SectionTitle>
+        <PEIntelligence clientId="994826" />
       </div>
 
       {/* Detailed Analysis Section */}

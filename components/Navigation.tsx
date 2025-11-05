@@ -51,65 +51,34 @@ export default function Navigation({ onUploadSuccess, activeTab = 'dashboard', o
     setFetchingData(true);
     
     try {
-      // Set a timeout to prevent infinite loading (15 minutes for initial 5-year fetches)
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Request timeout after 15 minutes. The process may still be running in the background.')), 15 * 60 * 1000)
-      );
+      // Just refresh the latest stock date and trigger UI refresh
+      // The cron job handles all data fetching - this button just refreshes the UI
+      await fetchLatestStockDate();
       
-      const fetchPromise = fetch('/api/fetch-historical-data', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          refreshLatest: true // Refresh last 3 days including today
-        }),
+      // Show success message
+      setToast({
+        message: 'Dashboard refreshed with latest data from database. Daily cron job runs at 7:00 PM IST to fetch new data.',
+        type: 'success',
+        isVisible: true,
       });
-
-      const response = await Promise.race([fetchPromise, timeoutPromise]) as Response;
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-
-      if (data.success) {
-        const successMessage = data.message || `Successfully refreshed ${data.stocksProcessed || 0} stocks (${data.totalRecords || 0} records).`;
-        
-        // Show toast notification
-        setToast({
-          message: successMessage,
-          type: 'success',
-          isVisible: true,
-        });
-        
-        setFetchingData(false); // Reset loading state
-        if (onUploadSuccess) {
-          setTimeout(() => {
-            onUploadSuccess();
-          }, 2000);
-        }
-        
-        // Auto-hide toast after 5 seconds
+      
+      setFetchingData(false);
+      
+      // Trigger parent component refresh if callback exists
+      if (onUploadSuccess) {
         setTimeout(() => {
-          setToast(prev => prev ? { ...prev, isVisible: false } : null);
-        }, 5000);
-      } else {
-        setToast({
-          message: data.error || 'Failed to refresh stock data',
-          type: 'error',
-          isVisible: true,
-        });
-        setFetchingData(false);
-        setTimeout(() => {
-          setToast(prev => prev ? { ...prev, isVisible: false } : null);
-        }, 5000);
+          onUploadSuccess();
+        }, 500);
       }
+      
+      // Auto-hide toast after 5 seconds
+      setTimeout(() => {
+        setToast(prev => prev ? { ...prev, isVisible: false } : null);
+      }, 5000);
     } catch (error: any) {
       console.error('Refresh error:', error);
       setToast({
-        message: error.message || 'Failed to refresh stock data. Please try again.',
+        message: error.message || 'Failed to refresh dashboard. Please try again.',
         type: 'error',
         isVisible: true,
       });
@@ -369,7 +338,7 @@ export default function Navigation({ onUploadSuccess, activeTab = 'dashboard', o
                 onClick={handleRefreshStockData}
                 disabled={fetchingData}
                 className="p-2.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all shadow-md hover:shadow-lg disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center"
-                title="Refresh Stock Data: Fetch latest 3 days of stock data (OHLC, Volume, PE, MarketCap) including today"
+                title="Refresh Dashboard: Reload latest data from database. Daily cron job runs at 7:00 PM IST to fetch new data."
               >
                 {fetchingData ? (
                   <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>

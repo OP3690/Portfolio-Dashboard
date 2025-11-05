@@ -106,22 +106,31 @@ export async function GET(request: NextRequest) {
     const latestDatesMap = new Map<string, Date>(); // Track dates for debugging
     
     // Get today's date range (start and end of today)
+    // Get today's date range (accounting for timezone - IST is UTC+5:30)
+    // Use a wider range to catch today's data regardless of timezone conversion
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    // Also check yesterday 18:30 UTC onwards (which is today 00:00 IST)
+    const yesterdayEvening = new Date(today);
+    yesterdayEvening.setDate(yesterdayEvening.getDate() - 1);
+    yesterdayEvening.setUTCHours(18, 30, 0, 0); // 18:30 UTC = 00:00 IST next day
+    
     const todayEnd = new Date(today);
     todayEnd.setHours(23, 59, 59, 999);
+    todayEnd.setUTCHours(23, 59, 59, 999); // Ensure we cover today in UTC too
     
     try {
       // TWO-PASS APPROACH: First get today's prices, then fill gaps with latest available
-      // Step 1: Get today's prices
+      // Step 1: Get today's prices (check from yesterday evening UTC onwards to catch today's data)
       const todayPrices = await StockData.aggregate([
         { 
           $match: { 
             isin: { $in: uniqueIsins },
-            date: { $gte: today, $lte: todayEnd }
+            date: { $gte: yesterdayEvening, $lte: todayEnd },
+            close: { $gt: 0 } // Only valid prices
           } 
         },
-        { $sort: { date: -1 } },
+        { $sort: { date: -1, _id: -1 } }, // Sort by date DESC, then _id DESC to get latest entry
         {
           $group: {
             _id: '$isin',
@@ -138,8 +147,8 @@ export async function GET(request: NextRequest) {
       let latestPrices: any[] = [];
       if (isinsNeedingLatest.length > 0) {
         latestPrices = await StockData.aggregate([
-          { $match: { isin: { $in: isinsNeedingLatest } } },
-          { $sort: { date: -1 } },
+          { $match: { isin: { $in: isinsNeedingLatest }, close: { $gt: 0 } } },
+          { $sort: { date: -1, _id: -1 } }, // Sort by date DESC, then _id DESC to get latest entry
           {
             $group: {
               _id: '$isin',
@@ -166,12 +175,19 @@ export async function GET(request: NextRequest) {
             priceDate.setHours(0, 0, 0, 0);
             latestDatesMap.set(item._id, priceDate);
             
-            // Check if this is today's price
-            if (priceDate.getTime() === today.getTime()) {
+            // Check if this is today's price (considering timezone conversion)
+            // Data stored at 18:30 UTC on Nov 4 = 00:00 IST on Nov 5
+            const priceDateUTC = new Date(item.latestDate);
+            const todayUTC = new Date(today);
+            todayUTC.setUTCHours(0, 0, 0, 0);
+            
+            // Check if price date is within last 24 hours (today's data)
+            const hoursDiff = Math.abs(today.getTime() - priceDateUTC.getTime()) / (1000 * 60 * 60);
+            if (hoursDiff < 24 && priceDateUTC >= yesterdayEvening) {
               todayCount++;
             } else {
               // Check if price is stale (more than 1 day old)
-              const daysDiff = Math.floor((today.getTime() - priceDate.getTime()) / (1000 * 60 * 60 * 24));
+              const daysDiff = Math.floor((today.getTime() - priceDateUTC.getTime()) / (1000 * 60 * 60 * 24));
               if (daysDiff > 1) {
                 staleCount++;
               }
@@ -193,6 +209,7 @@ export async function GET(request: NextRequest) {
       console.warn('API: Aggregate query failed, falling back to parallel Promise.all...', aggregateError);
       
       // Fallback: Parallel Promise.all (still much faster than sequential)
+      // NOTE: Don't use NSE API here to avoid blocking dashboard load - just use database
       const pricePromises = uniqueIsins.map(async (isin) => {
         try {
           const latestData: any = await StockData.findOne({ isin })
@@ -1217,37 +1234,57 @@ export async function GET(request: NextRequest) {
     console.log(`API: 🎯 RETURNING: ${finalHoldingsResult.length} holdings`);
     console.log(`API: 🎯 RETURNING ISINs:`, finalHoldingsResult.map((h: any) => normalizeIsin(h.isin)).sort());
     
-    return NextResponse.json({
-      success: true,
-      data: {
-        summary: {
-          currentValue,
-          totalInvested,
-          totalProfitLoss,
-          totalRealizedPL,
-          totalReturn: currentValue - totalInvested,
-          totalReturnPercent: totalInvested > 0 ? ((currentValue - totalInvested) / totalInvested) * 100 : 0,
-          xirr: xirrData,
+    try {
+      // Ensure all values are valid before returning
+      const safeCurrentValue = isFinite(currentValue) ? currentValue : 0;
+      const safeTotalInvested = isFinite(totalInvested) ? totalInvested : 0;
+      const safeTotalProfitLoss = isFinite(totalProfitLoss) ? totalProfitLoss : 0;
+      const safeTotalRealizedPL = isFinite(totalRealizedPL) ? totalRealizedPL : 0;
+      const safeTotalReturn = safeCurrentValue - safeTotalInvested;
+      const safeTotalReturnPercent = safeTotalInvested > 0 ? ((safeTotalReturn / safeTotalInvested) * 100) : 0;
+      
+      return NextResponse.json({
+        success: true,
+        data: {
+          summary: {
+            currentValue: safeCurrentValue,
+            totalInvested: safeTotalInvested,
+            totalProfitLoss: safeTotalProfitLoss,
+            totalRealizedPL: safeTotalRealizedPL,
+            totalReturn: safeTotalReturn,
+            totalReturnPercent: isFinite(safeTotalReturnPercent) ? safeTotalReturnPercent : 0,
+            xirr: xirrData || 0,
+          },
+          topPerformers: topPerformers || [],
+          worstPerformers: worstPerformers || [],
+          holdings: finalHoldingsResult || [],
+          monthlyInvestments: monthlyInvestments || [],
+          monthlyDividends: monthlyDividends || [],
+          monthlyReturns: monthlyReturns || [],
+          returnStatistics: returnStatistics || {
+            xirr: 0,
+            cagr: 0,
+            avgReturnOverall: { percent: 0, amount: 0 },
+            avgReturnCurrentYear: { percent: 0, amount: 0 },
+            bestMonthCurrentYear: { month: '', percent: 0, amount: 0 },
+            worstMonthCurrentYear: { month: '', percent: 0, amount: 0 },
+          },
+          industryDistribution: industryDistribution || [],
+          realizedStocks: realizedStocks || [],
+          transactions: (transactions || []).map((t: any) => ({
+            isin: t?.isin || '',
+            transactionDate: t?.transactionDate ? (typeof t.transactionDate === 'string' ? t.transactionDate : new Date(t.transactionDate).toISOString()) : new Date().toISOString(),
+            buySell: t?.buySell || '',
+            tradePriceAdjusted: t?.tradePriceAdjusted || 0,
+            tradedQty: t?.tradedQty || 0,
+            tradeValueAdjusted: t?.tradeValueAdjusted || 0,
+          })),
         },
-        topPerformers,
-        worstPerformers,
-        holdings: finalHoldingsResult,
-        monthlyInvestments,
-        monthlyDividends,
-        monthlyReturns,
-        returnStatistics,
-        industryDistribution,
-        realizedStocks,
-        transactions: transactions.map((t: any) => ({
-          isin: t.isin,
-          transactionDate: t.transactionDate,
-          buySell: t.buySell,
-          tradePriceAdjusted: t.tradePriceAdjusted,
-          tradedQty: t.tradedQty,
-          tradeValueAdjusted: t.tradeValueAdjusted,
-        })),
-      },
-    });
+      });
+    } catch (responseError: any) {
+      console.error('Error creating response JSON:', responseError);
+      throw new Error(`Failed to create response: ${responseError.message}`);
+    }
   } catch (error: any) {
     const errorDetails = {
       message: error?.message || 'Unknown error',
@@ -1264,29 +1301,59 @@ export async function GET(request: NextRequest) {
     console.error('Error name:', errorDetails.name);
     console.error('Error code:', errorDetails.code);
     console.error('Error toString:', errorDetails.toString);
-    console.error('Error stack:', errorDetails.stack);
+    if (errorDetails.stack) {
+      console.error('Error stack:', errorDetails.stack.substring(0, 1000)); // Limit stack trace length
+    }
     console.error('='.repeat(60));
     
     // Also try to log any additional error properties
     if (error && typeof error === 'object') {
       console.error('Additional error properties:');
-      Object.keys(error).forEach(key => {
-        if (!['message', 'name', 'stack', 'code'].includes(key)) {
-          console.error(`  ${key}:`, (error as any)[key]);
-        }
-      });
+      try {
+        Object.keys(error).forEach(key => {
+          if (!['message', 'name', 'stack', 'code'].includes(key)) {
+            const value = (error as any)[key];
+            // Safely stringify values to avoid circular references
+            try {
+              const valueStr = typeof value === 'object' ? JSON.stringify(value).substring(0, 200) : String(value);
+              console.error(`  ${key}:`, valueStr);
+            } catch (e) {
+              console.error(`  ${key}: [Unable to stringify]`);
+            }
+          }
+        });
+      } catch (e) {
+        console.error('Error logging additional properties:', e);
+      }
     }
     
-    return NextResponse.json(
-      { 
-        error: errorDetails.message || 'Failed to fetch dashboard data',
-        errorName: errorDetails.name,
-        errorCode: errorDetails.code,
-        details: process.env.NODE_ENV === 'development' ? errorDetails.stack : undefined,
-        timestamp: new Date().toISOString(),
-      },
-      { status: 500 }
-    );
+    try {
+      return NextResponse.json(
+        { 
+          success: false,
+          error: errorDetails.message || 'Failed to fetch dashboard data',
+          errorName: errorDetails.name,
+          errorCode: errorDetails.code,
+          details: process.env.NODE_ENV === 'development' ? errorDetails.stack?.substring(0, 1000) : undefined,
+          timestamp: new Date().toISOString(),
+        },
+        { status: 500 }
+      );
+    } catch (jsonError: any) {
+      // If even error response fails, return minimal response
+      console.error('Failed to create error response JSON:', jsonError);
+      return new NextResponse(
+        JSON.stringify({ 
+          success: false,
+          error: 'Internal server error',
+          timestamp: new Date().toISOString(),
+        }),
+        { 
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
+    }
   }
 }
 
@@ -3062,6 +3129,7 @@ async function getCurrentStockPrice(isin: string): Promise<number> {
     
     // Get the most recent stock price from historical data only
     // Don't fetch from API here to avoid blocking the dashboard load
+    // NSE API will be used in refresh operations, not during regular dashboard loads
     const latestData: any = await StockData.findOne({ isin })
       .sort({ date: -1 })
       .lean();

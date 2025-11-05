@@ -46,6 +46,90 @@ interface OHLCData {
  * For now, using a simplified approach - in production use proper NSE API integration
  */
 /**
+ * Fetch current price from NSE API (Priority source for NSE stocks)
+ * API: https://www.nseindia.com/api/quote-equity?symbol=SYMBOL
+ */
+export async function fetchCurrentPriceFromNSE(symbol: string): Promise<{
+  price: number | null;
+  date: Date | null;
+  source: string;
+} | null> {
+  try {
+    if (!symbol) {
+      return null;
+    }
+
+    const nseUrl = `https://www.nseindia.com/api/quote-equity?symbol=${encodeURIComponent(symbol)}`;
+    
+    const headers = {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': 'application/json, text/plain, */*',
+      'Accept-Language': 'en-US,en;q=0.9',
+      'Accept-Encoding': 'gzip, deflate, br',
+      'Referer': `https://www.nseindia.com/quote-equity?symbol=${encodeURIComponent(symbol)}`,
+      'Origin': 'https://www.nseindia.com',
+      'Connection': 'keep-alive',
+      'Sec-Fetch-Dest': 'empty',
+      'Sec-Fetch-Mode': 'cors',
+      'Sec-Fetch-Site': 'same-origin',
+    };
+    
+    const response = await axios.get(nseUrl, {
+      timeout: 8000,
+      headers: headers,
+      maxRedirects: 5,
+      validateStatus: (status) => status < 500,
+    });
+
+    if (response.status === 200 && response.data) {
+      const data = response.data;
+      const priceInfo = data.priceInfo || {};
+      
+      // Priority: lastPrice (current/last traded) > close > vwap
+      let price: number | null = null;
+      
+      if (priceInfo.lastPrice && typeof priceInfo.lastPrice === 'number' && priceInfo.lastPrice > 0) {
+        price = priceInfo.lastPrice;
+      } else if (priceInfo.close && typeof priceInfo.close === 'number' && priceInfo.close > 0) {
+        price = priceInfo.close;
+      } else if (priceInfo.vwap && typeof priceInfo.vwap === 'number' && priceInfo.vwap > 0) {
+        price = priceInfo.vwap;
+      }
+      
+      if (price && price > 0) {
+        // Parse lastUpdateTime if available, otherwise use current date
+        let date = new Date();
+        if (data.metadata?.lastUpdateTime) {
+          try {
+            // Parse format: "04-Nov-2025 16:00:00"
+            const dateStr = data.metadata.lastUpdateTime;
+            const parsedDate = new Date(dateStr);
+            if (!isNaN(parsedDate.getTime())) {
+              date = parsedDate;
+            }
+          } catch (e) {
+            // Use current date if parsing fails
+          }
+        }
+        
+        return {
+          price,
+          date,
+          source: 'NSE'
+        };
+      }
+    }
+  } catch (error: any) {
+    // Silently fail - we'll try other methods
+    if (error.response?.status === 401 || error.response?.status === 403) {
+      console.debug(`⚠️  NSE API access denied (${error.response.status}) for ${symbol}`);
+    }
+  }
+  
+  return null;
+}
+
+/**
  * Fetch comprehensive stock fundamentals and metrics from Yahoo Finance
  * Includes: PE, Market Cap, Price to Book, Dividend Yield, 52W High/Low, Average Volume
  */
@@ -467,8 +551,70 @@ export async function fetchAndStoreHistoricalData(isin: string, forceFullUpdate:
 
     console.log(`Fetching data for ${isin} (${symbol}.${exchange === 'BSE' ? 'BO' : 'NS'}) from ${format(fromDate, 'yyyy-MM-dd')} to ${format(toDate, 'yyyy-MM-dd')}`);
 
-    // Fetch data from Yahoo Finance
+    // PRIORITY: For NSE stocks, try NSE API first for today's price (faster and more accurate)
+    let todayPriceFromNSE: { price: number; date: Date } | null = null;
+    if (exchange === 'NSE' && !forceFullUpdate) {
+      try {
+        const nsePriceData = await fetchCurrentPriceFromNSE(symbol);
+        if (nsePriceData && nsePriceData.price) {
+          // Always use today's date (not the date from NSE metadata, which might be yesterday)
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          
+          todayPriceFromNSE = {
+            price: nsePriceData.price,
+            date: today
+          };
+          console.log(`✅ Got today's price from NSE API for ${symbol}: ₹${nsePriceData.price}`);
+        }
+      } catch (error: any) {
+        console.debug(`⚠️  NSE API failed for ${symbol}, will use Yahoo Finance: ${error.message}`);
+      }
+    }
+
+    // Fetch data from Yahoo Finance (for historical data or if NSE failed)
     let ohlcData = await fetchNSEHistoricalData(symbol, exchange, fromDate, toDate);
+    
+    // If we got today's price from NSE, always add/update today's entry
+    if (todayPriceFromNSE) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const todayEnd = new Date(today);
+      todayEnd.setHours(23, 59, 59, 999);
+      
+      // Check if we have today's data from Yahoo Finance
+      const todayDataIndex = ohlcData.findIndex(d => {
+        const dDate = new Date(d.date);
+        return dDate >= today && dDate <= todayEnd;
+      });
+      
+      if (todayDataIndex >= 0) {
+        // Update existing today's data with NSE price (more accurate - lastPrice is current)
+        ohlcData[todayDataIndex].close = todayPriceFromNSE.price;
+        ohlcData[todayDataIndex].currentPrice = todayPriceFromNSE.price;
+        // Update high/low if NSE price is higher/lower
+        if (todayPriceFromNSE.price > ohlcData[todayDataIndex].high) {
+          ohlcData[todayDataIndex].high = todayPriceFromNSE.price;
+        }
+        if (todayPriceFromNSE.price < ohlcData[todayDataIndex].low) {
+          ohlcData[todayDataIndex].low = todayPriceFromNSE.price;
+        }
+        // Ensure date is today (not yesterday from NSE metadata)
+        ohlcData[todayDataIndex].date = todayPriceFromNSE.date;
+      } else {
+        // Add today's data from NSE if not present in Yahoo Finance data
+        const lastData = ohlcData[ohlcData.length - 1] || {};
+        ohlcData.push({
+          date: todayPriceFromNSE.date, // This is already set to today in the function above
+          open: lastData.close || todayPriceFromNSE.price,
+          high: todayPriceFromNSE.price,
+          low: todayPriceFromNSE.price,
+          close: todayPriceFromNSE.price,
+          volume: lastData.volume || 0,
+          currentPrice: todayPriceFromNSE.price
+        });
+      }
+    }
     
     if (ohlcData.length === 0) {
       console.warn(`⚠️  No data retrieved for ${isin} (${symbol}.${exchange === 'BSE' ? 'BO' : 'NS'})`);
@@ -530,9 +676,13 @@ export async function fetchAndStoreHistoricalData(isin: string, forceFullUpdate:
     
     for (const data of ohlcData) {
       try {
-        // Use start of day to normalize date
+        // Use start of day to normalize date (in local timezone)
+        // This ensures dates are stored consistently regardless of when data is fetched
+        // MongoDB stores dates in UTC, so 00:00 IST becomes 18:30 UTC previous day
         const normalizedDate = new Date(data.date);
         normalizedDate.setHours(0, 0, 0, 0);
+        // Note: When stored in MongoDB, this will be converted to UTC
+        // 00:00 IST = 18:30 UTC previous day (IST is UTC+5:30)
         
         // Build update object - only include fields that have values (MongoDB ignores undefined)
         const updateData: any = {

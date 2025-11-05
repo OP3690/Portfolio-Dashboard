@@ -19,6 +19,10 @@ export interface IStockData extends Document {
   // Volume metrics
   averageVolume?: number;
   regularMarketVolume?: number;
+  // Daily NSE volume data (based on lastUpdateTime date)
+  totalTradedVolume?: number; // From preOpenMarket.totalTradedVolume
+  totalBuyQuantity?: number; // From preOpenMarket.totalBuyQuantity
+  totalSellQuantity?: number; // From preOpenMarket.totalSellQuantity
   // Fundamentals
   trailingPE?: number;
   forwardPE?: number;
@@ -47,6 +51,10 @@ const StockDataSchema: Schema = new Schema({
   // Volume metrics
   averageVolume: { type: Number },
   regularMarketVolume: { type: Number },
+  // Daily NSE volume data (based on lastUpdateTime date)
+  totalTradedVolume: { type: Number },
+  totalBuyQuantity: { type: Number },
+  totalSellQuantity: { type: Number },
   // Fundamentals
   trailingPE: { type: Number },
   forwardPE: { type: Number },

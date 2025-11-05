@@ -1,7 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import React from 'react';
 import { LineChart, Line, ResponsiveContainer, Tooltip } from 'recharts';
+import SmartAllocation from './SmartAllocation';
+import DetailedStockAnalysis from './DetailedStockAnalysis';
+import StockIntelligenceBoards from './StockIntelligenceBoards';
 
 // CSS to hide number input spinners
 const numberInputStyles = `
@@ -43,6 +47,7 @@ interface FilterState {
   fiveDayDecliners: { minDownDays: number; maxReturn: number; minPrice: number };
   fiveDayClimbers: { minUpDays: number; minReturn: number; minPrice: number };
   tightRangeBreakouts: { maxRange: number; minBoScore: number; minVolSpike: number; minPrice: number };
+  quantPredictions: { minProbability: number; minPredictedReturn: number; minCAGR: number; maxVolatility: number; minMomentum: number; minPrice: number };
 }
 
 const defaultFilters: FilterState = {
@@ -52,6 +57,7 @@ const defaultFilters: FilterState = {
   fiveDayDecliners: { minDownDays: 3, maxReturn: -1.5, minPrice: 30 },
   fiveDayClimbers: { minUpDays: 3, minReturn: 1.5, minPrice: 30 },
   tightRangeBreakouts: { maxRange: 15, minBoScore: 0, minVolSpike: 50, minPrice: 30 },
+  quantPredictions: { minProbability: 0.40, minPredictedReturn: 8, minCAGR: -100, maxVolatility: 100, minMomentum: 0, minPrice: 0 },
 };
 
 export default function StockResearch() {
@@ -143,6 +149,16 @@ export default function StockResearch() {
         params.append('breakout_minPrice', breakoutFilters.minPrice.toString());
       }
       
+      if (signalType === 'quantPredictions' || !signalType) {
+        const quantFilters = filtersToUse.quantPredictions || activeFilters.quantPredictions || defaultFilters.quantPredictions;
+        params.append('quant_minProbability', quantFilters.minProbability.toString());
+        params.append('quant_minPredictedReturn', quantFilters.minPredictedReturn.toString());
+        params.append('quant_minCAGR', quantFilters.minCAGR.toString());
+        params.append('quant_maxVolatility', quantFilters.maxVolatility.toString());
+        params.append('quant_minMomentum', quantFilters.minMomentum.toString());
+        params.append('quant_minPrice', quantFilters.minPrice.toString());
+      }
+      
       const response = await fetch(`/api/stock-research?${params.toString()}`);
       
       if (!response.ok) {
@@ -157,9 +173,22 @@ export default function StockResearch() {
           // Update only the specific signal type
           setData(prev => prev ? { ...prev, [signalType]: result.data[signalType] || [] } : null);
         } else {
+          console.log('📊 Stock Research Data Received:', {
+            quantPredictions: result.data?.quantPredictions?.length || 0,
+            volumeSpikes: result.data?.volumeSpikes?.length || 0,
+            deepPullbacks: result.data?.deepPullbacks?.length || 0,
+            allKeys: Object.keys(result.data || {})
+          });
+          if (result.data?.quantPredictions) {
+            console.log('🔍 Quant Predictions Sample:', result.data.quantPredictions.slice(0, 2));
+          }
           setData(result.data);
           if (result.filters) {
-            setActiveFilters(result.filters);
+            // Merge with defaults to ensure all filter types are present
+            setActiveFilters(prev => ({
+              ...defaultFilters,
+              ...result.filters,
+            }));
           }
         }
       } else {
@@ -178,15 +207,23 @@ export default function StockResearch() {
   };
 
   const applyFilters = async (signalType: keyof FilterState, filterValues?: FilterState[keyof FilterState]) => {
-    // Use provided filter values if available, otherwise get from state
-    const filtersToApply = filterValues || filters[signalType];
-    
-    // Update active filters and hide filter panel immediately
-    setActiveFilters(prev => ({ ...prev, [signalType]: filtersToApply }));
-    setShowFilters(prev => ({ ...prev, [signalType]: false }));
-    
-    // Fetch with the current filter values immediately - no delays
-    await fetchResearchData(signalType, { [signalType]: filtersToApply } as Partial<FilterState>);
+    try {
+      // Use provided filter values if available, otherwise get from state
+      const filtersToApply = filterValues || filters[signalType];
+      
+      console.log(`Applying filters for ${signalType}:`, filtersToApply);
+      
+      // Update both filters and activeFilters state
+      setFilters(prev => ({ ...prev, [signalType]: filtersToApply }));
+      setActiveFilters(prev => ({ ...prev, [signalType]: filtersToApply }));
+      setShowFilters(prev => ({ ...prev, [signalType]: false }));
+      
+      // Fetch with the current filter values immediately - fetchResearchData will handle loading state
+      await fetchResearchData(signalType, { [signalType]: filtersToApply } as Partial<FilterState>);
+    } catch (error) {
+      console.error('Error applying filters:', error);
+      setError('Failed to apply filters. Please try again.');
+    }
   };
 
   const resetFilters = (signalType: keyof FilterState) => {
@@ -251,6 +288,7 @@ export default function StockResearch() {
     const isVisible = showFilters[signalType];
     const [focusedField, setFocusedField] = useState<string | null>(null);
     const [inputValues, setInputValues] = useState<{ [key: string]: string }>({});
+    const buttonRef = useRef<HTMLButtonElement>(null);
     
     // Save pending input value to filters
     const savePendingInput = (fieldName: string, defaultValue: number) => {
@@ -359,12 +397,58 @@ export default function StockResearch() {
     
     return (
       <div className="mt-2">
-        <button
-          onClick={() => setShowFilters(prev => ({ ...prev, [signalType]: !prev[signalType] }))}
-          className="text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
-        >
-          {isVisible ? '▼' : '▶'} Filter Conditions
-        </button>
+        {signalType !== 'quantPredictions' && (
+          <button
+            ref={buttonRef}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              
+              // Store current scroll position and the button's position
+              const scrollY = window.scrollY;
+              const scrollX = window.scrollX;
+              const buttonRect = buttonRef.current?.getBoundingClientRect();
+              const buttonTop = buttonRect ? buttonRect.top + scrollY : scrollY;
+              
+              // Toggle filter visibility
+              setShowFilters(prev => ({ ...prev, [signalType]: !prev[signalType] }));
+              
+              // Restore scroll position after state update using multiple strategies
+              requestAnimationFrame(() => {
+                window.scrollTo({
+                  left: scrollX,
+                  top: scrollY,
+                  behavior: 'auto'
+                });
+                // Also try to maintain button position if possible
+                if (buttonRef.current && buttonTop !== scrollY) {
+                  const newButtonRect = buttonRef.current.getBoundingClientRect();
+                  const newButtonTop = newButtonRect.top + window.scrollY;
+                  if (Math.abs(newButtonTop - buttonTop) > 10) {
+                    window.scrollTo({
+                      left: scrollX,
+                      top: scrollY + (buttonTop - newButtonTop),
+                      behavior: 'auto'
+                    });
+                  }
+                }
+              });
+              
+              // Double check after a short delay
+              setTimeout(() => {
+                window.scrollTo({
+                  left: scrollX,
+                  top: scrollY,
+                  behavior: 'auto'
+                });
+              }, 10);
+            }}
+            className="text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
+            type="button"
+          >
+            {isVisible ? '▼' : '▶'} Filter Conditions
+          </button>
+        )}
         
         {isVisible && (
           <div className="mt-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
@@ -598,14 +682,94 @@ export default function StockResearch() {
                   </>
                 );
               })()}
+              
+              {signalType === 'quantPredictions' && (() => {
+                const quantFilters = (filters as FilterState['quantPredictions']) || defaultFilters.quantPredictions;
+                const quantActiveFilters = (activeFilters as FilterState['quantPredictions']) || defaultFilters.quantPredictions;
+                return (
+                  <>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Probability (0-1)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max="1"
+                        {...getInputProps('minProbability', quantFilters?.minProbability ?? 0.40, '0.01')}
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Active: {((quantActiveFilters?.minProbability ?? 0.40) * 100).toFixed(0)}%</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Predicted Return (%)</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        {...getInputProps('minPredictedReturn', quantFilters?.minPredictedReturn ?? 8, '0.1')}
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Active: {quantActiveFilters?.minPredictedReturn ?? 8}%</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Min 3Yr CAGR (%)</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        {...getInputProps('minCAGR', quantFilters?.minCAGR ?? -100, '0.1')}
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Active: {quantActiveFilters?.minCAGR ?? -100}%</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Max Volatility (%)</label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        {...getInputProps('maxVolatility', quantFilters?.maxVolatility ?? 100, '0.1')}
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Active: {quantActiveFilters?.maxVolatility ?? 100}%</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Min 3M Momentum (0-1)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max="1"
+                        {...getInputProps('minMomentum', quantFilters?.minMomentum ?? 0, '0.01')}
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Active: {(quantActiveFilters?.minMomentum ?? 0).toFixed(2)}</p>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Price (₹)</label>
+                      <input
+                        type="number"
+                        {...getInputProps('minPrice', quantFilters?.minPrice ?? 0)}
+                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">Active: ₹{quantActiveFilters?.minPrice ?? 0}</p>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
             
             <div className="flex gap-2 mt-4">
               <button
                 onClick={handleApply}
-                className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700"
+                disabled={sectionLoading[signalType] || loading}
+                className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
-                Apply
+                {(sectionLoading[signalType] || (signalType === 'quantPredictions' && loading)) ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                    <span>Applying...</span>
+                  </>
+                ) : (
+                  'Apply'
+                )}
               </button>
               <button
                 onClick={onReset}
@@ -779,11 +943,29 @@ export default function StockResearch() {
     );
   }
 
+  // Show loading state but still render the quant section structure
   if (!data) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <p className="text-gray-600">No data available. Please ensure stock master data is uploaded.</p>
+      <div className="container mx-auto px-4 py-6 space-y-6">
+        <div className="mb-6">
+          <h2 className="text-3xl font-bold text-gray-800 mb-2">Stock Research Dashboard</h2>
+          <p className="text-gray-600 text-sm">
+            Rules-driven technical analysis powered by OHLCV data • Mathematical models • Trading strategies
+          </p>
+        </div>
+
+        {/* Quantitative Prediction Dashboard - Show loading state */}
+        <div className="mb-8 bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 rounded-xl p-8 border-2 border-indigo-200 shadow-xl">
+          <div className="text-center py-8">
+            <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-indigo-100 to-purple-100 mb-4">
+              <span className="text-4xl">🔍</span>
+            </div>
+            <h3 className="text-2xl font-bold text-gray-800 mb-2">🚀 Quantitative Stock Screening Framework</h3>
+            <p className="text-gray-600 mb-4">Loading advanced quantitative analysis...</p>
+            <div className="flex justify-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -798,44 +980,89 @@ export default function StockResearch() {
         </p>
       </div>
 
-      {/* Quantitative Prediction Dashboard - Top Section */}
-      {data.quantPredictions && data.quantPredictions.length > 0 && (
+      {/* Quantitative Prediction Dashboard - Top Section - Always Show First */}
+      {data && data.quantPredictions !== undefined ? (
+        data.quantPredictions.length > 0 ? (
         <div className="mb-8 bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 rounded-xl p-6 border-2 border-indigo-200 shadow-lg">
           <div className="mb-4">
-            <h3 className="text-2xl font-bold text-gray-800 mb-2 flex items-center gap-2">
-              🚀 Quantitative Stock Screening Framework
-            </h3>
-            <p className="text-gray-600 text-sm">
-              Top 6 Stocks with &gt;70% Probability of +12% 3-Month Return • Based on 3-Year OHLC + Volume Data
-            </p>
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <h3 className="text-2xl font-bold text-gray-800 mb-1 flex items-center gap-2">
+                  🚀 Quantitative Stock Screening Framework
+                </h3>
+                <p className="text-gray-600 text-sm">
+                  Top 6 Stocks with &gt;{((activeFilters.quantPredictions?.minProbability ?? defaultFilters.quantPredictions.minProbability) * 100).toFixed(0)}% Probability of +{(activeFilters.quantPredictions?.minPredictedReturn ?? defaultFilters.quantPredictions.minPredictedReturn).toFixed(0)}% 3-Month Return • Based on 1-3 Year OHLC + Volume Data
+                </p>
+              </div>
+              <button
+                onClick={() => setShowFilters(prev => ({ ...prev, quantPredictions: !prev.quantPredictions }))}
+                className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
+              >
+                {showFilters.quantPredictions ? '▼' : '►'} Filter Criteria
+              </button>
+            </div>
+            {showFilters.quantPredictions && (
+              <div className="mt-4 p-4 bg-white rounded-lg border border-indigo-200 shadow-sm">
+                <FilterPanel
+                  signalType="quantPredictions"
+                  filters={filters.quantPredictions}
+                  activeFilters={activeFilters.quantPredictions}
+                  onChange={(st, field, value) => {
+                    setFilters(prev => ({
+                      ...prev,
+                      [st]: { ...prev[st], [field]: value }
+                    }));
+                  }}
+                  onApply={() => applyFilters('quantPredictions')}
+                  onApplyWithFilters={(filterValues) => applyFilters('quantPredictions', filterValues)}
+                  onReset={() => resetFilters('quantPredictions')}
+                />
+              </div>
+            )}
           </div>
           
-          <div className="overflow-x-auto">
+          <div className="relative overflow-x-auto min-h-[400px]">
+            {/* Loading Overlay */}
+            {(loading || sectionLoading.quantPredictions) && (
+              <div className="absolute inset-0 bg-white/90 backdrop-blur-sm z-50 flex items-center justify-center rounded-lg">
+                <div className="text-center">
+                  <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mb-4"></div>
+                  <p className="text-sm font-medium text-gray-700">Applying filters and analyzing stocks...</p>
+                  <p className="text-xs text-gray-500 mt-2">This may take a few moments</p>
+                </div>
+              </div>
+            )}
+            
             <table className="min-w-full bg-white rounded-lg shadow-md overflow-hidden">
               <thead className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">Rank</th>
-                  <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider">Stock</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider">Current Price (₹)</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider">3M Momentum</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider">3Yr CAGR (%)</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider">Volatility (%)</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider">Vol Ratio (15D/3M)</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider">Breakout Signal</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider">RSI (14D)</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider">Predicted Return (%)</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider">Probability</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider">Confidence</th>
-                  <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wider">Decision</th>
+                  <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider">Rank</th>
+                  <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider">Stock</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider">Px (₹)</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider">p12</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider">Exp 3M Ret %</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider">Regime (Bull %)</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider">Hurst</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider">Kalman SNR</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider">RSRS z</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider">VolSpike (15/63)</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider">Donchian% (63)</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider">KAMA ER</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider">VWAP Dist / ATR</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider">Filters Pass</th>
+                  <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider">Action</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {data.quantPredictions.map((stock, idx) => (
+                {data.quantPredictions
+                  .sort((a: any, b: any) => (b.exp3MReturn || b.predictedReturn || 0) - (a.exp3MReturn || a.predictedReturn || 0))
+                  .slice(0, 6)
+                  .map((stock: any, idx: number) => (
                   <tr 
                     key={stock.isin} 
                     className={`${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-indigo-50 transition-colors`}
                   >
-                    <td className="px-4 py-4 whitespace-nowrap">
+                    <td className="px-3 py-3 whitespace-nowrap">
                       <div className="flex items-center justify-center">
                         <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${
                           idx === 0 ? 'bg-gradient-to-r from-yellow-400 to-orange-400 text-white' :
@@ -847,110 +1074,118 @@ export default function StockResearch() {
                         </span>
                       </div>
                     </td>
-                    <td className="px-4 py-4 whitespace-nowrap">
+                    <td className="px-3 py-3 whitespace-nowrap">
                       <div className="text-sm font-semibold text-gray-900">{stock.stockName}</div>
                       <div className="text-xs text-gray-500">{stock.symbol || 'N/A'}</div>
-                      <div className="text-xs text-gray-400">{stock.sector || 'Unknown'}</div>
                     </td>
-                    <td className="px-4 py-4 text-center text-sm font-semibold text-gray-900">
+                    <td className="px-3 py-3 text-center text-sm font-semibold text-gray-900">
                       ₹{stock.currentPrice?.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || 'N/A'}
                     </td>
-                    <td className="px-4 py-4 text-center text-sm">
-                      <span className={`font-medium ${
-                        stock.momentum3M >= 0.7 ? 'text-green-600' :
-                        stock.momentum3M >= 0.5 ? 'text-yellow-600' :
-                        'text-gray-600'
+                    <td className="px-3 py-3 text-center text-sm">
+                      <span className={`font-bold px-2 py-1 rounded ${
+                        (stock.p12 || stock.probability || 0) >= 0.80 ? 'bg-green-100 text-green-800' :
+                        (stock.p12 || stock.probability || 0) >= 0.70 ? 'bg-yellow-100 text-yellow-800' :
+                        (stock.p12 || stock.probability || 0) >= 0.60 ? 'bg-blue-100 text-blue-800' :
+                        'bg-gray-100 text-gray-800'
                       }`}>
-                        {stock.momentum3M?.toFixed(2) || 'N/A'}
+                        {((stock.p12 || stock.probability || 0) * 100)?.toFixed(0) || 'N/A'}%
                       </span>
                     </td>
-                    <td className="px-4 py-4 text-center text-sm">
-                      <span className={`font-semibold ${
-                        stock.cagr3Year >= 20 ? 'text-green-600' :
-                        stock.cagr3Year >= 10 ? 'text-yellow-600' :
-                        'text-gray-600'
-                      }`}>
-                        {stock.cagr3Year?.toFixed(1) || 'N/A'}%
-                      </span>
-                    </td>
-                    <td className="px-4 py-4 text-center text-sm">
-                      <span className={`font-medium ${
-                        stock.volatility >= 25 ? 'text-red-600' :
-                        stock.volatility >= 15 ? 'text-yellow-600' :
-                        'text-green-600'
-                      }`}>
-                        {stock.volatility?.toFixed(1) || 'N/A'}%
-                      </span>
-                    </td>
-                    <td className="px-4 py-4 text-center text-sm">
-                      <span className={`font-semibold ${
-                        stock.volumeSpikeRatio >= 1.5 ? 'text-green-600' :
-                        stock.volumeSpikeRatio >= 1.2 ? 'text-yellow-600' :
-                        'text-gray-600'
-                      }`}>
-                        {stock.volumeSpikeRatio?.toFixed(2) || 'N/A'}×
-                      </span>
-                    </td>
-                    <td className="px-4 py-4 text-center text-xs">
-                      <span className="inline-block px-2 py-1 bg-green-100 text-green-800 rounded-full font-medium">
-                        🟢 {stock.breakoutStrength?.split(',')[0] || 'N/A'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-4 text-center text-sm">
-                      <span className={`font-semibold ${
-                        stock.rsi >= 70 ? 'text-red-600' :
-                        stock.rsi >= 55 && stock.rsi < 70 ? 'text-green-600' :
-                        stock.rsi < 30 ? 'text-blue-600' :
-                        'text-gray-600'
-                      }`}>
-                        {stock.rsi?.toFixed(1) || 'N/A'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-4 text-center text-sm">
-                      <span className={`font-bold text-lg ${
-                        stock.predictedReturn >= 12 ? 'text-green-600' :
-                        stock.predictedReturn >= 8 ? 'text-yellow-600' :
-                        'text-gray-600'
-                      }`}>
-                        +{stock.predictedReturn?.toFixed(1) || 'N/A'}%
-                      </span>
-                    </td>
-                    <td className="px-4 py-4 text-center text-sm">
-                      <div className="flex flex-col items-center">
-                        <span className={`font-bold text-lg ${
-                          stock.probability >= 0.80 ? 'text-green-600' :
-                          stock.probability >= 0.70 ? 'text-yellow-600' :
-                          'text-orange-600'
-                        }`}>
-                          {(stock.probability * 100)?.toFixed(0) || 'N/A'}%
-                        </span>
-                        <div className="w-16 bg-gray-200 rounded-full h-2 mt-1">
-                          <div 
-                            className={`h-2 rounded-full ${
-                              stock.probability >= 0.80 ? 'bg-green-500' :
-                              stock.probability >= 0.70 ? 'bg-yellow-500' :
-                              'bg-orange-500'
-                            }`}
-                            style={{ width: `${(stock.probability * 100) || 0}%` }}
-                          ></div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-4 text-center text-sm">
-                      <span className={`inline-block px-2 py-1 rounded-full font-medium ${
-                        stock.confidenceLevel === 'High' ? 'bg-green-100 text-green-800' :
-                        stock.confidenceLevel === 'Medium' ? 'bg-yellow-100 text-yellow-800' :
-                        'bg-orange-100 text-orange-800'
-                      }`}>
-                        {stock.confidenceLevel || 'N/A'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-4 text-center text-sm">
+                    <td className="px-3 py-3 text-center text-sm">
                       <span className={`font-bold ${
-                        stock.decision?.includes('✅') ? 'text-green-600' :
-                        'text-yellow-600'
+                        (stock.exp3MReturn || stock.predictedReturn || 0) >= 15 ? 'text-green-600' :
+                        (stock.exp3MReturn || stock.predictedReturn || 0) >= 10 ? 'text-yellow-600' :
+                        'text-gray-600'
                       }`}>
-                        {stock.decision || 'N/A'}
+                        +{(stock.exp3MReturn || stock.predictedReturn || 0)?.toFixed(1) || 'N/A'}%
+                      </span>
+                    </td>
+                    <td className="px-3 py-3 text-center text-sm">
+                      <span className={`font-medium ${
+                        (stock.regimeBull || 0) >= 0.70 ? 'text-green-600' :
+                        (stock.regimeBull || 0) >= 0.55 ? 'text-yellow-600' :
+                        'text-gray-600'
+                      }`}>
+                        {((stock.regimeBull || 0) * 100)?.toFixed(0) || 'N/A'}%
+                      </span>
+                    </td>
+                    <td className="px-3 py-3 text-center text-sm">
+                      <span className={`font-medium ${
+                        (stock.hurst || 0.5) >= 0.6 ? 'text-green-600' :
+                        (stock.hurst || 0.5) >= 0.5 ? 'text-yellow-600' :
+                        'text-gray-600'
+                      }`}>
+                        {(stock.hurst || 0.5)?.toFixed(2) || '0.50'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3 text-center text-sm">
+                      <span className={`font-medium ${
+                        (stock.kalmanSNR || 0) >= 1.5 ? 'text-green-600' :
+                        (stock.kalmanSNR || 0) >= 1.0 ? 'text-yellow-600' :
+                        'text-gray-600'
+                      }`}>
+                        {(stock.kalmanSNR || 0)?.toFixed(2) || 'N/A'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3 text-center text-sm">
+                      <span className={`font-medium ${
+                        (stock.rsrsZ || 0) >= 1.5 ? 'text-green-600' :
+                        (stock.rsrsZ || 0) >= 1.0 ? 'text-yellow-600' :
+                        'text-gray-600'
+                      }`}>
+                        {(stock.rsrsZ || 0)?.toFixed(2) || 'N/A'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3 text-center text-sm">
+                      <span className={`font-medium ${
+                        (stock.volSpike || stock.volumeSpikeRatio || 0) >= 1.5 ? 'text-green-600' :
+                        (stock.volSpike || stock.volumeSpikeRatio || 0) >= 1.3 ? 'text-yellow-600' :
+                        'text-gray-600'
+                      }`}>
+                        {(stock.volSpike || stock.volumeSpikeRatio || 0)?.toFixed(2) || 'N/A'}x
+                      </span>
+                    </td>
+                    <td className="px-3 py-3 text-center text-sm">
+                      <span className={`font-medium ${
+                        (stock.donchianPercent || 0) >= 0.8 ? 'text-green-600' :
+                        (stock.donchianPercent || 0) >= 0.6 ? 'text-yellow-600' :
+                        'text-gray-600'
+                      }`}>
+                        {((stock.donchianPercent || 0) * 100)?.toFixed(0) || 'N/A'}%
+                      </span>
+                    </td>
+                    <td className="px-3 py-3 text-center text-sm">
+                      <span className={`font-medium ${
+                        (stock.kamaER || 0) >= 0.6 ? 'text-green-600' :
+                        (stock.kamaER || 0) >= 0.4 ? 'text-yellow-600' :
+                        'text-gray-600'
+                      }`}>
+                        {(stock.kamaER || 0)?.toFixed(2) || 'N/A'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3 text-center text-sm">
+                      <span className={`font-medium ${
+                        (stock.vwapDistATR || 0) >= 0.5 ? 'text-green-600' :
+                        (stock.vwapDistATR || 0) >= 0 ? 'text-yellow-600' :
+                        'text-red-600'
+                      }`}>
+                        {(stock.vwapDistATR || 0)?.toFixed(2) || 'N/A'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-3 text-center text-sm">
+                      {stock.filtersPass ? (
+                        <span className="text-green-600 font-bold">✅</span>
+                      ) : (
+                        <span className="text-red-600 font-bold" title={stock.filterFlags?.join(', ') || ''}>🚫</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 text-center text-sm font-semibold">
+                      <span className={`px-2 py-1 rounded text-xs ${
+                        (stock.action || stock.decision || '').includes('✅ Buy') ? 'bg-green-100 text-green-800' :
+                        (stock.action || stock.decision || '').includes('⚠️') ? 'bg-yellow-100 text-yellow-800' :
+                        'bg-gray-100 text-gray-800'
+                      }`}>
+                        {stock.action || stock.decision || 'N/A'}
                       </span>
                     </td>
                   </tr>
@@ -961,50 +1196,189 @@ export default function StockResearch() {
           
           <div className="mt-4 p-4 bg-white/80 rounded-lg border border-indigo-200">
             <p className="text-xs text-gray-600">
-              <strong>Methodology:</strong> Combines 3-Month Momentum (70% price, 30% volume), 3-Year CAGR Trend, Volatility Analysis, 
-              Volume Spike Ratio (15D vs 3M), EMA Breakout Signals, and RSI. Uses regression model to predict 3-month returns with 
-              probability scoring. Only stocks with ≥65% probability of >12% return are shown.
+              <strong>Methodology:</strong> Advanced quantitative framework using OHLCV data only. Features include: Hurst Exponent (trend persistence), Kalman Filter (trend smoothing), RSRS (breakout strength), Markov Switching (regime detection), KAMA Efficiency Ratio, and more. Combined Bayesian Logistic + Gradient Boosting ensemble predicts P(3-month return &gt; +12%). Execution filters ensure quality: Regime Guard, Trend Quality, Energy, and Risk checks.
             </p>
           </div>
         </div>
-      )}
+        ) : (
+          <div className="mb-8 bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 rounded-xl p-8 border-2 border-indigo-200 shadow-xl">
+          <div className="text-center">
+            {/* Icon and Title */}
+            <div className="mb-6">
+              <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-indigo-100 to-purple-100 mb-4">
+                <span className="text-4xl">🔍</span>
+              </div>
+              <h3 className="text-2xl font-bold text-gray-800 mb-2 flex items-center justify-center gap-2">
+                🚀 Quantitative Stock Screening Framework
+              </h3>
+              <p className="text-gray-600 text-base">
+                Advanced AI-powered stock screening with institutional-grade metrics
+              </p>
+            </div>
 
-      {/* Hero Row - Today's Signals */}
-      <div className="mb-8">
-        <h3 className="text-xl font-semibold text-gray-700 mb-4">📊 Today's Signals</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          <div className="bg-gradient-to-br from-orange-50 to-red-50 p-4 rounded-lg border border-orange-200">
-            <div className="text-sm font-semibold text-orange-800 mb-1">Volume Spikes</div>
-            <div className="text-2xl font-bold text-orange-600">{data.volumeSpikes.length}</div>
-            <div className="text-xs text-orange-600 mt-1">Unusual Activity</div>
-          </div>
-          <div className="bg-gradient-to-br from-blue-50 to-indigo-50 p-4 rounded-lg border border-blue-200">
-            <div className="text-sm font-semibold text-blue-800 mb-1">Deep Pullbacks</div>
-            <div className="text-2xl font-bold text-blue-600">{data.deepPullbacks.length}</div>
-            <div className="text-xs text-blue-600 mt-1">50% Off Peak</div>
-          </div>
-          <div className="bg-gradient-to-br from-red-50 to-pink-50 p-4 rounded-lg border border-red-200">
-            <div className="text-sm font-semibold text-red-800 mb-1">Capitulated</div>
-            <div className="text-2xl font-bold text-red-600">{data.capitulated.length}</div>
-            <div className="text-xs text-red-600 mt-1">90% Down</div>
-          </div>
-          <div className="bg-gradient-to-br from-purple-50 to-violet-50 p-4 rounded-lg border border-purple-200">
-            <div className="text-sm font-semibold text-purple-800 mb-1">5D Decliners</div>
-            <div className="text-2xl font-bold text-purple-600">{data.fiveDayDecliners.length}</div>
-            <div className="text-xs text-purple-600 mt-1">Selling Pressure</div>
-          </div>
-          <div className="bg-gradient-to-br from-green-50 to-emerald-50 p-4 rounded-lg border border-green-200">
-            <div className="text-sm font-semibold text-green-800 mb-1">5D Climbers</div>
-            <div className="text-2xl font-bold text-green-600">{data.fiveDayClimbers.length}</div>
-            <div className="text-xs text-green-600 mt-1">Momentum Up</div>
-          </div>
-          <div className="bg-gradient-to-br from-yellow-50 to-amber-50 p-4 rounded-lg border border-yellow-200">
-            <div className="text-sm font-semibold text-yellow-800 mb-1">Tight Range BO</div>
-            <div className="text-2xl font-bold text-yellow-600">{data.tightRangeBreakouts.length}</div>
-            <div className="text-xs text-yellow-600 mt-1">Breakout Watch</div>
+            {/* Empty State Message */}
+            <div className="bg-white/80 rounded-lg p-6 mb-6 border border-indigo-200 shadow-sm">
+              <div className="flex items-start justify-center gap-3 mb-4">
+                <div className="flex-shrink-0 w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center">
+                  <span className="text-2xl">📊</span>
+                </div>
+                <div className="text-left flex-1">
+                  <h4 className="font-semibold text-gray-800 mb-2">No stocks found matching current criteria</h4>
+                  <p className="text-sm text-gray-600 mb-3">
+                    The quantitative model couldn't find stocks that meet your current filter thresholds. This could mean:
+                  </p>
+                  <ul className="text-sm text-gray-600 space-y-1 ml-4 list-disc">
+                    <li>Market conditions are challenging</li>
+                    <li>Filters are too strict</li>
+                    <li>Stocks need more historical data</li>
+                  </ul>
+                </div>
+              </div>
+
+              {/* Current Filter Display */}
+              <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg p-4 mb-4 border border-indigo-100">
+                <p className="text-xs font-semibold text-indigo-800 mb-2 uppercase tracking-wide">Current Filter Settings</p>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+                  <div className="bg-white rounded px-3 py-2 border border-indigo-200">
+                    <span className="text-gray-600">Probability:</span>
+                    <span className="font-semibold text-indigo-700 ml-2">
+                      ≥ {((activeFilters.quantPredictions?.minProbability ?? defaultFilters.quantPredictions.minProbability) * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                  <div className="bg-white rounded px-3 py-2 border border-indigo-200">
+                    <span className="text-gray-600">Expected Return:</span>
+                    <span className="font-semibold text-indigo-700 ml-2">
+                      ≥ {(activeFilters.quantPredictions?.minPredictedReturn ?? defaultFilters.quantPredictions.minPredictedReturn).toFixed(0)}%
+                    </span>
+                  </div>
+                  <div className="bg-white rounded px-3 py-2 border border-indigo-200">
+                    <span className="text-gray-600">Min Price:</span>
+                    <span className="font-semibold text-indigo-700 ml-2">
+                      ₹{(activeFilters.quantPredictions?.minPrice ?? defaultFilters.quantPredictions.minPrice).toFixed(0)}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Action Buttons */}
+              <div className="flex flex-wrap gap-3 justify-center">
+                <button
+                  onClick={async (e) => {
+                    e.preventDefault();
+                    const newFilters = {
+                      minProbability: 0.30,
+                      minPredictedReturn: 6,
+                      minCAGR: -100,
+                      maxVolatility: 100,
+                      minMomentum: 0,
+                      minPrice: 0
+                    };
+                    console.log('🎯 Applying relaxed filters:', newFilters);
+                    await applyFilters('quantPredictions', newFilters);
+                  }}
+                  disabled={loading || sectionLoading.quantPredictions}
+                  className="px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-sm font-medium rounded-lg hover:from-indigo-700 hover:to-purple-700 transition-all shadow-md hover:shadow-lg transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center gap-2"
+                >
+                  {(loading || sectionLoading.quantPredictions) ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                      <span>Loading...</span>
+                    </>
+                  ) : (
+                    '🎯 Try Relaxed Filters'
+                  )}
+                </button>
+                <button
+                  onClick={async (e) => {
+                    e.preventDefault();
+                    const newFilters = {
+                      minProbability: 0.20,
+                      minPredictedReturn: 5,
+                      minCAGR: -100,
+                      maxVolatility: 100,
+                      minMomentum: 0,
+                      minPrice: 0
+                    };
+                    console.log('🔓 Applying very relaxed filters:', newFilters);
+                    await applyFilters('quantPredictions', newFilters);
+                  }}
+                  disabled={loading || sectionLoading.quantPredictions}
+                  className="px-5 py-2.5 bg-white text-indigo-600 text-sm font-medium rounded-lg border-2 border-indigo-300 hover:bg-indigo-50 transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  {(loading || sectionLoading.quantPredictions) ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-indigo-600 border-t-transparent"></div>
+                      <span>Loading...</span>
+                    </>
+                  ) : (
+                    '🔓 Very Relaxed Filters'
+                  )}
+                </button>
+                <button
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setShowFilters(prev => ({ ...prev, quantPredictions: !prev.quantPredictions }));
+                  }}
+                  className="px-5 py-2.5 bg-white text-gray-700 text-sm font-medium rounded-lg border-2 border-gray-300 hover:bg-gray-50 transition-all shadow-sm hover:shadow-md"
+                >
+                  {showFilters.quantPredictions ? '▼' : '⚙️'} Customize Filters
+                </button>
+              </div>
+            </div>
+
+            {/* Advanced Filter Panel */}
+            {showFilters.quantPredictions && (
+              <div className="mt-6 bg-white rounded-lg p-6 border-2 border-indigo-200 shadow-lg animate-in fade-in duration-300">
+                <div className="flex items-center justify-between mb-4">
+                  <h4 className="text-lg font-semibold text-gray-800">Advanced Filter Configuration</h4>
+                  <button
+                    onClick={() => setShowFilters(prev => ({ ...prev, quantPredictions: false }))}
+                    className="text-gray-400 hover:text-gray-600"
+                  >
+                    ✕
+                  </button>
+                </div>
+                <FilterPanel
+                  signalType="quantPredictions"
+                  filters={filters.quantPredictions}
+                  activeFilters={activeFilters.quantPredictions}
+                  onChange={(st, field, value) => {
+                    setFilters(prev => ({
+                      ...prev,
+                      [st]: { ...prev[st], [field]: value }
+                    }));
+                  }}
+                  onApply={() => applyFilters('quantPredictions')}
+                  onApplyWithFilters={(filterValues) => applyFilters('quantPredictions', filterValues)}
+                  onReset={() => resetFilters('quantPredictions')}
+                />
+              </div>
+            )}
+
+            {/* Info Section */}
+            <div className="mt-6 pt-6 border-t border-indigo-200">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                <div className="bg-white/60 rounded-lg p-4 border border-indigo-100">
+                  <div className="text-2xl mb-2">📈</div>
+                  <div className="font-semibold text-gray-800 mb-1">Advanced Metrics</div>
+                  <div className="text-gray-600 text-xs">Hurst, Kalman Filter, RSRS, Regime Detection</div>
+                </div>
+                <div className="bg-white/60 rounded-lg p-4 border border-indigo-100">
+                  <div className="text-2xl mb-2">🤖</div>
+                  <div className="font-semibold text-gray-800 mb-1">AI-Powered</div>
+                  <div className="text-gray-600 text-xs">Bayesian Logistic + Gradient Boosting Ensemble</div>
+                </div>
+                <div className="bg-white/60 rounded-lg p-4 border border-indigo-100">
+                  <div className="text-2xl mb-2">✅</div>
+                  <div className="font-semibold text-gray-800 mb-1">Quality Filters</div>
+                  <div className="text-gray-600 text-xs">Regime Guard, Trend Quality, Energy Checks</div>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+        )
+      ) : null}
 
       {/* Signal Cards */}
       <SignalCard
@@ -1068,6 +1442,17 @@ export default function StockResearch() {
           isLoading={sectionLoading.tightRangeBreakouts}
         />
       )}
+
+      {/* Smart Allocation Advisor */}
+      <SmartAllocation quantPredictions={data.quantPredictions} />
+
+      {/* Detailed Stock Analysis */}
+      <DetailedStockAnalysis />
+
+      {/* Stock Intelligence Boards */}
+      <div className="mt-8">
+        <StockIntelligenceBoards />
+      </div>
     </div>
   );
 }

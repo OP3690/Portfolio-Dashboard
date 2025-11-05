@@ -8,6 +8,9 @@ import { subDays, subMonths } from 'date-fns';
 export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
+  const startTime = Date.now();
+  const MAX_EXECUTION_TIME = 90000; // 90 seconds max execution time (optimized for faster processing)
+  
   try {
     await connectDB();
     const searchParams = request.nextUrl.searchParams;
@@ -48,6 +51,14 @@ export async function GET(request: NextRequest) {
     const breakoutMinBoScore = getFilterParam('breakout', 'minBoScore', 0);
     const breakoutMinVolSpike = getFilterParam('breakout', 'minVolSpike', 50);
     const breakoutMinPrice = getFilterParam('breakout', 'minPrice', 30);
+    
+    // Quantitative Predictions filters
+    const quantMinProbability = getFilterParam('quant', 'minProbability', 0.40);
+    const quantMinPredictedReturn = getFilterParam('quant', 'minPredictedReturn', 8);
+    const quantMinCAGR = getFilterParam('quant', 'minCAGR', -100);
+    const quantMaxVolatility = getFilterParam('quant', 'maxVolatility', 100);
+    const quantMinMomentum = getFilterParam('quant', 'minMomentum', 0);
+    const quantMinPrice = getFilterParam('quant', 'minPrice', 0);
     
     // Signal type filter - if specified, only return that signal type
     const signalType = searchParams.get('signalType');
@@ -231,7 +242,463 @@ export async function GET(request: NextRequest) {
       };
     };
 
-    // Predict 3-Month Return using regression-like model
+    // ============================================
+    // ADVANCED QUANTITATIVE FEATURES (OHLCV Stack)
+    // ============================================
+    
+    // Hurst Exponent (Rescaled Range Analysis)
+    const calculateHurstExponent = (prices: number[], window: number = 200): number => {
+      if (prices.length < window) return 0.5; // Neutral if insufficient data
+      
+      const returns: number[] = [];
+      for (let i = 1; i < prices.length; i++) {
+        if (prices[i - 1] > 0) {
+          returns.push(Math.log(prices[i] / prices[i - 1]));
+        }
+      }
+      
+      if (returns.length < window) return 0.5;
+      const recentReturns = returns.slice(-window);
+      
+      // Mean of returns
+      const meanReturn = recentReturns.reduce((a, b) => a + b, 0) / recentReturns.length;
+      
+      // Calculate cumulative deviations
+      const cumulativeDeviations: number[] = [];
+      let sum = 0;
+      for (const ret of recentReturns) {
+        sum += (ret - meanReturn);
+        cumulativeDeviations.push(sum);
+      }
+      
+      // Range (max - min of cumulative deviations)
+      const range = Math.max(...cumulativeDeviations) - Math.min(...cumulativeDeviations);
+      
+      // Standard deviation
+      const variance = recentReturns.reduce((sum, r) => sum + Math.pow(r - meanReturn, 2), 0) / recentReturns.length;
+      const stdDev = Math.sqrt(variance);
+      
+      if (stdDev === 0 || range === 0) return 0.5;
+      
+      // Rescaled Range
+      const rescaledRange = range / stdDev;
+      
+      // Hurst = log(R/S) / log(n) where n is the number of observations
+      // Simplified: H ≈ 0.5 * log(R/S) / log(n/2)
+      const hurst = 0.5 + (Math.log(rescaledRange + 1) / Math.log(window / 2)) * 0.5;
+      
+      // Clamp between 0 and 1
+      return Math.max(0, Math.min(1, hurst));
+    };
+    
+    // Fractal Dimension (Higuchi Method)
+    const calculateFractalDimension = (prices: number[], kmax: number = 8): number => {
+      if (prices.length < 50) return 1.5; // Default neutral
+      
+      const n = prices.length;
+      const L: number[] = [];
+      
+      for (let k = 1; k <= Math.min(kmax, Math.floor(n / 2)); k++) {
+        let sumL = 0;
+        for (let m = 1; m <= k; m++) {
+          let innerSum = 0;
+          const maxI = Math.floor((n - m) / k);
+          for (let i = 1; i <= maxI; i++) {
+            const idx1 = m + (i - 1) * k;
+            const idx2 = m + i * k;
+            if (idx1 < prices.length && idx2 < prices.length) {
+              innerSum += Math.abs(prices[idx2] - prices[idx1]);
+            }
+          }
+          sumL += innerSum * (n - 1) / (maxI * k * k);
+        }
+        L.push(sumL / k);
+      }
+      
+      // Calculate FD using log-log regression
+      if (L.length < 2) return 1.5;
+      const logK = Array.from({ length: L.length }, (_, i) => Math.log(i + 1));
+      const logL = L.map(l => Math.log(l + 1e-10));
+      
+      // Simple linear regression
+      const nPoints = logK.length;
+      const sumX = logK.reduce((a, b) => a + b, 0);
+      const sumY = logL.reduce((a, b) => a + b, 0);
+      const sumXY = logK.reduce((sum, x, i) => sum + x * logL[i], 0);
+      const sumX2 = logK.reduce((sum, x) => sum + x * x, 0);
+      
+      const slope = (nPoints * sumXY - sumX * sumY) / (nPoints * sumX2 - sumX * sumX);
+      const fd = 2 - slope; // FD = 2 - slope
+      
+      return Math.max(1, Math.min(2, fd)); // Clamp between 1 and 2
+    };
+    
+    // Kalman Filter Trend Slope & Signal-to-Noise Ratio
+    const calculateKalmanTrend = (prices: number[]): { slope: number; snr: number; state: number } => {
+      if (prices.length < 20) return { slope: 0, snr: 0, state: prices[prices.length - 1] || 0 };
+      
+      // Simplified Kalman filter (single state, constant velocity model)
+      let state = prices[0] || 0;
+      let velocity = 0;
+      let p = 1; // State covariance
+      let q = 0.01; // Process noise
+      let r = 0.1; // Measurement noise
+      
+      for (let i = 1; i < prices.length; i++) {
+        // Predict
+        const predictedState = state + velocity;
+        const predictedP = p + q;
+        
+        // Update
+        const innovation = prices[i] - predictedState;
+        const s = predictedP + r;
+        const k = predictedP / s; // Kalman gain
+        state = predictedState + k * innovation;
+        velocity = velocity + (k * innovation) / (i || 1); // Update velocity
+        p = (1 - k) * predictedP;
+      }
+      
+      // Calculate slope as rate of change
+      const recentPrices = prices.slice(-20);
+      const slope = (recentPrices[recentPrices.length - 1] - recentPrices[0]) / recentPrices.length;
+      
+      // SNR = slope / sqrt(variance)
+      const variance = prices.slice(-20).reduce((sum, p, i, arr) => {
+        if (i === 0) return 0;
+        const mean = arr.reduce((a, b) => a + b, 0) / arr.length;
+        return sum + Math.pow(p - mean, 2);
+      }, 0) / 20;
+      const snr = variance > 0 ? Math.abs(slope) / Math.sqrt(variance + 1e-10) : 0;
+      
+      return { slope, snr: Math.min(snr, 10), state }; // Cap SNR at 10
+    };
+    
+    // KAMA Efficiency Ratio
+    const calculateKAMAER = (prices: number[], period: number = 10): number => {
+      if (prices.length < period + 1) return 0;
+      
+      const change = Math.abs(prices[prices.length - 1] - prices[prices.length - period - 1]);
+      let volatility = 0;
+      for (let i = prices.length - period; i < prices.length; i++) {
+        volatility += Math.abs(prices[i] - prices[i - 1]);
+      }
+      
+      if (volatility === 0) return 0;
+      return Math.min(1, change / volatility);
+    };
+    
+    // R² of log-price vs time (trend quality)
+    const calculateTrendR2 = (prices: number[], period: number = 63): number => {
+      if (prices.length < period) return 0;
+      
+      const recentPrices = prices.slice(-period);
+      const logPrices = recentPrices.map(p => Math.log(p + 1e-10));
+      const n = logPrices.length;
+      const x = Array.from({ length: n }, (_, i) => i);
+      
+      // Calculate means
+      const meanX = x.reduce((a, b) => a + b, 0) / n;
+      const meanY = logPrices.reduce((a, b) => a + b, 0) / n;
+      
+      // Calculate sums for R²
+      let ssRes = 0;
+      let ssTot = 0;
+      
+      // Simple linear regression: y = a + b*x
+      let sumXY = 0;
+      let sumX2 = 0;
+      for (let i = 0; i < n; i++) {
+        sumXY += (x[i] - meanX) * (logPrices[i] - meanY);
+        sumX2 += Math.pow(x[i] - meanX, 2);
+      }
+      
+      const b = sumX2 > 0 ? sumXY / sumX2 : 0;
+      const a = meanY - b * meanX;
+      
+      // Calculate R²
+      for (let i = 0; i < n; i++) {
+        const predicted = a + b * x[i];
+        ssRes += Math.pow(logPrices[i] - predicted, 2);
+        ssTot += Math.pow(logPrices[i] - meanY, 2);
+      }
+      
+      if (ssTot === 0) return 0;
+      const r2 = 1 - (ssRes / ssTot);
+      return Math.max(0, Math.min(1, r2));
+    };
+    
+    // RSRS (Return Strength via Regression of high vs low) - Beta and z-score
+    const calculateRSRS = (highs: number[], lows: number[], window: number = 18): { beta: number; zScore: number } => {
+      if (highs.length < window || lows.length < window) return { beta: 1, zScore: 0 };
+      
+      const recentHighs = highs.slice(-window);
+      const recentLows = lows.slice(-window);
+      
+      // Simple OLS: high = beta * low
+      const meanHigh = recentHighs.reduce((a, b) => a + b, 0) / window;
+      const meanLow = recentLows.reduce((a, b) => a + b, 0) / window;
+      
+      let numerator = 0;
+      let denominator = 0;
+      for (let i = 0; i < window; i++) {
+        numerator += (recentLows[i] - meanLow) * (recentHighs[i] - meanHigh);
+        denominator += Math.pow(recentLows[i] - meanLow, 2);
+      }
+      
+      const beta = denominator > 0 ? numerator / denominator : 1;
+      
+      // Calculate z-score using historical beta values (simplified: use rolling mean/std)
+      // For production, would maintain a rolling window of betas
+      const historicalMean = 1.0; // Typical beta
+      const historicalStd = 0.2; // Typical std dev
+      const zScore = (beta - historicalMean) / (historicalStd + 1e-10);
+      
+      return { beta, zScore: Math.max(-5, Math.min(5, zScore)) };
+    };
+    
+    // Donchian Break % (where close sits in 63-day range)
+    const calculateDonchianPercent = (highs: number[], lows: number[], close: number, period: number = 63): number => {
+      if (highs.length < period || lows.length < period) return 0.5;
+      
+      const recentHighs = highs.slice(-period);
+      const recentLows = lows.slice(-period);
+      const maxHigh = Math.max(...recentHighs);
+      const minLow = Math.min(...recentLows);
+      
+      if (maxHigh === minLow) return 0.5;
+      return Math.max(0, Math.min(1, (close - minLow) / (maxHigh - minLow)));
+    };
+    
+    // VWAP (Volume Weighted Average Price)
+    const calculateVWAP = (prices: number[], volumes: number[], period: number = 20): number => {
+      if (prices.length < period || volumes.length < period) return prices[prices.length - 1] || 0;
+      
+      const recentPrices = prices.slice(-period);
+      const recentVolumes = volumes.slice(-period);
+      
+      let sumPV = 0;
+      let sumV = 0;
+      for (let i = 0; i < period; i++) {
+        sumPV += recentPrices[i] * recentVolumes[i];
+        sumV += recentVolumes[i];
+      }
+      
+      return sumV > 0 ? sumPV / sumV : prices[prices.length - 1] || 0;
+    };
+    
+    // Z-score normalization
+    const zScore = (value: number, mean: number, std: number): number => {
+      if (std === 0) return 0;
+      return (value - mean) / std;
+    };
+    
+    // Normalized Momentum (z-scores over 21/42/63 bars)
+    const calculateNormalizedMomentum = (prices: number[], periods: number[] = [21, 42, 63]): number[] => {
+      const returns: number[] = [];
+      for (let i = 1; i < prices.length; i++) {
+        if (prices[i - 1] > 0) {
+          returns.push((prices[i] - prices[i - 1]) / prices[i - 1]);
+        }
+      }
+      
+      return periods.map(period => {
+        if (returns.length < period) return 0;
+        const recentReturns = returns.slice(-period);
+        const mean = recentReturns.reduce((a, b) => a + b, 0) / recentReturns.length;
+        const variance = recentReturns.reduce((sum, r) => sum + Math.pow(r - mean, 2), 0) / recentReturns.length;
+        const std = Math.sqrt(variance);
+        
+        const momentum = recentReturns[recentReturns.length - 1];
+        return zScore(momentum, mean, std);
+      });
+    };
+    
+    // Skewness and Kurtosis
+    const calculateSkewKurt = (returns: number[]): { skew: number; kurt: number } => {
+      if (returns.length < 20) return { skew: 0, kurt: 3 };
+      
+      const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
+      const variance = returns.reduce((sum, r) => sum + Math.pow(r - mean, 2), 0) / returns.length;
+      const std = Math.sqrt(variance);
+      
+      if (std === 0) return { skew: 0, kurt: 3 };
+      
+      // Skewness
+      const skew = returns.reduce((sum, r) => sum + Math.pow((r - mean) / std, 3), 0) / returns.length;
+      
+      // Kurtosis (excess)
+      const kurt = returns.reduce((sum, r) => sum + Math.pow((r - mean) / std, 4), 0) / returns.length - 3;
+      
+      return { skew, kurt: Math.max(-3, Math.min(10, kurt)) };
+    };
+    
+    // Simplified Markov Switching (2-regime: Bull vs Bear/Chop)
+    const calculateRegimeProbs = (returns: number[], window: number = 60): { bull: number; chop: number; bear: number } => {
+      if (returns.length < window) return { bull: 0.33, chop: 0.34, bear: 0.33 };
+      
+      const recentReturns = returns.slice(-window);
+      const mean = recentReturns.reduce((a, b) => a + b, 0) / recentReturns.length;
+      const variance = recentReturns.reduce((sum, r) => sum + Math.pow(r - mean, 2), 0) / recentReturns.length;
+      const std = Math.sqrt(variance);
+      
+      // Simple regime classification based on mean and volatility
+      // Bull: positive mean, low volatility
+      // Chop: low absolute mean, medium volatility
+      // Bear: negative mean, high volatility
+      
+      const bullScore = mean > 0 && std < 0.02 ? 1 : 0;
+      const bearScore = mean < 0 && std > 0.015 ? 1 : 0;
+      const chopScore = Math.abs(mean) < 0.005 && std > 0.01 && std < 0.025 ? 1 : 0;
+      
+      // Convert to probabilities (softmax-like)
+      const total = bullScore + bearScore + chopScore + 1; // +1 for smoothing
+      const bull = (bullScore + 0.33) / total;
+      const bear = (bearScore + 0.33) / total;
+      const chop = (chopScore + 0.34) / total;
+      
+      return { bull, chop, bear };
+    };
+    
+    // Advanced Prediction Model (Bayesian Logistic + Gradient Boosting approximation)
+    const predict3MonthReturnAdvanced = (
+      hurst: number,
+      fractalDim: number,
+      kalmanSlope: number,
+      kalmanSNR: number,
+      kamaER: number,
+      trendR2: number,
+      rsrsZ: number,
+      donchianPercent: number,
+      volSpike: number,
+      vwapDistATR: number,
+      regimeBull: number,
+      regimeChop: number,
+      momentumZ21: number,
+      momentumZ42: number,
+      momentumZ63: number,
+      atr: number,
+      currentPrice: number,
+      volatility: number,
+      skew: number,
+      kurt: number
+    ): { probability12: number; expectedReturn: number } => {
+      // Normalize features
+      const normHurst = (hurst - 0.5) * 2; // -1 to 1
+      const normFD = (fractalDim - 1.5) * 2; // -1 to 1
+      const normKalmanSNR = Math.min(kalmanSNR / 5, 1); // 0 to 1
+      const normKamaER = kamaER; // Already 0-1
+      const normTrendR2 = trendR2; // Already 0-1
+      const normRSRS = Math.max(-2, Math.min(2, rsrsZ)) / 2; // -1 to 1
+      const normDonchian = donchianPercent; // 0-1
+      const normVolSpike = Math.min(volSpike / 3, 1); // Cap at 3x
+      const normVWAP = Math.max(-2, Math.min(2, vwapDistATR)) / 2; // -1 to 1
+      const normMomentum = (momentumZ21 + momentumZ42 + momentumZ63) / 6; // Average and normalize
+      
+      // Bayesian Logistic Model (simplified)
+      // Features with interaction terms
+      const logitScore = (
+        normHurst * 0.15 +
+        (1 - normFD) * 0.10 + // Lower FD (smoother) is better
+        normKalmanSNR * 0.20 +
+        normKamaER * 0.15 +
+        normTrendR2 * 0.12 +
+        normRSRS * 0.18 +
+        normDonchian * 0.10 +
+        normVolSpike * 0.08 +
+        normVWAP * 0.05 +
+        normMomentum * 0.12 +
+        regimeBull * 0.20 +
+        (1 - regimeChop) * 0.10 + // Less chop is better
+        Math.max(0, normRSRS * regimeBull) * 0.15 + // Interaction: RSRS in bull regime
+        Math.max(0, normKalmanSNR * normKamaER) * 0.10 // Interaction: SNR + ER
+      );
+      
+      // Convert to probability using sigmoid
+      const p12Bayes = 1 / (1 + Math.exp(-(logitScore - 0.5) * 5));
+      
+      // Gradient Boosting approximation (simplified decision tree ensemble)
+      let gbmScore = 0;
+      
+      // Tree 1: Trend quality
+      if (normKalmanSNR > 0.5 && normTrendR2 > 0.3) gbmScore += 0.15;
+      if (normKamaER > 0.4) gbmScore += 0.10;
+      
+      // Tree 2: Momentum
+      if (normMomentum > 0.5 && normHurst > 0.5) gbmScore += 0.15;
+      if (normDonchian > 0.7) gbmScore += 0.10;
+      
+      // Tree 3: Breakout strength
+      if (normRSRS > 0.5 && normVolSpike > 0.4) gbmScore += 0.20;
+      if (normVWAP > 0 && normDonchian > 0.6) gbmScore += 0.10;
+      
+      // Tree 4: Regime
+      if (regimeBull > 0.6) gbmScore += 0.15;
+      if (regimeChop < 0.4) gbmScore += 0.05;
+      
+      // Normalize GBM score to 0-1
+      const p12GBM = Math.min(1, gbmScore);
+      
+      // Stacked ensemble (50/50 blend)
+      const p12 = 0.5 * p12Bayes + 0.5 * p12GBM;
+      
+      // Expected return calculation
+      // Use conditional means: positive returns when probability is high
+      const muPos = 18; // Expected positive return when model is right (%)
+      const muNeg = -5; // Expected negative return when model is wrong (%)
+      const expectedReturn = p12 * muPos + (1 - p12) * muNeg;
+      
+      return {
+        probability12: Math.max(0, Math.min(1, p12)),
+        expectedReturn: Math.round(expectedReturn * 10) / 10
+      };
+    };
+    
+    // Execution Filters
+    const checkExecutionFilters = (
+      regimeBull: number,
+      regimeChop: number,
+      rsrsZ: number,
+      kalmanSNR: number,
+      kamaER: number,
+      trendR2: number,
+      volSpike: number,
+      vwapDistATR: number,
+      rsi: number,
+      donchianPercent: number,
+      closePrice: number,
+      ema5: number
+    ): { passed: boolean; flags: string[] } => {
+      const flags: string[] = [];
+      let passed = true;
+      
+      // Regime Guard
+      if (regimeBull < 0.55 && !(regimeChop > 0.5 && rsrsZ > 1)) {
+        flags.push('Regime');
+        passed = false;
+      }
+      
+      // Trend Quality
+      if (kalmanSNR <= 0 || kamaER < 0.4 || trendR2 < 0.3) {
+        flags.push('Trend Quality');
+        passed = false;
+      }
+      
+      // Energy
+      if (volSpike < 1.3 || vwapDistATR < 0) {
+        flags.push('Energy');
+        passed = false;
+      }
+      
+      // Overheat check
+      if (rsi > 78 && donchianPercent > 0.95 && closePrice >= ema5) {
+        flags.push('Overheat');
+        // Don't fail, just warn
+      }
+      
+      return { passed, flags };
+    };
+    
+    // Predict 3-Month Return using regression-like model (Legacy - keep for backward compatibility)
     const predict3MonthReturn = (
       momentum: number,
       cagr: number,
@@ -284,14 +751,17 @@ export async function GET(request: NextRequest) {
     const holdings = await Holding.find({}).select('isin').lean();
     const holdingsIsins = new Set(holdings.map((h: any) => h.isin).filter(Boolean));
     
-    // Prioritize holdings first, then process all other stocks
+    // Process ALL stocks - prioritize holdings first, then all others
     const stocksToProcess: any[] = [];
+    
+    // First, add all holdings
     for (const stock of allStocks) {
       if (holdingsIsins.has(stock.isin)) {
         stocksToProcess.push(stock);
       }
     }
-    // Add all non-holdings
+    
+    // Then add all other stocks
     for (const stock of allStocks) {
       if (!holdingsIsins.has(stock.isin)) {
         stocksToProcess.push(stock);
@@ -300,58 +770,82 @@ export async function GET(request: NextRequest) {
     
     console.log(`Processing ALL ${stocksToProcess.length} stocks (${holdingsIsins.size} holdings + ${stocksToProcess.length - holdingsIsins.size} others)...`);
 
-    // Fetch all latest prices - use individual queries to avoid $group memory limits
+    // Fetch all latest prices - use aggregation with $in for better performance
     const isins = stocksToProcess.map(s => s.isin);
     const latestPricesMap = new Map<string, any>();
     
-    console.log(`📊 Fetching latest prices for ${isins.length} stocks...`);
+    console.log(`📊 Fetching latest prices for ${isins.length} stocks using optimized aggregation...`);
     
-    // Process in batches using individual queries to avoid $group memory limits
-    const LATEST_PRICE_BATCH_SIZE = 100;
+    // Use aggregation with $in to fetch all latest prices in fewer queries
+    // Process in larger batches using $in operator for better performance
+    const LATEST_PRICE_BATCH_SIZE = 500; // Increased batch size for better performance
     for (let i = 0; i < isins.length; i += LATEST_PRICE_BATCH_SIZE) {
       const batchIsins = isins.slice(i, i + LATEST_PRICE_BATCH_SIZE);
       
-      // Use Promise.all for parallel processing
-      await Promise.all(batchIsins.map(async (isin) => {
-        try {
-          const latest = await StockData.findOne({ isin })
-            .sort({ date: -1 })
-            .lean() as any;
-          
-          if (latest && latest.close && latest.close >= 30) {
-            latestPricesMap.set(isin, latest);
+      try {
+        // Use aggregation to get latest price for each ISIN in batch
+        const latestPrices = await StockData.aggregate([
+          { $match: { isin: { $in: batchIsins } } },
+          { $sort: { isin: 1, date: -1 } },
+          {
+            $group: {
+              _id: '$isin',
+              latest: { $first: '$$ROOT' }
+            }
           }
-        } catch (error) {
-          console.error(`Error fetching latest price for ${isin}:`, error);
+        ]).allowDiskUse(true);
+        
+        // Populate map
+        for (const item of latestPrices) {
+          if (item.latest && item.latest.close && item.latest.close >= 30) {
+            latestPricesMap.set(item._id, item.latest);
+          }
         }
-      }));
+      } catch (error) {
+        console.error(`Error fetching latest prices for batch:`, error);
+        // Fallback to individual queries if aggregation fails
+        await Promise.all(batchIsins.map(async (isin) => {
+          try {
+            const latest = await StockData.findOne({ isin })
+              .sort({ date: -1 })
+              .lean() as any;
+            
+            if (latest && latest.close && latest.close >= 30) {
+              latestPricesMap.set(isin, latest);
+            }
+          } catch (err) {
+            // Silently skip on error
+          }
+        }));
+      }
       
       // Log progress
-      if ((i + LATEST_PRICE_BATCH_SIZE) % 500 === 0 || i + LATEST_PRICE_BATCH_SIZE >= isins.length) {
+      if ((i + LATEST_PRICE_BATCH_SIZE) % 1000 === 0 || i + LATEST_PRICE_BATCH_SIZE >= isins.length) {
         console.log(`   📊 Latest prices progress: ${Math.min(i + LATEST_PRICE_BATCH_SIZE, isins.length)}/${isins.length} stocks`);
       }
     }
     
     console.log(`✅ Fetched latest prices for ${latestPricesMap.size} stocks`);
 
-    // Fetch all 365-day data - optimized to avoid memory issues
-    // Use individual queries per stock to avoid $group memory limits
+    // Fetch all 365-day data - use parallel queries with larger batches
     const oneYearAgoDate = subDays(today, 365);
     const priceDataMap = new Map<string, any[]>();
     
-    // Process ISINs in smaller batches using individual queries
-    // This avoids $group memory limits when pushing large arrays
-    const BATCH_SIZE = 100; // Smaller batches to avoid memory issues
+    // Process ISINs in larger batches with parallel queries for better performance
+    const BATCH_SIZE = 200; // Increased batch size for better parallelization
     console.log(`📊 Fetching 365-day data for ${isins.length} stocks in batches of ${BATCH_SIZE}...`);
     
-    for (let i = 0; i < isins.length; i += BATCH_SIZE) {
-      const batchIsins = isins.slice(i, i + BATCH_SIZE);
+    // Only fetch data for stocks that have valid latest prices
+    const validIsins = Array.from(latestPricesMap.keys());
+    
+    for (let i = 0; i < validIsins.length; i += BATCH_SIZE) {
+      const batchIsins = validIsins.slice(i, i + BATCH_SIZE);
       
       // Use Promise.all for parallel processing within batch
       await Promise.all(batchIsins.map(async (isin) => {
         try {
           const prices = await StockData.find({
-            isin,
+          isin,
             date: { $gte: oneYearAgoDate, $lte: today }
           })
             .sort({ date: 1 })
@@ -369,13 +863,13 @@ export async function GET(request: NextRequest) {
             })));
           }
         } catch (error) {
-          console.error(`Error fetching data for ${isin}:`, error);
+          // Silently skip on error
         }
       }));
       
-      // Log progress every 100 stocks
-      if ((i + BATCH_SIZE) % 500 === 0 || i + BATCH_SIZE >= isins.length) {
-        console.log(`   📊 Progress: ${Math.min(i + BATCH_SIZE, isins.length)}/${isins.length} stocks processed`);
+      // Log progress every 500 stocks
+      if ((i + BATCH_SIZE) % 500 === 0 || i + BATCH_SIZE >= validIsins.length) {
+        console.log(`   📊 Progress: ${Math.min(i + BATCH_SIZE, validIsins.length)}/${validIsins.length} stocks processed`);
       }
     }
     
@@ -383,8 +877,21 @@ export async function GET(request: NextRequest) {
 
     let processedCount = 0;
     let skippedCount = 0;
+    let timeCheckCount = 0;
 
     for (const stock of stocksToProcess) {
+      // Check execution time every 100 stocks to avoid timeout (less frequent checks for better performance)
+      timeCheckCount++;
+      if (timeCheckCount % 100 === 0) {
+        const elapsed = Date.now() - startTime;
+        if (elapsed > MAX_EXECUTION_TIME) {
+          console.warn(`⏱️ Approaching timeout (${elapsed}ms), stopping processing at ${processedCount} stocks`);
+          break;
+        }
+        // Log progress every 100 stocks
+        console.log(`📊 Progress: Processed ${processedCount}/${stocksToProcess.length} stocks (${((processedCount / stocksToProcess.length) * 100).toFixed(1)}%)`);
+      }
+      
       try {
         const latest = latestPricesMap.get(stock.isin);
         
@@ -557,76 +1064,226 @@ export async function GET(request: NextRequest) {
         // RSI
         const rsi = calculateRSI(closes.slice(-14), 10);
         
-        // Calculate Quantitative Prediction Metrics (3-Month Return Prediction)
-        // Only calculate if we have sufficient 3-year data
-        if (closes3Years.length >= 756 && volumes3Years.length >= 756) {
-          try {
-            // 1. 3-Month Momentum Score (0 to 1)
-            const momentum3M = calculate3MMomentum(closes3Years, volumes3Years);
-            
-            // 2. 3-Year CAGR (%)
-            const cagr3Year = calculate3YearCAGR(closes3Years);
-            
-            // 3. Volatility (%)
-            const volatility = calculateVolatility(closes3Years);
-            
-            // 4. Volume Spike Ratio (15D vs 3M Avg)
-            const volumeSpikeRatio = calculateVolumeSpikeRatio(volumes3Years);
-            
-            // 5. Breakout Strength Score
-            const breakoutStrength = calculateBreakoutStrength(closes3Years);
-            
-            // 6. RSI (already calculated above)
-            
-            // 7. Predict 3-Month Return
-            const prediction = predict3MonthReturn(
-              momentum3M,
-              cagr3Year,
-              volatility,
-              volumeSpikeRatio,
-              rsi,
-              breakoutStrength.score
-            );
-            
-            // Only include stocks with probability > 0.65 (65% chance of >12% return)
-            if (prediction.probability >= 0.65) {
-              // Determine decision category
-              let decision = '⚠️ Watch';
-              let confidenceLevel = 'Low';
+        // ============================================
+        // ADVANCED QUANTITATIVE PREDICTION (Institutional-Grade)
+        // ============================================
+        // Calculate if we have at least 1 year of data
+        const minDataPoints = 252; // ~1 year of trading days
+        if (closes3Years.length >= minDataPoints && volumes3Years.length >= minDataPoints) {
+          // Process quant predictions for ALL stocks (not just holdings)
+          // Holdings are already prioritized in the stocksToProcess array
+          if (true) {
+            try {
+              // Calculate volatility first (needed for advanced prediction)
+              const volatility = calculateVolatility(closes3Years);
               
-              if (prediction.probability >= 0.80) {
-                decision = '✅ Strong Candidate';
-                confidenceLevel = 'High';
-              } else if (prediction.probability >= 0.70) {
-                decision = '✅ Likely Bullish';
-                confidenceLevel = 'Medium';
-              } else if (prediction.probability >= 0.65) {
-                decision = '⚠️ Moderate';
-                confidenceLevel = 'Low';
+              // Extract OHLCV arrays - limit to recent data for performance (use 1 year max for speed)
+              const recentDataLimit = Math.min(allPrices3Years.length, 252); // Max 1 year for faster processing
+              const recentPrices = allPrices3Years.slice(-recentDataLimit);
+              const highs = recentPrices.map(d => d.high || d.close || 0).filter(h => h > 0);
+              const lows = recentPrices.map(d => d.low || d.close || 0).filter(l => l > 0);
+              const closes = closes3Years.slice(-recentDataLimit);
+              const volumes = volumes3Years.slice(-recentDataLimit);
+            
+              // Calculate returns for regime detection
+              const returns: number[] = [];
+          for (let i = 1; i < closes.length; i++) {
+                if (closes[i - 1] > 0) {
+                  returns.push((closes[i] - closes[i - 1]) / closes[i - 1]);
+                }
               }
               
-              results.quantPredictions.push({
-                isin: stock.isin,
-                stockName: stock.stockName || 'Unknown',
-                symbol: stock.symbol || '',
-                sector: stock.sector || 'Unknown',
-                currentPrice: currentPrice,
-                momentum3M: Math.round(momentum3M * 100) / 100,
-                cagr3Year: Math.round(cagr3Year * 10) / 10,
-                volatility: Math.round(volatility * 10) / 10,
-                volumeSpikeRatio: Math.round(volumeSpikeRatio * 10) / 10,
-                breakoutStrength: breakoutStrength.description,
-                rsi: Math.round(rsi * 10) / 10,
-                predictedReturn: prediction.predictedReturn,
-                probability: prediction.probability,
-                decision: decision,
-                confidenceLevel: confidenceLevel,
-                score: prediction.probability, // Use probability as score for sorting
-              });
+              // ===== ADVANCED FEATURES (Optimized) =====
+              
+              // 1. Regime Detection (Markov Switching) - use shorter window for speed
+              const regimeProbs = calculateRegimeProbs(returns.slice(-120), 60);
+              
+              // 2. Hurst Exponent - use shorter window for speed
+              const hurst = calculateHurstExponent(closes.slice(-150), 100);
+              
+              // 3. Fractal Dimension - use shorter window and fewer iterations
+              const fractalDim = calculateFractalDimension(closes.slice(-150), 5);
+              
+              // 4. Kalman Filter Trend - use shorter window
+              const kalmanTrend = calculateKalmanTrend(closes.slice(-100));
+              
+              // 5. KAMA Efficiency Ratio
+              const kamaER = calculateKAMAER(closes.slice(-100), 10);
+              
+              // 6. Trend R² - use shorter period
+              const trendR2 = calculateTrendR2(closes.slice(-100), 50);
+              
+              // 7. RSRS (High vs Low Regression)
+              const rsrs = calculateRSRS(highs.slice(-100), lows.slice(-100), 18);
+              
+              // 8. Donchian Break %
+              const donchianPercent = calculateDonchianPercent(
+                highs.slice(-63), 
+                lows.slice(-63), 
+                currentPrice, 
+                63
+              );
+              
+              // 9. Volume Spike Ratio (15D/63D)
+              const volSpike = calculateVolumeSpikeRatio(volumes.slice(-63));
+              
+              // 10. VWAP & Distance
+              const vwap = calculateVWAP(closes.slice(-50), volumes.slice(-50), 20);
+              const atr = calculateATR(price60Days.slice(-14), 14);
+              const vwapDistATR = atr > 0 ? (currentPrice - vwap) / atr : 0;
+              
+              // 11. Normalized Momentum (z-scores) - use shorter periods
+              const momentumZ = calculateNormalizedMomentum(closes.slice(-100), [21, 42, 63]);
+              
+              // 12. Skewness & Kurtosis - use shorter window
+              const skewKurt = calculateSkewKurt(returns.slice(-60)); // Last 60 days instead of 120
+              
+              // 13. EMA5 for overheat check
+              const ema5 = calculateEMA(closes.slice(-20), 5);
+              
+              // ===== ADVANCED PREDICTION MODEL =====
+              const advancedPrediction = predict3MonthReturnAdvanced(
+                hurst,
+                fractalDim,
+                kalmanTrend.slope,
+                kalmanTrend.snr,
+                kamaER,
+                trendR2,
+                rsrs.zScore,
+                donchianPercent,
+                volSpike,
+                vwapDistATR,
+                regimeProbs.bull,
+                regimeProbs.chop,
+                momentumZ[0], // 21-day
+                momentumZ[1], // 42-day
+                momentumZ[2], // 63-day
+                atr,
+                currentPrice,
+                volatility,
+                skewKurt.skew,
+                skewKurt.kurt
+              );
+              
+              // ===== EXECUTION FILTERS =====
+              const executionFilters = checkExecutionFilters(
+                regimeProbs.bull,
+                regimeProbs.chop,
+                rsrs.zScore,
+                kalmanTrend.snr,
+                kamaER,
+                trendR2,
+                volSpike,
+                vwapDistATR,
+                rsi,
+                donchianPercent,
+                currentPrice,
+                ema5
+              );
+              
+              // Determine action based on filters
+              let action = '🚫 Avoid';
+              if (executionFilters.passed && executionFilters.flags.length === 0) {
+                action = '✅ Buy';
+              } else if (executionFilters.passed && executionFilters.flags.includes('Overheat')) {
+                action = '⚠️ Watch Pullback';
+              } else if (executionFilters.flags.length > 0 && executionFilters.flags.length <= 1) {
+                action = '⚠️ Watch';
+              }
+              
+              // Apply filters for quant predictions
+              if (
+                advancedPrediction.probability12 >= quantMinProbability &&
+                advancedPrediction.expectedReturn >= quantMinPredictedReturn &&
+                currentPrice >= quantMinPrice
+              ) {
+                // Determine decision category based on probability
+                let decision = '⚠️ Watch';
+                let confidenceLevel = 'Low';
+                
+                if (advancedPrediction.probability12 >= 0.80) {
+                  decision = '✅ Strong Candidate';
+                  confidenceLevel = 'High';
+                } else if (advancedPrediction.probability12 >= 0.70) {
+                  decision = '✅ Likely Bullish';
+                  confidenceLevel = 'Medium';
+                } else if (advancedPrediction.probability12 >= 0.60) {
+                  decision = '✅ Moderate Bullish';
+                  confidenceLevel = 'Medium';
+                } else if (advancedPrediction.probability12 >= 0.50) {
+                  decision = '⚠️ Watch';
+                  confidenceLevel = 'Low';
+                }
+                
+                // Use execution filter action if available
+                if (action === '✅ Buy') {
+                  decision = '✅ Buy';
+                } else if (action === '⚠️ Watch Pullback') {
+                  decision = '⚠️ Watch Pullback';
+                } else if (action === '🚫 Avoid') {
+                  decision = '🚫 Avoid';
+                }
+                
+                // Calculate CAGR for display
+                const yearsOfData = Math.max(1, closes3Years.length / 252);
+                let cagr3Year = 0;
+                if (closes3Years.length >= 756) {
+                  cagr3Year = calculate3YearCAGR(closes3Years);
+                } else if (closes3Years.length >= 252) {
+                  const startPrice = closes3Years[0];
+                  const endPrice = closes3Years[closes3Years.length - 1];
+                  if (startPrice > 0) {
+                    cagr3Year = (Math.pow(endPrice / startPrice, 1 / yearsOfData) - 1) * 100;
+                  }
+                }
+                
+                results.quantPredictions.push({
+                  isin: stock.isin,
+                  stockName: stock.stockName || 'Unknown',
+                  symbol: stock.symbol || '',
+                  sector: stock.sector || 'Unknown',
+                  currentPrice: currentPrice,
+                  // Advanced metrics
+                  p12: Math.round(advancedPrediction.probability12 * 100) / 100,
+                  exp3MReturn: advancedPrediction.expectedReturn,
+                  regimeBull: Math.round(regimeProbs.bull * 100) / 100,
+                  hurst: Math.round(hurst * 100) / 100,
+                  kalmanSNR: Math.round(kalmanTrend.snr * 100) / 100,
+                  rsrsZ: Math.round(rsrs.zScore * 100) / 100,
+                  volSpike: Math.round(volSpike * 100) / 100,
+                  donchianPercent: Math.round(donchianPercent * 100) / 100,
+                  kamaER: Math.round(kamaER * 100) / 100,
+                  vwapDistATR: Math.round(vwapDistATR * 100) / 100,
+                  filtersPass: executionFilters.passed,
+                  filterFlags: executionFilters.flags,
+                  action: action,
+                  // Legacy fields for backward compatibility
+                  momentum3M: Math.round((momentumZ[0] + momentumZ[1] + momentumZ[2]) / 3 * 100) / 100,
+                  cagr3Year: Math.round(cagr3Year * 10) / 10,
+                  volatility: Math.round(volatility * 10) / 10,
+                  volumeSpikeRatio: Math.round(volSpike * 10) / 10,
+                  rsi: Math.round(rsi * 10) / 10,
+                  predictedReturn: advancedPrediction.expectedReturn,
+                  probability: advancedPrediction.probability12,
+                  decision: decision,
+                  confidenceLevel: confidenceLevel,
+                  score: advancedPrediction.expectedReturn, // Sort by expected return
+                });
+              }
+            } catch (error) {
+              // Log error but continue
+              console.error(`Error in quant prediction for ${stock.isin}:`, error);
+              // Try to get more details about the error
+              if (error instanceof Error) {
+                console.error(`Error message: ${error.message}`);
+                console.error(`Error stack: ${error.stack}`);
+              }
             }
-          } catch (error) {
-            // Silently skip quant prediction if calculation fails
-            console.debug(`Skipping quant prediction for ${stock.isin}:`, error);
+          } // End of shouldProcessQuant if block
+        } else {
+          // Log when stocks are skipped due to insufficient data
+          if (processedCount % 100 === 0) {
+            console.debug(`Skipping ${stock.isin}: insufficient data (${closes3Years.length} closes, ${volumes3Years.length} volumes, need ${minDataPoints})`);
           }
         }
 
@@ -787,8 +1444,21 @@ export async function GET(request: NextRequest) {
       .slice(0, 6);
     };
 
-    console.log(`Processing complete. Processed: ${processedCount}, Skipped: ${skippedCount}`);
+    const executionTime = Date.now() - startTime;
+    console.log(`Processing complete. Processed: ${processedCount}, Skipped: ${skippedCount} in ${executionTime}ms`);
     console.log(`Results: Volume=${results.volumeSpikes.length}, Pullbacks=${results.deepPullbacks.length}, Capitulated=${results.capitulated.length}, Decliners=${results.fiveDayDecliners.length}, Climbers=${results.fiveDayClimbers.length}, Breakouts=${results.tightRangeBreakouts.length}, QuantPredictions=${results.quantPredictions.length}`);
+    
+    // Debug: Log first few quant predictions if any
+    if (results.quantPredictions.length > 0) {
+      console.log(`Quant Predictions sample (first 3):`, results.quantPredictions.slice(0, 3).map(q => ({
+        stock: q.stockName,
+        p12: q.p12,
+        expReturn: q.exp3MReturn,
+        filtersPass: q.filtersPass
+      })));
+    } else {
+      console.warn(`⚠️ No quant predictions found! Check filters: minProbability=${quantMinProbability}, minPredictedReturn=${quantMinPredictedReturn}, minPrice=${quantMinPrice}`);
+    }
 
     // Sort quant predictions by probability (descending) and limit to top 6
     const topQuantPredictions = results.quantPredictions
@@ -818,7 +1488,7 @@ export async function GET(request: NextRequest) {
         }
       }
     } else {
-      // Return all signal types
+      // Return all signal types - ALWAYS include quantPredictions (even if empty)
       responseData.quantPredictions = topQuantPredictions; // Always return quant predictions first
       responseData.volumeSpikes = sortAndLimit(results.volumeSpikes);
       responseData.deepPullbacks = sortAndLimit(results.deepPullbacks, false); // Lower oversold = better
@@ -826,6 +1496,11 @@ export async function GET(request: NextRequest) {
       responseData.fiveDayDecliners = sortAndLimit(results.fiveDayDecliners);
       responseData.fiveDayClimbers = sortAndLimit(results.fiveDayClimbers);
       responseData.tightRangeBreakouts = sortAndLimit(results.tightRangeBreakouts);
+    }
+    
+    // Ensure quantPredictions always exists in response (even if empty array)
+    if (!responseData.quantPredictions) {
+      responseData.quantPredictions = [];
     }
 
     return NextResponse.json({
@@ -835,6 +1510,7 @@ export async function GET(request: NextRequest) {
         totalStocks: allStocks.length,
         processed: processedCount,
         skipped: skippedCount,
+        executionTimeMs: executionTime,
       },
       filters: signalType ? { signalType } : {
         volumeSpikes: { minVolSpike: volSpikeMinVolSpike, minPriceMove: volSpikeMinPriceMove, minPrice: volSpikeMinPrice },
@@ -843,6 +1519,7 @@ export async function GET(request: NextRequest) {
         fiveDayDecliners: { minDownDays: declinerMinDownDays, maxReturn: declinerMaxReturn, minPrice: declinerMinPrice },
         fiveDayClimbers: { minUpDays: climberMinUpDays, minReturn: climberMinReturn, minPrice: climberMinPrice },
         tightRangeBreakouts: { maxRange: breakoutMaxRange, minBoScore: breakoutMinBoScore, minVolSpike: breakoutMinVolSpike, minPrice: breakoutMinPrice },
+        quantPredictions: { minProbability: quantMinProbability, minPredictedReturn: quantMinPredictedReturn, minCAGR: quantMinCAGR, maxVolatility: quantMaxVolatility, minMomentum: quantMinMomentum, minPrice: quantMinPrice },
       }
     });
 

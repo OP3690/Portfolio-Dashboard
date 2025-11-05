@@ -18,6 +18,7 @@
   "dependencies": {
     "@tailwindcss/postcss": "^4",
     "axios": "^1.13.1",
+    "csv-parser": "^3.2.0",
     "date-fns": "^4.1.0",
     "mongodb": "^6.20.0",
     "mongoose": "^8.19.2",

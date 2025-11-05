@@ -2,13 +2,19 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 
-// Initialize server-side cron jobs automatically on server start
-// This runs only on the server side, not in the browser
-// The serverInit module will automatically set up the cron job when imported
+// Initialize server-side cron jobs
+// Import serverInit only on server side
 if (typeof window === 'undefined') {
-  // Use dynamic import to ensure it only runs on server
   import('@/lib/serverInit').catch((err) => {
-    console.error('Failed to initialize server cron jobs:', err);
+    // Silently catch errors during development hot reload
+    if (process.env.NODE_ENV !== 'production') {
+      // In dev mode, ignore module not found errors during hot reload
+      if (!err.message?.includes('ENOENT')) {
+        console.error('Failed to initialize server cron jobs:', err);
+      }
+    } else {
+      console.error('Failed to initialize server cron jobs:', err);
+    }
   });
 }
 

@@ -13,104 +13,178 @@ export const dynamic = 'force-dynamic';
  */
 export async function POST(request: NextRequest) {
   try {
+    console.log('📥 POST /api/fetch-historical-data - Starting request...');
+    
     const connection = await connectDB();
     const dbName = connection.connection.db?.databaseName || 'unknown';
     console.log(`🔗 Connected to database: ${dbName}`);
     console.log(`🌐 Connection host: ${connection.connection.host}`);
     console.log(`📝 Connection name: ${connection.connection.name}`);
 
-    const body = await request.json().catch(() => ({}));
+    let body: any = {};
+    try {
+      body = await request.json();
+    } catch (jsonError: any) {
+      console.warn('⚠️  Failed to parse request body, using empty object:', jsonError.message);
+      body = {};
+    }
+    
     const { isin, isins, fetchHoldings, refreshLatest } = body;
+    console.log(`📋 Request body:`, { isin: !!isin, isins: !!isins, isinsLength: Array.isArray(isins) ? isins.length : 0, fetchHoldings, refreshLatest });
     
     // Handle daily refresh (last 3 days including today)
     if (refreshLatest === true) {
-      const Holding = (await import('@/models/Holding')).default;
-      const StockData = (await import('@/models/StockData')).default;
-      const StockMaster = (await import('@/models/StockMaster')).default;
-      const searchParams = request.nextUrl.searchParams;
-      const clientId = searchParams.get('clientId') || '994826';
+      console.log('🔄 Starting refreshLatest operation...');
       
-      // Get holdings ISINs (priority 1)
-      const holdings = await Holding.find({ clientId }).select('isin').lean();
-      const holdingsIsins = new Set([...new Set(holdings.map((h: any) => h.isin).filter(Boolean))]);
-      
-      // Get ALL stocks from StockMaster (for Stock Research)
-      const allStocks = await StockMaster.find({}).select('isin').lean();
-      const allStockIsins = new Set([...new Set(allStocks.map((s: any) => s.isin).filter(Boolean))]);
-      
-      // Combine: Holdings first (priority), then rest of stocks
-      const priorityIsins = Array.from(holdingsIsins);
-      const otherIsins = Array.from(allStockIsins).filter(isin => !holdingsIsins.has(isin));
-      const uniqueIsins = [...priorityIsins, ...otherIsins];
-      
-      console.log(`🔄 Refreshing latest 3 days of data:`);
-      console.log(`   - Priority (Holdings): ${priorityIsins.length} stocks`);
-      console.log(`   - Additional (All Stocks): ${otherIsins.length} stocks`);
-      console.log(`   - Total: ${uniqueIsins.length} stocks`);
+      try {
+        const Holding = (await import('@/models/Holding')).default;
+        const StockData = (await import('@/models/StockData')).default;
+        const searchParams = request.nextUrl.searchParams;
+        const clientId = searchParams.get('clientId') || '994826';
+        const refreshAllStocks = searchParams.get('refreshAllStocks') === 'true'; // New parameter to control if we refresh all stocks
+        
+        console.log(`📋 Client ID: ${clientId}`);
+        console.log(`📋 Refresh All Stocks: ${refreshAllStocks}`);
+        
+        // Get holdings ISINs (priority 1)
+        let holdings: any[] = [];
+        try {
+          holdings = await Holding.find({ clientId }).select('isin').lean();
+          console.log(`✅ Fetched ${holdings.length} holdings`);
+        } catch (holdingsError: any) {
+          console.error('❌ Error fetching holdings:', holdingsError.message);
+          throw new Error(`Failed to fetch holdings: ${holdingsError.message}`);
+        }
+        
+        const holdingsIsins = new Set([...new Set(holdings.map((h: any) => h.isin).filter(Boolean))]);
+        const priorityIsins = Array.from(holdingsIsins);
+        
+        let uniqueIsins: string[] = [...priorityIsins];
+        
+        // Only get ALL stocks if explicitly requested (for cron job or manual trigger)
+        if (refreshAllStocks) {
+          const StockMaster = (await import('@/models/StockMaster')).default;
+          let allStocks: any[] = [];
+          try {
+            allStocks = await StockMaster.find({}).select('isin').lean();
+            console.log(`✅ Fetched ${allStocks.length} stocks from StockMaster`);
+          } catch (stocksError: any) {
+            console.error('❌ Error fetching stocks from StockMaster:', stocksError.message);
+            // Continue with just holdings if StockMaster fetch fails
+            allStocks = [];
+          }
+          
+          const allStockIsins = new Set([...new Set(allStocks.map((s: any) => s.isin).filter(Boolean))]);
+          const otherIsins = Array.from(allStockIsins).filter(isin => !holdingsIsins.has(isin));
+          uniqueIsins = [...priorityIsins, ...otherIsins];
+          
+          console.log(`🔄 Refreshing latest 3 days of data for ALL stocks:`);
+          console.log(`   - Priority (Holdings): ${priorityIsins.length} stocks`);
+          console.log(`   - Additional (All Stocks): ${otherIsins.length} stocks`);
+          console.log(`   - Total: ${uniqueIsins.length} stocks`);
+        } else {
+          // Only refresh holdings (much faster!)
+          console.log(`🔄 Refreshing latest 3 days of data for HOLDINGS ONLY:`);
+          console.log(`   - Holdings: ${priorityIsins.length} stocks`);
+        }
       
       // OPTIMIZED: Use MongoDB aggregation to check ALL ISINs at once for today's data
+      // Account for timezone: IST is UTC+5:30, so data stored at 18:30 UTC on Nov 4 = 00:00 IST on Nov 5
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      const todayEnd = new Date(today);
-      todayEnd.setHours(23, 59, 59, 999);
+      const yesterdayEvening = new Date(today);
+      yesterdayEvening.setDate(yesterdayEvening.getDate() - 1);
+      yesterdayEvening.setUTCHours(18, 30, 0, 0); // 18:30 UTC = 00:00 IST next day
       
-      // Get all ISINs with today's data in ONE query using aggregation
-      const todayDataResults: any[] = await StockData.aggregate([
-        {
-          $match: {
-            isin: { $in: uniqueIsins },
-            date: { $gte: today, $lte: todayEnd },
-            close: { $gt: 0 }
-          }
-        },
-        {
-          $group: {
-            _id: '$isin',
-            latestDate: { $max: '$date' },
-            latestClose: { $first: '$close' }
-          }
+      const todayEnd = new Date(today);
+      todayEnd.setUTCHours(23, 59, 59, 999);
+      
+      let todayDataResults: any[] = [];
+      let foundInDB = 0;
+      
+      try {
+        // Get all ISINs with today's data in ONE query using aggregation
+        // Check from yesterday 18:30 UTC onwards to catch today's data
+        if (uniqueIsins.length > 0) {
+          todayDataResults = await StockData.aggregate([
+            {
+              $match: {
+                isin: { $in: uniqueIsins },
+                date: { $gte: yesterdayEvening, $lte: todayEnd },
+                close: { $gt: 0 }
+              }
+            },
+            {
+              $group: {
+                _id: '$isin',
+                latestDate: { $max: '$date' },
+                latestClose: { $first: '$close' }
+              }
+            }
+          ]).allowDiskUse(true);
         }
-      ]);
+      } catch (aggregateError: any) {
+        console.error('❌ Error in aggregation query for today\'s data:', aggregateError.message);
+        // Continue with empty results - will fetch all stocks
+        todayDataResults = [];
+      }
       
       const isinsWithTodayData = new Set(todayDataResults.map(r => r._id));
       const isinsNeedingFetch = uniqueIsins.filter(isin => !isinsWithTodayData.has(isin));
-      const foundInDB = isinsWithTodayData.size;
+      foundInDB = isinsWithTodayData.size;
       
       console.log(`✅ Found ${foundInDB} stocks with TODAY's data in database (via aggregation), ${isinsNeedingFetch.length} need fetching from API`);
       
-      // Separate holdings (priority) from other stocks
-      const holdingsNeedingFetch = isinsNeedingFetch.filter(isin => holdingsIsins.has(isin));
-      const otherStocksNeedingFetch = isinsNeedingFetch.filter(isin => !holdingsIsins.has(isin));
-      
-      console.log(`   - Priority (Holdings) needing fetch: ${holdingsNeedingFetch.length}`);
-      console.log(`   - Additional stocks needing fetch: ${otherStocksNeedingFetch.length}`);
-      
-      // Only fetch missing ones - process in parallel batches to be faster
-      let totalFetched = 0;
-      let stocksProcessed = 0;
-      let stocksWith5YearData = 0;
-      let stocksFetched5Year = 0;
-      const errors: string[] = [];
-      
-      // Process holdings first (priority), then other stocks
-      const isinsNeedingFetchOrdered = [...holdingsNeedingFetch, ...otherStocksNeedingFetch];
-      
-      if (isinsNeedingFetchOrdered.length > 0) {
+        // Only process holdings if refreshAllStocks is false, otherwise process all
+        let isinsToProcess: string[] = [];
+        if (refreshAllStocks) {
+          // Separate holdings (priority) from other stocks
+          const holdingsNeedingFetch = isinsNeedingFetch.filter(isin => holdingsIsins.has(isin));
+          const otherStocksNeedingFetch = isinsNeedingFetch.filter(isin => !holdingsIsins.has(isin));
+          
+          console.log(`   - Priority (Holdings) needing fetch: ${holdingsNeedingFetch.length}`);
+          console.log(`   - Additional stocks needing fetch: ${otherStocksNeedingFetch.length}`);
+          
+          // Process holdings first (priority), then other stocks
+          isinsToProcess = [...holdingsNeedingFetch, ...otherStocksNeedingFetch];
+        } else {
+          // Only process holdings (much faster!)
+          isinsToProcess = isinsNeedingFetch.filter(isin => holdingsIsins.has(isin));
+          console.log(`   - Holdings needing fetch: ${isinsToProcess.length}`);
+        }
+        
+        // Only fetch missing ones - process in parallel batches to be faster
+        let totalFetched = 0;
+        let stocksProcessed = 0;
+        let stocksWith5YearData = 0;
+        let stocksFetched5Year = 0;
+        const errors: string[] = [];
+        
+        if (isinsToProcess.length > 0) {
         // OPTIMIZED: Use MongoDB aggregation to check which stocks have 5-year data (parallel batch check)
         // Check counts of records per ISIN - if >= 1000 records, assume 5-year data exists
-        const dataCountResults: any[] = await StockData.aggregate([
-          {
-            $match: {
-              isin: { $in: isinsNeedingFetchOrdered }
-            }
-          },
-          {
-            $group: {
-              _id: '$isin',
-              count: { $sum: 1 }
-            }
+        let dataCountResults: any[] = [];
+        try {
+          if (isinsToProcess.length > 0) {
+            dataCountResults = await StockData.aggregate([
+              {
+                $match: {
+                  isin: { $in: isinsToProcess }
+                }
+              },
+              {
+                $group: {
+                  _id: '$isin',
+                  count: { $sum: 1 }
+                }
+              }
+            ]).allowDiskUse(true);
           }
-        ]);
+        } catch (countAggregateError: any) {
+          console.error('❌ Error in aggregation query for data counts:', countAggregateError.message);
+          // Continue with empty results - will treat all as needing 5-year data
+          dataCountResults = [];
+        }
         
         const isinCountMap = new Map(dataCountResults.map(r => [r._id, r.count]));
         const STOCK_DATA_THRESHOLD = 1000; // ~5 years of trading days
@@ -118,7 +192,7 @@ export async function POST(request: NextRequest) {
         const stocksNeeding5Year: string[] = [];
         const stocksNeedingRefresh: string[] = [];
         
-        for (const isin of isinsNeedingFetchOrdered) {
+        for (const isin of isinsToProcess) {
           const count = isinCountMap.get(isin) || 0;
           if (count >= STOCK_DATA_THRESHOLD) {
             stocksNeedingRefresh.push(isin);
@@ -130,19 +204,101 @@ export async function POST(request: NextRequest) {
         console.log(`📊 ${stocksNeeding5Year.length} stocks need 5-year data, ${stocksNeedingRefresh.length} need refresh (via aggregation)`);
         
         // Process stocks needing refresh in LARGER parallel batches (faster)
-        const REFRESH_BATCH_SIZE = 20; // Increased from 10 to 20
+        // PRIORITY: Use NSE API first for current prices
+        const REFRESH_BATCH_SIZE = 50; // Increased batch size for faster processing (NSE API is fast)
+        let fetchCurrentPriceFromNSE: any = null;
+        try {
+          const stockServiceModule = await import('@/lib/stockDataService');
+          fetchCurrentPriceFromNSE = stockServiceModule.fetchCurrentPriceFromNSE;
+        } catch (importError: any) {
+          console.warn('⚠️  Failed to import fetchCurrentPriceFromNSE, will use Yahoo Finance only:', importError.message);
+        }
+        
+        // StockData is already imported at the top of the refreshLatest block
+        
+        console.log(`⚡ Processing ${stocksNeedingRefresh.length} stocks needing refresh in batches of ${REFRESH_BATCH_SIZE}...`);
+        
         for (let i = 0; i < stocksNeedingRefresh.length; i += REFRESH_BATCH_SIZE) {
           const batch = stocksNeedingRefresh.slice(i, i + REFRESH_BATCH_SIZE);
+          const batchStartTime = Date.now();
+          console.log(`   Batch ${Math.floor(i / REFRESH_BATCH_SIZE) + 1}/${Math.ceil(stocksNeedingRefresh.length / REFRESH_BATCH_SIZE)}: Processing ${batch.length} stocks...`);
+          
+          // Pre-fetch all StockMaster data for this batch to avoid repeated queries
+          const StockMaster = (await import('@/models/StockMaster')).default;
+          const stockMasterMap = new Map<string, any>();
+          try {
+            const batchStocks = await StockMaster.find({ isin: { $in: batch } }).select('isin symbol exchange stockName').lean();
+            batchStocks.forEach((s: any) => {
+              stockMasterMap.set(s.isin, s);
+            });
+          } catch (stockMasterError: any) {
+            console.warn(`⚠️  Failed to pre-fetch StockMaster data: ${stockMasterError.message}`);
+          }
+          
           const batchPromises = batch.map(async (holdingIsin) => {
             try {
+              // PRIORITY: Try NSE API first for NSE stocks (much faster than Yahoo Finance)
+              const stockDoc = stockMasterMap.get(holdingIsin);
+              
+              if (stockDoc && stockDoc.symbol && stockDoc.exchange === 'NSE' && fetchCurrentPriceFromNSE) {
+                try {
+                  // Add timeout for NSE API call (3 seconds max - NSE is usually fast)
+                  const nseTimeoutPromise = new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('NSE API timeout')), 3000)
+                  );
+                  
+                  const nsePriceData = await Promise.race([
+                    fetchCurrentPriceFromNSE(stockDoc.symbol),
+                    nseTimeoutPromise
+                  ]) as any;
+                  
+                  if (nsePriceData && nsePriceData.price && isFinite(nsePriceData.price)) {
+                    // Always use today's date (not the date from NSE metadata, which might be yesterday)
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    
+                    await StockData.findOneAndUpdate(
+                      {
+                        isin: holdingIsin,
+                        date: today
+                      },
+                      {
+                        isin: holdingIsin,
+                        stockName: stockDoc.stockName || '',
+                        symbol: stockDoc.symbol,
+                        exchange: stockDoc.exchange,
+                        date: today,
+                        open: nsePriceData.price,
+                        high: nsePriceData.price,
+                        low: nsePriceData.price,
+                        close: nsePriceData.price,
+                        currentPrice: nsePriceData.price,
+                        volume: 0,
+                        lastUpdated: new Date()
+                      },
+                      { upsert: true, new: true }
+                    );
+                    
+                    return { success: true, count: 1, isin: holdingIsin, source: 'NSE' };
+                  }
+                } catch (nseError: any) {
+                  // Silently fail and fall back to Yahoo Finance
+                  // Don't log every failure to avoid spam
+                }
+              }
+              
+              // Fallback: Use Yahoo Finance for historical data (only if NSE failed or not NSE stock)
               const count = await fetchAndStoreHistoricalData(holdingIsin, false);
-              return { success: true, count, isin: holdingIsin };
+              return { success: true, count, isin: holdingIsin, source: 'Yahoo' };
             } catch (error: any) {
               return { success: false, error: error.message, isin: holdingIsin };
             }
           });
           
           const batchResults = await Promise.all(batchPromises);
+          const nseCount = batchResults.filter(r => r.source === 'NSE').length;
+          const yahooCount = batchResults.filter(r => r.source === 'Yahoo').length;
+          
           batchResults.forEach(result => {
             if (result.success) {
               stocksWith5YearData++;
@@ -153,75 +309,87 @@ export async function POST(request: NextRequest) {
             }
           });
           
-          // Reduced delay between batches (only if not last batch)
-          if (i + REFRESH_BATCH_SIZE < stocksNeedingRefresh.length) {
-            await new Promise(resolve => setTimeout(resolve, 100)); // Reduced from 200ms to 100ms
-          }
+          const batchTime = ((Date.now() - batchStartTime) / 1000).toFixed(1);
+          console.log(`   ✅ Batch ${Math.floor(i / REFRESH_BATCH_SIZE) + 1} completed in ${batchTime}s (${nseCount} NSE, ${yahooCount} Yahoo)`);
+          
+          // No delay between batches - NSE API is fast and can handle parallel requests
         }
         
-        // Process stocks needing 5-year data in parallel batches (was sequential)
-        const FIVE_YEAR_BATCH_SIZE = 5; // Process 5-year data in smaller batches
-        for (let i = 0; i < stocksNeeding5Year.length; i += FIVE_YEAR_BATCH_SIZE) {
-          const batch = stocksNeeding5Year.slice(i, i + FIVE_YEAR_BATCH_SIZE);
-          const batchPromises = batch.map(async (holdingIsin) => {
-            try {
-              const count = await fetchAndStoreHistoricalData(holdingIsin, true);
-              return { success: true, count, isin: holdingIsin };
-            } catch (error: any) {
-              return { success: false, error: error.message, isin: holdingIsin };
+        // Process stocks needing 5-year data (only for holdings, skip if refreshAllStocks is false)
+        // For regular refresh, we only want to refresh today's data, not fetch 5 years
+        if (stocksNeeding5Year.length > 0 && refreshAllStocks) {
+          console.log(`📊 Fetching 5-year data for ${stocksNeeding5Year.length} stocks...`);
+          const FIVE_YEAR_BATCH_SIZE = 5; // Process 5-year data in smaller batches
+          for (let i = 0; i < stocksNeeding5Year.length; i += FIVE_YEAR_BATCH_SIZE) {
+            const batch = stocksNeeding5Year.slice(i, i + FIVE_YEAR_BATCH_SIZE);
+            const batchPromises = batch.map(async (holdingIsin) => {
+              try {
+                const count = await fetchAndStoreHistoricalData(holdingIsin, true);
+                return { success: true, count, isin: holdingIsin };
+              } catch (error: any) {
+                return { success: false, error: error.message, isin: holdingIsin };
+              }
+            });
+            
+            const batchResults = await Promise.all(batchPromises);
+            batchResults.forEach(result => {
+              if (result.success) {
+                stocksFetched5Year++;
+                totalFetched += result.count || 0;
+                stocksProcessed++;
+              } else {
+                errors.push(`${result.isin}: ${result.error || 'Unknown error'}`);
+              }
+            });
+            
+            // Delay between batches for 5-year data (longer to avoid rate limits)
+            if (i + FIVE_YEAR_BATCH_SIZE < stocksNeeding5Year.length) {
+              await new Promise(resolve => setTimeout(resolve, 500));
             }
-          });
-          
-          const batchResults = await Promise.all(batchPromises);
-          batchResults.forEach(result => {
-            if (result.success) {
-              stocksFetched5Year++;
-              totalFetched += result.count || 0;
-              stocksProcessed++;
-            } else {
-              errors.push(`${result.isin}: ${result.error || 'Unknown error'}`);
-            }
-          });
-          
-          // Delay between batches for 5-year data (longer to avoid rate limits)
-          if (i + FIVE_YEAR_BATCH_SIZE < stocksNeeding5Year.length) {
-            await new Promise(resolve => setTimeout(resolve, 500)); // Reduced from 800ms per stock to 500ms per batch
           }
+        } else if (stocksNeeding5Year.length > 0 && !refreshAllStocks) {
+          console.log(`⏭️  Skipping 5-year data fetch for ${stocksNeeding5Year.length} stocks (refreshAllStocks=false). These stocks will be refreshed with latest 3 days only.`);
         }
       }
       
-      console.log(`✅ Refresh completed: ${stocksProcessed} processed (${stocksWith5YearData} refreshed, ${stocksFetched5Year} fetched 5-year), ${totalFetched} records`);
-      
-      // Update lastUpdated timestamp
-      const refreshTime = new Date();
-      try {
-        await Holding.updateMany(
-          { clientId },
-          { $set: { lastUpdated: refreshTime } }
-        );
-      } catch (updateError) {
-        // Continue even if timestamp update fails
+        console.log(`✅ Refresh completed: ${stocksProcessed} processed (${stocksWith5YearData} refreshed, ${stocksFetched5Year} fetched 5-year), ${totalFetched} records`);
+        
+        // Update lastUpdated timestamp
+        const refreshTime = new Date();
+        try {
+          await Holding.updateMany(
+            { clientId },
+            { $set: { lastUpdated: refreshTime } }
+          );
+        } catch (updateError: any) {
+          // Continue even if timestamp update fails
+          console.warn('⚠️  Failed to update lastUpdated timestamp:', updateError.message);
+        }
+        
+        // Create message
+        let message = `Found ${foundInDB} stocks already up-to-date in database.`;
+        if (stocksProcessed > 0) {
+          message += ` Refreshed ${stocksProcessed} stocks (${totalFetched} records).`;
+        } else {
+          message += ` All stocks are up-to-date!`;
+        }
+        
+        console.log('✅ Returning success response for refreshLatest');
+        return NextResponse.json({
+          success: true,
+          message,
+          stocksProcessed,
+          stocksWith5YearData,
+          stocksFetched5Year,
+          foundInDatabase: foundInDB,
+          totalRecords: totalFetched,
+          refreshTime: refreshTime.toISOString(),
+          errors: errors.length > 0 ? errors : undefined,
+        });
+      } catch (refreshError: any) {
+        console.error('❌ Error in refreshLatest block:', refreshError);
+        throw refreshError; // Re-throw to be caught by outer catch
       }
-      
-      // Create message
-      let message = `Found ${foundInDB} stocks already up-to-date in database.`;
-      if (stocksProcessed > 0) {
-        message += ` Refreshed ${stocksProcessed} stocks (${totalFetched} records).`;
-      } else {
-        message += ` All stocks are up-to-date!`;
-      }
-      
-      return NextResponse.json({
-        success: true,
-        message,
-        stocksProcessed,
-        stocksWith5YearData,
-        stocksFetched5Year,
-        foundInDatabase: foundInDB,
-        totalRecords: totalFetched,
-        refreshTime: refreshTime.toISOString(),
-        errors: errors.length > 0 ? errors : undefined,
-      });
     }
 
     // Handle fetching prices for specific ISINs (e.g., from RealizedStocksTable)
@@ -255,17 +423,78 @@ export async function POST(request: NextRequest) {
       
       console.log(`✅ Found ${foundInDB} stocks with recent prices in database, ${isinsNeedingFetch.length} need fetching`);
       
-      // Only fetch missing ones in batches to avoid timeout
+      // PRIORITY: Use NSE API first for current prices (faster for NSE stocks)
       let fetchedCount = 0;
-      const BATCH_SIZE = 5; // Smaller batches to avoid timeout
+      const BATCH_SIZE = 10; // Can process more in parallel with NSE API
+      let fetchCurrentPriceFromNSE: any = null;
+      try {
+        const stockServiceModule = await import('@/lib/stockDataService');
+        fetchCurrentPriceFromNSE = stockServiceModule.fetchCurrentPriceFromNSE;
+      } catch (importError: any) {
+        console.warn('⚠️  Failed to import fetchCurrentPriceFromNSE, will use Yahoo Finance only:', importError.message);
+      }
       
       for (let i = 0; i < isinsNeedingFetch.length; i += BATCH_SIZE) {
         const batch = isinsNeedingFetch.slice(i, i + BATCH_SIZE);
         console.log(`🔄 Processing batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(isinsNeedingFetch.length / BATCH_SIZE)} (${batch.length} stocks)...`);
         
+        // PRIORITY: Try NSE API first for current prices (parallel processing)
         await Promise.all(batch.map(async (isin) => {
           try {
-            // Only fetch last 3 days (including today) for missing prices
+            const stock = await StockMaster.findOne({ isin }).lean();
+            const stockDoc = stock as any;
+            
+            // Try NSE API first if it's an NSE stock
+            if (stockDoc && stockDoc.symbol && stockDoc.exchange === 'NSE' && fetchCurrentPriceFromNSE) {
+              try {
+                // Add timeout for NSE API call (5 seconds max)
+                const nseTimeoutPromise = new Promise((_, reject) => 
+                  setTimeout(() => reject(new Error('NSE API timeout')), 5000)
+                );
+                
+                const nsePriceData = await Promise.race([
+                  fetchCurrentPriceFromNSE(stockDoc.symbol),
+                  nseTimeoutPromise
+                ]) as any;
+                
+                if (nsePriceData && nsePriceData.price && isFinite(nsePriceData.price)) {
+                  // Always use today's date (not the date from NSE metadata, which might be yesterday)
+                  const today = new Date();
+                  today.setHours(0, 0, 0, 0);
+                  
+                  await StockData.findOneAndUpdate(
+                    {
+                      isin,
+                      date: today
+                    },
+                    {
+                      isin,
+                      stockName: stockDoc.stockName || '',
+                      symbol: stockDoc.symbol,
+                      exchange: stockDoc.exchange,
+                      date: today,
+                      open: nsePriceData.price,
+                      high: nsePriceData.price,
+                      low: nsePriceData.price,
+                      close: nsePriceData.price,
+                      currentPrice: nsePriceData.price,
+                      volume: 0,
+                      lastUpdated: new Date()
+                    },
+                    { upsert: true, new: true }
+                  );
+                  
+                  fetchedCount++;
+                  console.log(`✅ [NSE] ${stockDoc.symbol} (${isin}): ₹${nsePriceData.price}`);
+                  return; // Success, skip Yahoo Finance
+                }
+              } catch (nseError: any) {
+                // Silently fail and fall back to Yahoo Finance
+                console.debug(`⚠️  NSE API failed for ${stockDoc.symbol}: ${nseError.message || 'Unknown error'}`);
+              }
+            }
+            
+            // Fallback: Use Yahoo Finance for historical data or if NSE failed
             const count = await fetchAndStoreHistoricalData(isin, false);
             fetchedCount += count;
           } catch (error: any) {
@@ -273,9 +502,9 @@ export async function POST(request: NextRequest) {
           }
         }));
         
-        // Delay between batches
+        // Delay between batches (reduced since NSE is faster)
         if (i + BATCH_SIZE < isinsNeedingFetch.length) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          await new Promise(resolve => setTimeout(resolve, 500));
         }
       }
       
@@ -409,11 +638,49 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
   } catch (error: any) {
-    console.error('Error in fetch-historical-data API:', error);
-    return NextResponse.json(
-      { error: error.message || 'Failed to fetch historical data' },
-      { status: 500 }
-    );
+    const errorDetails = {
+      message: error?.message || 'Unknown error',
+      name: error?.name || 'Error',
+      code: error?.code,
+      stack: error?.stack,
+    };
+    
+    console.error('='.repeat(60));
+    console.error('fetch-historical-data API ERROR - Full Details:');
+    console.error('='.repeat(60));
+    console.error('Error message:', errorDetails.message);
+    console.error('Error name:', errorDetails.name);
+    console.error('Error code:', errorDetails.code);
+    if (errorDetails.stack) {
+      console.error('Error stack:', errorDetails.stack.substring(0, 1000));
+    }
+    console.error('='.repeat(60));
+    
+    try {
+      return NextResponse.json(
+        { 
+          success: false,
+          error: errorDetails.message || 'Failed to fetch historical data',
+          errorName: errorDetails.name,
+          errorCode: errorDetails.code,
+          details: process.env.NODE_ENV === 'development' ? errorDetails.stack?.substring(0, 1000) : undefined,
+        },
+        { status: 500 }
+      );
+    } catch (jsonError: any) {
+      console.error('Failed to create error response JSON:', jsonError);
+      return new NextResponse(
+        JSON.stringify({ 
+          success: false,
+          error: 'Internal server error',
+          timestamp: new Date().toISOString(),
+        }),
+        { 
+          status: 500,
+          headers: { 'Content-Type': 'application/json' }
+        }
+      );
+    }
   }
 }
 
