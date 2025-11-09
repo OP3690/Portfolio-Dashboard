@@ -59,7 +59,7 @@ export default function DetailedStockAnalysis() {
   const [corporateData, setCorporateData] = useState<any>(null);
   const [loadingCorporate, setLoadingCorporate] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [days, setDays] = useState<number>(180);
+  const [days, setDays] = useState<number>(1095); // Default 3 years
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
@@ -211,26 +211,43 @@ export default function DetailedStockAnalysis() {
   }, [searchTerm]);
 
   // Fetch analysis data
-  const fetchAnalysis = async (isin: string, periodDays: number = 180) => {
+  const fetchAnalysis = async (isin: string, periodDays: number = 1095) => { // Default 3 years
     setLoading(true);
     setError(null);
 
     try {
+      console.log(`🔍 Fetching analysis for ISIN: ${isin}, days: ${periodDays}`);
       const response = await fetch(`/api/stock-analysis-detail?isin=${isin}&days=${periodDays}`);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`❌ API Error (${response.status}):`, errorText);
+        throw new Error(`API returned ${response.status}: ${errorText}`);
+      }
+      
       const result = await response.json();
+      console.log(`📊 Analysis API Response:`, {
+        success: result.success,
+        dataPoints: result.data?.summary?.dataPoints || 0,
+        error: result.error
+      });
 
       if (result.success) {
         setAnalysisData(result.data);
         setSelectedStock(result.data.stock);
+        console.log(`✅ Analysis data loaded: ${result.data.summary?.dataPoints || 0} data points`);
         
         // Fetch corporate data
         if (result.data.stock.isin) {
           fetchCorporateData(result.data.stock.isin);
         }
       } else {
-        setError(result.error || 'Failed to fetch analysis');
+        const errorMsg = result.error || 'Failed to fetch analysis';
+        console.error(`❌ Analysis failed:`, errorMsg);
+        setError(errorMsg);
       }
     } catch (err: any) {
+      console.error(`❌ Exception fetching analysis:`, err);
       setError(err.message || 'Failed to fetch analysis');
     } finally {
       setLoading(false);

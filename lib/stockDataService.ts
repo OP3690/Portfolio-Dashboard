@@ -45,6 +45,60 @@ interface OHLCData {
  * Fetch historical stock data from NSE (Note: NSE requires session cookies)
  * For now, using a simplified approach - in production use proper NSE API integration
  */
+// Cache for NSE session cookies (valid for ~30 minutes)
+let nseCookieCache: { cookies: string; timestamp: number } | null = null;
+const NSE_COOKIE_CACHE_DURATION = 30 * 60 * 1000; // 30 minutes
+
+/**
+ * Get NSE session cookies by visiting the main page first
+ * This is required for NSE API to work properly
+ */
+async function getNSESessionCookies(): Promise<string> {
+  // Return cached cookies if still valid
+  if (nseCookieCache && (Date.now() - nseCookieCache.timestamp) < NSE_COOKIE_CACHE_DURATION) {
+    console.log(`✅ Using cached NSE cookies (age: ${Math.round((Date.now() - nseCookieCache.timestamp) / 1000)}s)`);
+    return nseCookieCache.cookies;
+  }
+
+  try {
+    console.log('🔄 Fetching NSE session cookies...');
+    // First, visit the main NSE page to get session cookies
+    const response = await axios.get('https://www.nseindia.com', {
+      timeout: 10000,
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+      },
+      maxRedirects: 5,
+    });
+
+    // Extract cookies from response headers
+    const setCookieHeaders = response.headers['set-cookie'] || [];
+    const cookies = setCookieHeaders
+      .map((cookie: string) => cookie.split(';')[0])
+      .join('; ');
+
+    if (cookies) {
+      nseCookieCache = { cookies, timestamp: Date.now() };
+      console.log(`✅ Got NSE session cookies (${setCookieHeaders.length} cookies)`);
+      return cookies;
+    } else {
+      console.log(`⚠️  No cookies found in NSE response`);
+    }
+  } catch (error: any) {
+    console.log(`⚠️  Failed to get NSE session cookies: ${error.message}`);
+    if (error.response) {
+      console.log(`   Response status: ${error.response.status}`);
+    }
+  }
+
+  return '';
+}
+
 /**
  * Fetch current price from NSE API (Priority source for NSE stocks)
  * API: https://www.nseindia.com/api/quote-equity?symbol=SYMBOL
@@ -59,9 +113,12 @@ export async function fetchCurrentPriceFromNSE(symbol: string): Promise<{
       return null;
     }
 
+    // Get NSE session cookies first
+    const cookies = await getNSESessionCookies();
+
     const nseUrl = `https://www.nseindia.com/api/quote-equity?symbol=${encodeURIComponent(symbol)}`;
     
-    const headers = {
+    const headers: any = {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       'Accept': 'application/json, text/plain, */*',
       'Accept-Language': 'en-US,en;q=0.9',
@@ -73,9 +130,14 @@ export async function fetchCurrentPriceFromNSE(symbol: string): Promise<{
       'Sec-Fetch-Mode': 'cors',
       'Sec-Fetch-Site': 'same-origin',
     };
+
+    // Add cookies if available
+    if (cookies) {
+      headers['Cookie'] = cookies;
+    }
     
     const response = await axios.get(nseUrl, {
-      timeout: 8000,
+      timeout: 10000,
       headers: headers,
       maxRedirects: 5,
       validateStatus: (status) => status < 500,
@@ -90,10 +152,13 @@ export async function fetchCurrentPriceFromNSE(symbol: string): Promise<{
       
       if (priceInfo.lastPrice && typeof priceInfo.lastPrice === 'number' && priceInfo.lastPrice > 0) {
         price = priceInfo.lastPrice;
+        console.log(`✅ NSE API ${symbol}: Using lastPrice = ₹${price}`);
       } else if (priceInfo.close && typeof priceInfo.close === 'number' && priceInfo.close > 0) {
         price = priceInfo.close;
+        console.log(`✅ NSE API ${symbol}: Using close = ₹${price} (lastPrice not available)`);
       } else if (priceInfo.vwap && typeof priceInfo.vwap === 'number' && priceInfo.vwap > 0) {
         price = priceInfo.vwap;
+        console.log(`✅ NSE API ${symbol}: Using vwap = ₹${price} (lastPrice/close not available)`);
       }
       
       if (price && price > 0) {
@@ -112,17 +177,27 @@ export async function fetchCurrentPriceFromNSE(symbol: string): Promise<{
           }
         }
         
+        console.log(`✅ NSE API ${symbol}: Successfully fetched price ₹${price} (lastUpdateTime: ${data.metadata?.lastUpdateTime || 'N/A'})`);
+        
         return {
           price,
           date,
           source: 'NSE'
         };
+      } else {
+        console.log(`⚠️  NSE API ${symbol}: No valid price found in response (lastPrice: ${priceInfo.lastPrice}, close: ${priceInfo.close}, vwap: ${priceInfo.vwap})`);
       }
+    } else {
+      console.log(`⚠️  NSE API ${symbol}: Unexpected response status ${response.status}`);
     }
   } catch (error: any) {
-    // Silently fail - we'll try other methods
+    // Log error details for debugging
     if (error.response?.status === 401 || error.response?.status === 403) {
-      console.debug(`⚠️  NSE API access denied (${error.response.status}) for ${symbol}`);
+      console.log(`⚠️  NSE API access denied (${error.response.status}) for ${symbol} - Session cookies may be required`);
+    } else if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+      console.log(`⚠️  NSE API timeout for ${symbol}`);
+    } else {
+      console.log(`⚠️  NSE API error for ${symbol}: ${error.message || 'Unknown error'}`);
     }
   }
   

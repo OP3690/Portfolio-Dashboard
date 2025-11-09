@@ -169,7 +169,8 @@ export default function HoldingsTable({ holdings }: HoldingsTableProps) {
       );
       
       // Use the same refreshLatest logic - fetches last 3 days for stocks with 5-year data
-      const fetchPromise = fetch('/api/fetch-historical-data', {
+      // Also refresh ALL stocks (not just holdings) to ensure latest stock date is updated
+      const fetchPromise = fetch('/api/fetch-historical-data?refreshAllStocks=true', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

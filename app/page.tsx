@@ -30,29 +30,80 @@ export default function Dashboard() {
       const token = localStorage.getItem('authToken');
       
       if (!token) {
+        setAuthLoading(false);
         router.push('/login');
+        // Fallback in case router.push doesn't work
+        setTimeout(() => {
+          if (window.location.pathname !== '/login') {
+            window.location.href = '/login';
+          }
+        }, 100);
         return;
       }
 
-      // Verify token with backend
-      const authResponse = await fetch(`/api/auth/verify?token=${encodeURIComponent(token)}`);
-      const authData = await authResponse.json();
+      // Verify token with backend (with timeout)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
-      if (!authData.authenticated) {
+      try {
+        const authResponse = await fetch(`/api/auth/verify?token=${encodeURIComponent(token)}`, {
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+
+        if (!authResponse.ok) {
+          throw new Error('Auth verification failed');
+        }
+
+        const authData = await authResponse.json();
+
+        if (!authData.authenticated) {
+          localStorage.removeItem('authToken');
+          localStorage.removeItem('userEmail');
+          setAuthLoading(false);
+          router.push('/login');
+          // Fallback in case router.push doesn't work
+          setTimeout(() => {
+            if (window.location.pathname !== '/login') {
+              window.location.href = '/login';
+            }
+          }, 100);
+          return;
+        }
+
+        // Authenticated, proceed to load dashboard immediately
+        setAuthLoading(false);
+        fetchDashboardData();
+      } catch (fetchError: any) {
+        clearTimeout(timeoutId);
+        if (fetchError.name === 'AbortError') {
+          console.error('Auth check timeout');
+        } else {
+          console.error('Auth check error:', fetchError);
+        }
         localStorage.removeItem('authToken');
         localStorage.removeItem('userEmail');
+        setAuthLoading(false);
         router.push('/login');
-        return;
+        // Fallback in case router.push doesn't work
+        setTimeout(() => {
+          if (window.location.pathname !== '/login') {
+            window.location.href = '/login';
+          }
+        }, 100);
       }
-
-      // Authenticated, proceed to load dashboard immediately
-      setAuthLoading(false);
-      fetchDashboardData();
     } catch (err) {
       console.error('Auth check error:', err);
       localStorage.removeItem('authToken');
       localStorage.removeItem('userEmail');
+      setAuthLoading(false);
       router.push('/login');
+      // Fallback in case router.push doesn't work
+      setTimeout(() => {
+        if (window.location.pathname !== '/login') {
+          window.location.href = '/login';
+        }
+      }, 100);
     }
   };
 
@@ -153,7 +204,10 @@ export default function Dashboard() {
         {/* Monthly Charts Section */}
         <MonthlyCharts 
           monthlyInvestments={dashboardData.monthlyInvestments}
+          monthlyInvestmentAverages={dashboardData.monthlyInvestmentAverages}
           monthlyDividends={dashboardData.monthlyDividends}
+          avgMonthlyDividends={dashboardData.avgMonthlyDividends}
+          medianMonthlyDividendsLast12M={dashboardData.medianMonthlyDividendsLast12M}
           monthlyReturns={dashboardData.monthlyReturns}
           returnStatistics={dashboardData.returnStatistics}
         />

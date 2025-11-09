@@ -242,9 +242,9 @@ export async function POST(request: NextRequest) {
               
               if (stockDoc && stockDoc.symbol && stockDoc.exchange === 'NSE' && fetchCurrentPriceFromNSE) {
                 try {
-                  // Add timeout for NSE API call (3 seconds max - NSE is usually fast)
+                  // Add timeout for NSE API call (5 seconds max - NSE is usually fast)
                   const nseTimeoutPromise = new Promise((_, reject) => 
-                    setTimeout(() => reject(new Error('NSE API timeout')), 3000)
+                    setTimeout(() => reject(new Error('NSE API timeout')), 5000)
                   );
                   
                   const nsePriceData = await Promise.race([
@@ -256,6 +256,8 @@ export async function POST(request: NextRequest) {
                     // Always use today's date (not the date from NSE metadata, which might be yesterday)
                     const today = new Date();
                     today.setHours(0, 0, 0, 0);
+                    
+                    console.log(`✅ NSE API: ${stockDoc.symbol} (${holdingIsin}) - Price: ₹${nsePriceData.price}`);
                     
                     await StockData.findOneAndUpdate(
                       {
@@ -279,11 +281,15 @@ export async function POST(request: NextRequest) {
                       { upsert: true, new: true }
                     );
                     
-                    return { success: true, count: 1, isin: holdingIsin, source: 'NSE' };
+                    return { success: true, count: 1, isin: holdingIsin, source: 'NSE', price: nsePriceData.price };
+                  } else {
+                    console.log(`⚠️  NSE API: ${stockDoc.symbol} (${holdingIsin}) - No valid price returned, falling back to Yahoo Finance`);
                   }
                 } catch (nseError: any) {
-                  // Silently fail and fall back to Yahoo Finance
-                  // Don't log every failure to avoid spam
+                  // Log error for debugging but continue with fallback
+                  if (nseError.message !== 'NSE API timeout') {
+                    console.log(`⚠️  NSE API failed for ${stockDoc.symbol} (${holdingIsin}): ${nseError.message}, falling back to Yahoo Finance`);
+                  }
                 }
               }
               
@@ -315,40 +321,144 @@ export async function POST(request: NextRequest) {
           // No delay between batches - NSE API is fast and can handle parallel requests
         }
         
-        // Process stocks needing 5-year data (only for holdings, skip if refreshAllStocks is false)
-        // For regular refresh, we only want to refresh today's data, not fetch 5 years
-        if (stocksNeeding5Year.length > 0 && refreshAllStocks) {
-          console.log(`📊 Fetching 5-year data for ${stocksNeeding5Year.length} stocks...`);
-          const FIVE_YEAR_BATCH_SIZE = 5; // Process 5-year data in smaller batches
-          for (let i = 0; i < stocksNeeding5Year.length; i += FIVE_YEAR_BATCH_SIZE) {
-            const batch = stocksNeeding5Year.slice(i, i + FIVE_YEAR_BATCH_SIZE);
-            const batchPromises = batch.map(async (holdingIsin) => {
-              try {
-                const count = await fetchAndStoreHistoricalData(holdingIsin, true);
-                return { success: true, count, isin: holdingIsin };
-              } catch (error: any) {
-                return { success: false, error: error.message, isin: holdingIsin };
+        // Process stocks needing 5-year data
+        if (stocksNeeding5Year.length > 0) {
+          if (refreshAllStocks) {
+            // Fetch full 5-year data
+            console.log(`📊 Fetching 5-year data for ${stocksNeeding5Year.length} stocks...`);
+            const FIVE_YEAR_BATCH_SIZE = 5; // Process 5-year data in smaller batches
+            for (let i = 0; i < stocksNeeding5Year.length; i += FIVE_YEAR_BATCH_SIZE) {
+              const batch = stocksNeeding5Year.slice(i, i + FIVE_YEAR_BATCH_SIZE);
+              const batchPromises = batch.map(async (holdingIsin) => {
+                try {
+                  const count = await fetchAndStoreHistoricalData(holdingIsin, true);
+                  return { success: true, count, isin: holdingIsin };
+                } catch (error: any) {
+                  return { success: false, error: error.message, isin: holdingIsin };
+                }
+              });
+              
+              const batchResults = await Promise.all(batchPromises);
+              batchResults.forEach(result => {
+                if (result.success) {
+                  stocksFetched5Year++;
+                  totalFetched += result.count || 0;
+                  stocksProcessed++;
+                } else {
+                  errors.push(`${result.isin}: ${result.error || 'Unknown error'}`);
+                }
+              });
+              
+              // Delay between batches for 5-year data (longer to avoid rate limits)
+              if (i + FIVE_YEAR_BATCH_SIZE < stocksNeeding5Year.length) {
+                await new Promise(resolve => setTimeout(resolve, 500));
               }
-            });
+            }
+          } else {
+            // For regular refresh, still fetch today's price for stocks with no data
+            // This ensures holdings always have current prices even if they don't have historical data
+            console.log(`📊 Fetching today's price for ${stocksNeeding5Year.length} stocks with no data (refreshAllStocks=false, fetching last 3 days only)...`);
             
-            const batchResults = await Promise.all(batchPromises);
-            batchResults.forEach(result => {
-              if (result.success) {
-                stocksFetched5Year++;
-                totalFetched += result.count || 0;
-                stocksProcessed++;
-              } else {
-                errors.push(`${result.isin}: ${result.error || 'Unknown error'}`);
-              }
-            });
+            // Pre-fetch StockMaster data
+            const StockMaster = (await import('@/models/StockMaster')).default;
+            const stockMasterMap = new Map<string, any>();
+            try {
+              const batchStocks = await StockMaster.find({ isin: { $in: stocksNeeding5Year } })
+                .select('isin symbol exchange stockName')
+                .lean();
+              batchStocks.forEach((s: any) => {
+                stockMasterMap.set(s.isin, s);
+              });
+            } catch (stockMasterError: any) {
+              console.warn(`⚠️  Failed to pre-fetch StockMaster data: ${stockMasterError.message}`);
+            }
             
-            // Delay between batches for 5-year data (longer to avoid rate limits)
-            if (i + FIVE_YEAR_BATCH_SIZE < stocksNeeding5Year.length) {
-              await new Promise(resolve => setTimeout(resolve, 500));
+            // Process in batches with NSE API priority
+            const NO_DATA_BATCH_SIZE = 50;
+            for (let i = 0; i < stocksNeeding5Year.length; i += NO_DATA_BATCH_SIZE) {
+              const batch = stocksNeeding5Year.slice(i, i + NO_DATA_BATCH_SIZE);
+              const batchStartTime = Date.now();
+              console.log(`   Batch ${Math.floor(i / NO_DATA_BATCH_SIZE) + 1}/${Math.ceil(stocksNeeding5Year.length / NO_DATA_BATCH_SIZE)}: Processing ${batch.length} stocks with no data...`);
+              
+              const batchPromises = batch.map(async (holdingIsin) => {
+                try {
+                  // PRIORITY: Try NSE API first for NSE stocks
+                  const stockDoc = stockMasterMap.get(holdingIsin);
+                  
+                  if (stockDoc && stockDoc.symbol && stockDoc.exchange === 'NSE' && fetchCurrentPriceFromNSE) {
+                    try {
+                      const nseTimeoutPromise = new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('NSE API timeout')), 5000)
+                      );
+                      
+                      const nsePriceData = await Promise.race([
+                        fetchCurrentPriceFromNSE(stockDoc.symbol),
+                        nseTimeoutPromise
+                      ]) as any;
+                      
+                      if (nsePriceData && nsePriceData.price && isFinite(nsePriceData.price)) {
+                        const today = new Date();
+                        today.setHours(0, 0, 0, 0);
+                        
+                        console.log(`✅ NSE API: ${stockDoc.symbol} (${holdingIsin}) - Price: ₹${nsePriceData.price}`);
+                        
+                        await StockData.findOneAndUpdate(
+                          {
+                            isin: holdingIsin,
+                            date: today
+                          },
+                          {
+                            isin: holdingIsin,
+                            stockName: stockDoc.stockName || '',
+                            symbol: stockDoc.symbol,
+                            exchange: stockDoc.exchange,
+                            date: today,
+                            open: nsePriceData.price,
+                            high: nsePriceData.price,
+                            low: nsePriceData.price,
+                            close: nsePriceData.price,
+                            currentPrice: nsePriceData.price,
+                            volume: 0,
+                            lastUpdated: new Date()
+                          },
+                          { upsert: true, new: true }
+                        );
+                        
+                        return { success: true, count: 1, isin: holdingIsin, source: 'NSE', price: nsePriceData.price };
+                      }
+                    } catch (nseError: any) {
+                      if (nseError.message !== 'NSE API timeout') {
+                        console.log(`⚠️  NSE API failed for ${stockDoc.symbol} (${holdingIsin}): ${nseError.message}, falling back to Yahoo Finance`);
+                      }
+                    }
+                  }
+                  
+                  // Fallback: Use fetchAndStoreHistoricalData (fetches last 3 days)
+                  const count = await fetchAndStoreHistoricalData(holdingIsin, false);
+                  return { success: true, count, isin: holdingIsin, source: 'Yahoo' };
+                } catch (error: any) {
+                  return { success: false, error: error.message, isin: holdingIsin };
+                }
+              });
+              
+              const batchResults = await Promise.all(batchPromises);
+              const nseCount = batchResults.filter(r => r.source === 'NSE').length;
+              const yahooCount = batchResults.filter(r => r.source === 'Yahoo').length;
+              
+              batchResults.forEach(result => {
+                if (result.success) {
+                  stocksWith5YearData++;
+                  totalFetched += result.count || 0;
+                  stocksProcessed++;
+                } else {
+                  errors.push(`${result.isin}: ${result.error || 'Unknown error'}`);
+                }
+              });
+              
+              const batchTime = ((Date.now() - batchStartTime) / 1000).toFixed(1);
+              console.log(`   ✅ Batch ${Math.floor(i / NO_DATA_BATCH_SIZE) + 1} completed in ${batchTime}s (${nseCount} NSE, ${yahooCount} Yahoo)`);
             }
           }
-        } else if (stocksNeeding5Year.length > 0 && !refreshAllStocks) {
-          console.log(`⏭️  Skipping 5-year data fetch for ${stocksNeeding5Year.length} stocks (refreshAllStocks=false). These stocks will be refreshed with latest 3 days only.`);
         }
       }
       
@@ -366,12 +476,31 @@ export async function POST(request: NextRequest) {
           console.warn('⚠️  Failed to update lastUpdated timestamp:', updateError.message);
         }
         
+        // Cleanup old data (older than 2 years) to maintain database size
+        console.log('\n🧹 Starting automatic cleanup of old stock data (older than 2 years)...');
+        let cleanupResult: any = null;
+        try {
+          const { cleanupOldStockData } = await import('@/lib/cleanupOldStockData');
+          cleanupResult = await cleanupOldStockData();
+          if (cleanupResult.success) {
+            console.log(`✅ Cleanup completed: Deleted ${cleanupResult.deletedCount.toLocaleString()} old records`);
+          } else {
+            console.warn(`⚠️  Cleanup had issues: ${cleanupResult.error || 'Unknown error'}`);
+          }
+        } catch (cleanupError: any) {
+          console.warn(`⚠️  Cleanup failed (non-critical): ${cleanupError.message}`);
+          // Don't fail the entire refresh if cleanup fails
+        }
+        
         // Create message
         let message = `Found ${foundInDB} stocks already up-to-date in database.`;
         if (stocksProcessed > 0) {
           message += ` Refreshed ${stocksProcessed} stocks (${totalFetched} records).`;
         } else {
           message += ` All stocks are up-to-date!`;
+        }
+        if (cleanupResult && cleanupResult.success && cleanupResult.deletedCount > 0) {
+          message += ` Cleaned up ${cleanupResult.deletedCount.toLocaleString()} old records (older than 2 years).`;
         }
         
         console.log('✅ Returning success response for refreshLatest');
@@ -384,6 +513,10 @@ export async function POST(request: NextRequest) {
           foundInDatabase: foundInDB,
           totalRecords: totalFetched,
           refreshTime: refreshTime.toISOString(),
+          cleanup: cleanupResult ? {
+            deletedCount: cleanupResult.deletedCount,
+            cutoffDate: cleanupResult.cutoffDate?.toISOString(),
+          } : undefined,
           errors: errors.length > 0 ? errors : undefined,
         });
       } catch (refreshError: any) {
@@ -519,11 +652,18 @@ export async function POST(request: NextRequest) {
 
     if (isin) {
       // Fetch data for specific stock
-      const count = await fetchAndStoreHistoricalData(isin);
+      // Check if stock has complete 5-year data, if not, fetch full 5 years
+      const hasComplete = await hasComplete5YearData(isin);
+      const forceFullUpdate = !hasComplete; // Force full update if data is incomplete
+      
+      console.log(`📊 Stock ${isin} has complete 5-year data: ${hasComplete}, forceFullUpdate: ${forceFullUpdate}`);
+      
+      const count = await fetchAndStoreHistoricalData(isin, forceFullUpdate);
       return NextResponse.json({
         success: true,
-        message: `Fetched ${count} records for ISIN ${isin}`,
+        message: `Fetched ${count} records for ISIN ${isin}${forceFullUpdate ? ' (full 5-year fetch)' : ' (last 3 days refresh)'}`,
         count,
+        forceFullUpdate,
       });
     } else if (fetchHoldings) {
       // Fetch data only for holdings

@@ -640,83 +640,151 @@ export async function GET(request: NextRequest) {
   try {
     await connectDB();
     const searchParams = request.nextUrl.searchParams;
-    const isin = searchParams.get('isin');
-    const days = parseInt(searchParams.get('days') || '180'); // Default 6 months
+    const isinParam = searchParams.get('isin');
+    const days = parseInt(searchParams.get('days') || '1095'); // Default 3 years (1095 days)
     
-    if (!isin) {
+    if (!isinParam) {
       return NextResponse.json(
         { success: false, error: 'ISIN parameter is required' },
         { status: 400 }
       );
     }
     
-    // Get stock master info
-    const stock = await StockMaster.findOne({ isin }).lean();
+    // Normalize ISIN (uppercase, trim) to ensure proper matching
+    const normalizedIsin = (isinParam || '').toUpperCase().trim();
+    
+    console.log(`📊 Fetching stock analysis for ISIN: ${normalizedIsin}, days: ${days}`);
+    
+    // Get stock master info (try normalized first, then case-insensitive)
+    let stock = await StockMaster.findOne({ isin: normalizedIsin }).lean();
+    let actualIsin = normalizedIsin;
+    
     if (!stock) {
-      return NextResponse.json(
-        { success: false, error: 'Stock not found' },
-        { status: 404 }
-      );
+      // Try case-insensitive search as fallback
+      const stockCaseInsensitive = await StockMaster.findOne({ 
+        isin: { $regex: new RegExp(`^${normalizedIsin}$`, 'i') } 
+      }).lean();
+      
+      if (!stockCaseInsensitive) {
+        console.log(`❌ Stock not found for ISIN: ${normalizedIsin}`);
+        return NextResponse.json(
+          { success: false, error: 'Stock not found' },
+          { status: 404 }
+        );
+      }
+      
+      stock = stockCaseInsensitive;
+      actualIsin = (stockCaseInsensitive as any).isin;
+      console.log(`⚠️  ISIN case mismatch: requested ${normalizedIsin}, found ${actualIsin}`);
     }
     
     // If sector is missing in StockMaster, try to get it from Holdings
     let sector = (stock as any).sector;
     if (!sector || sector === 'Unknown') {
-      const holding = await Holding.findOne({ isin }).select('sectorName').lean();
+      const holding = await Holding.findOne({ isin: actualIsin }).select('sectorName').lean();
       if (holding && (holding as any).sectorName) {
         sector = (holding as any).sectorName;
-        // Optionally update StockMaster with the sector for future use
-        await StockMaster.updateOne({ isin }, { $set: { sector } }).catch(() => {
-          // Silent fail - don't block the response if update fails
-        });
+        await StockMaster.updateOne({ isin: actualIsin }, { $set: { sector } }).catch(() => {});
       }
     }
     
-    // Fetch historical data
+    // Fetch historical data with actual ISIN
+    // Use UTC dates to avoid timezone issues - MongoDB stores dates in UTC
     const today = new Date();
-    const startDate = subDays(today, days);
+    const todayUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59, 999));
+    const startDateUTC = new Date(Date.UTC(today.getFullYear(), today.getMonth(), today.getDate()));
+    startDateUTC.setUTCDate(startDateUTC.getUTCDate() - days);
+    startDateUTC.setUTCHours(0, 0, 0, 0);
     
+    console.log(`📅 Query date range: ${startDateUTC.toISOString()} to ${todayUTC.toISOString()} (${days} days)`);
+    
+    // First, try with exact ISIN match
     let ohlcData = await StockData.find({
-      isin,
-      date: { $gte: startDate, $lte: today }
+      isin: actualIsin,
+      date: { $gte: startDateUTC, $lte: todayUTC }
     })
       .sort({ date: 1 })
       .select('date open high low close volume')
       .lean();
     
-    // If no data found, try to fetch it on-demand
+    console.log(`📈 Found ${ohlcData.length} data points for ISIN: ${actualIsin} (from ${startDateUTC.toISOString().split('T')[0]} to ${todayUTC.toISOString().split('T')[0]})`);
+    
+    // If no data found with exact match, try case-insensitive search
     if (ohlcData.length === 0) {
-      const stockDoc = await StockMaster.findOne({ isin }).lean();
-      const stock = stockDoc as any;
+      console.log(`⚠️  No data with exact ISIN match, trying case-insensitive search...`);
+      ohlcData = await StockData.find({
+        isin: { $regex: new RegExp(`^${actualIsin}$`, 'i') },
+        date: { $gte: startDateUTC, $lte: todayUTC }
+      })
+        .sort({ date: 1 })
+        .select('date open high low close volume')
+        .lean();
+      console.log(`📈 Found ${ohlcData.length} data points with case-insensitive search`);
+    }
+    
+    // If still no data, try without date filter to see if any data exists
+    if (ohlcData.length === 0) {
+      console.log(`⚠️  No data with date filter, checking if any data exists for this ISIN...`);
+      const allDataCount = await StockData.countDocuments({
+        $or: [
+          { isin: actualIsin },
+          { isin: { $regex: new RegExp(`^${actualIsin}$`, 'i') } }
+        ]
+      });
+      console.log(`📊 Total records for this ISIN (any date): ${allDataCount}`);
       
-      if (stock && stock.symbol && stock.exchange) {
+      if (allDataCount > 0) {
+        // Get all available data (no date filter) - use last 3 years worth
+        const allData = await StockData.find({
+          $or: [
+            { isin: actualIsin },
+            { isin: { $regex: new RegExp(`^${actualIsin}$`, 'i') } }
+          ]
+        })
+          .sort({ date: -1 })
+          .limit(1095) // Last 3 years worth of data
+          .select('date open high low close volume')
+          .lean();
+        
+        // Sort by date ascending
+        ohlcData = allData.reverse();
+        console.log(`📈 Using all available data: ${ohlcData.length} records`);
+      }
+    }
+    
+    // If still no data found, try to fetch it on-demand
+    if (ohlcData.length === 0) {
+      const stockDoc = stock as any;
+      
+      if (stockDoc && stockDoc.symbol && stockDoc.exchange) {
         try {
-          console.log(`No historical data found for ${isin}, fetching on-demand...`);
+          console.log(`No historical data found for ${actualIsin}, fetching on-demand...`);
           
           // Fetch historical data from Yahoo Finance
+          // Convert UTC dates back to local dates for the API call
+          const localStartDate = new Date(startDateUTC);
+          const localToday = new Date(todayUTC);
           const fetchedData = await fetchNSEHistoricalData(
-            stock.symbol,
-            stock.exchange,
-            startDate,
-            today
+            stockDoc.symbol,
+            stockDoc.exchange,
+            localStartDate,
+            localToday
           );
           
           if (fetchedData && fetchedData.length > 0) {
             // Store fetched data in database
-            const stockMaster = await StockMaster.findOne({ isin });
-            
             for (const dataPoint of fetchedData) {
               try {
                 await StockData.findOneAndUpdate(
                   {
-                    isin,
+                    isin: actualIsin,
                     date: dataPoint.date
                   },
                   {
-                    isin,
-                    stockName: stock.stockName,
-                    symbol: stock.symbol,
-                    exchange: stock.exchange,
+                    isin: actualIsin,
+                    stockName: stockDoc.stockName,
+                    symbol: stockDoc.symbol,
+                    exchange: stockDoc.exchange,
                     date: dataPoint.date,
                     open: dataPoint.open,
                     high: dataPoint.high,
@@ -730,23 +798,33 @@ export async function GET(request: NextRequest) {
                 );
               } catch (err) {
                 // Skip duplicates
-                console.error(`Error storing data point for ${isin} on ${dataPoint.date}:`, err);
+                console.error(`Error storing data point for ${actualIsin} on ${dataPoint.date}:`, err);
               }
             }
             
-            // Re-fetch from database
+            // Re-fetch from database (try exact match first, then case-insensitive)
             ohlcData = await StockData.find({
-              isin,
-              date: { $gte: startDate, $lte: today }
+              isin: actualIsin,
+              date: { $gte: startDateUTC, $lte: todayUTC }
             })
               .sort({ date: 1 })
               .select('date open high low close volume')
               .lean();
             
-            console.log(`✅ Fetched and stored ${ohlcData.length} data points for ${isin}`);
+            if (ohlcData.length === 0) {
+              ohlcData = await StockData.find({
+                isin: { $regex: new RegExp(`^${actualIsin}$`, 'i') },
+                date: { $gte: startDateUTC, $lte: todayUTC }
+              })
+                .sort({ date: 1 })
+                .select('date open high low close volume')
+                .lean();
+            }
+            
+            console.log(`✅ Fetched and stored ${ohlcData.length} data points for ${actualIsin}`);
           }
         } catch (error: any) {
-          console.error(`Error fetching on-demand data for ${isin}:`, error.message);
+          console.error(`Error fetching on-demand data for ${actualIsin}:`, error.message);
           // Continue to return error if fetching failed
         }
       }
@@ -757,9 +835,9 @@ export async function GET(request: NextRequest) {
           { 
             success: false, 
             error: 'No historical data available for this stock. Please use "Refresh Stock Data" to fetch historical data for all stocks.',
-            isin,
-            symbol: stock?.symbol,
-            stockName: stock?.stockName
+            isin: actualIsin,
+            symbol: (stock as any)?.symbol,
+            stockName: (stock as any)?.stockName
           },
           { status: 404 }
         );
@@ -856,7 +934,7 @@ export async function GET(request: NextRequest) {
       success: true,
       data: {
         stock: {
-          isin: (stock as any).isin,
+          isin: actualIsin,
           stockName: (stock as any).stockName || 'Unknown',
           symbol: (stock as any).symbol || '',
           sector: sector || 'Unknown',

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import connectDB from '@/lib/mongodb';
+import mongoose from 'mongoose';
 import StockData from '@/models/StockData';
 import StockMaster from '@/models/StockMaster';
 import Holding from '@/models/Holding';
@@ -13,13 +14,31 @@ export const dynamic = 'force-dynamic';
  */
 export async function GET(request: NextRequest) {
   try {
-    await connectDB();
+    // Ensure connection is fully established and ready
     const connection = await connectDB();
+    
+    // Verify connection is ready
+    if (mongoose.connection.readyState !== 1) {
+      throw new Error(`Connection not ready. State: ${mongoose.connection.readyState}`);
+    }
+    
+    // Verify we can access the database
     const db = connection.connection.db;
-    const dbName = db?.databaseName || 'unknown';
+    if (!db) {
+      throw new Error('Database object is null');
+    }
+    
+    // Test connection with a ping
+    try {
+      await db.admin().ping();
+    } catch (pingError: any) {
+      throw new Error(`Connection ping failed: ${pingError.message}`);
+    }
+    
+    const dbName = db.databaseName || 'unknown';
     
     // Get all collection names
-    const collections = await db?.listCollections().toArray();
+    const collections = await db.listCollections().toArray();
     const collectionNames = collections?.map(c => c.name) || [];
     
     // Count documents in each collection

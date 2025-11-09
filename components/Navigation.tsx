@@ -51,30 +51,56 @@ export default function Navigation({ onUploadSuccess, activeTab = 'dashboard', o
     setFetchingData(true);
     
     try {
-      // Just refresh the latest stock date and trigger UI refresh
-      // The cron job handles all data fetching - this button just refreshes the UI
-      await fetchLatestStockDate();
-      
-      // Show success message
-      setToast({
-        message: 'Dashboard refreshed with latest data from database. Daily cron job runs at 7:00 PM IST to fetch new data.',
-        type: 'success',
-        isVisible: true,
+      // Trigger full data refresh (fetches last 3 days for ALL stocks)
+      const response = await fetch('/api/fetch-historical-data?refreshAllStocks=true', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          refreshLatest: true, // Refresh last 3 days including today
+        }),
       });
       
-      setFetchingData(false);
-      
-      // Trigger parent component refresh if callback exists
-      if (onUploadSuccess) {
-        setTimeout(() => {
-          onUploadSuccess();
-        }, 500);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
       }
       
-      // Auto-hide toast after 5 seconds
-      setTimeout(() => {
-        setToast(prev => prev ? { ...prev, isVisible: false } : null);
-      }, 5000);
+      const data = await response.json();
+      
+      if (data.success) {
+        // Refresh the latest stock date
+        await fetchLatestStockDate();
+        
+        // Show success message
+        const message = data.message || `Successfully refreshed ${data.stocksProcessed || 0} stocks.`;
+        setToast({
+          message: `${message} Refreshing dashboard...`,
+          type: 'success',
+          isVisible: true,
+        });
+        
+        // Trigger parent component refresh if callback exists
+        if (onUploadSuccess) {
+          setTimeout(() => {
+            onUploadSuccess();
+          }, 1000);
+        } else {
+          // Reload the page to show updated data
+          setTimeout(() => {
+            window.location.reload();
+          }, 2000);
+        }
+        
+        // Auto-hide toast after 5 seconds
+        setTimeout(() => {
+          setToast(prev => prev ? { ...prev, isVisible: false } : null);
+        }, 5000);
+      } else {
+        throw new Error(data.error || 'Failed to refresh stock data');
+      }
+      
+      setFetchingData(false);
     } catch (error: any) {
       console.error('Refresh error:', error);
       setToast({

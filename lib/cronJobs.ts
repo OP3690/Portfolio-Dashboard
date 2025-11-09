@@ -1,113 +1,64 @@
 import cron from 'node-cron';
-import connectDB from './mongodb';
-import { fetchAndStoreHistoricalData } from './stockDataService';
-import StockMaster from '@/models/StockMaster';
+import { NextRequest } from 'next/server';
 
 /**
- * Daily cron job to refresh stock data at 7:00 PM
- * Fetches last 3 days of data including today for ALL stocks in StockMaster
- * Processes in batches of 250 stocks with 10-minute pauses between batches
+ * Daily cron job to refresh stock data at 7:00 PM IST
+ * Uses the new refresh logic with NSE API support
+ * 
+ * NOTE: This only works on always-on servers (not serverless like Vercel)
+ * For serverless deployments, use Vercel Cron or external cron service (cron-job.org)
+ * that calls /api/cron-trigger endpoint
  */
 export function setupDailyStockDataRefresh() {
-  // Schedule: 7:00 PM every day (19:00)
+  // Schedule: 7:00 PM IST every day (19:00 IST = 13:30 UTC)
   // Cron format: minute hour * * * (day of month, month, day of week)
+  // Using IST timezone, so 19:00 IST = 19:00 local time in IST
   const cronSchedule = '0 19 * * *';
-  const BATCH_SIZE = 250;
-  const PAUSE_MINUTES = 10;
-  const PAUSE_MS = PAUSE_MINUTES * 60 * 1000; // 10 minutes in milliseconds
   
   console.log('📅 Setting up daily stock data refresh cron job...');
-  console.log(`⏰ Schedule: Daily at 7:00 PM (${cronSchedule})`);
-  console.log(`📊 Scope: ALL stocks in StockMaster (last 3 days including today)`);
-  console.log(`📦 Batch size: ${BATCH_SIZE} stocks per batch`);
-  console.log(`⏸️  Pause: ${PAUSE_MINUTES} minutes between batches`);
+  console.log(`⏰ Schedule: Daily at 7:00 PM IST (${cronSchedule})`);
+  console.log(`📊 Scope: ALL stocks (last 3 days including today)`);
+  console.log(`🌐 Uses: NSE API (with session cookies) + Yahoo Finance fallback`);
+  console.log(`⚠️  Note: This only works on always-on servers. For serverless, use /api/cron-trigger`);
   
   cron.schedule(cronSchedule, async () => {
     console.log('\n🔄 ========================================');
     console.log('🔄 Starting scheduled daily stock data refresh...');
     console.log(`🕐 Time: ${new Date().toLocaleString()}`);
+    console.log('🔄 Using new refresh logic with NSE API support');
     console.log('🔄 ========================================\n');
     
     try {
-      await connectDB();
+      // Call the refresh handler directly
+      const refreshModule = await import('../app/api/fetch-historical-data/route');
+      const refreshHandler = refreshModule.POST;
       
-      // Get ALL stocks from StockMaster (not just holdings)
-      const allStocks = await StockMaster.find({}).select('isin').lean();
-      const uniqueIsins = [...new Set(allStocks.map((s: any) => s.isin).filter(Boolean))];
+      // Create a request with refreshLatest and refreshAllStocks
+      const url = new URL('http://localhost:3000/api/fetch-historical-data');
+      url.searchParams.set('refreshAllStocks', 'true');
+      const directRequest = new NextRequest(url, {
+        method: 'POST',
+        body: JSON.stringify({ refreshLatest: true }),
+        headers: { 'Content-Type': 'application/json' },
+      });
       
-      console.log(`📊 Found ${uniqueIsins.length} stocks in StockMaster to process`);
-      console.log(`📦 Will process in batches of ${BATCH_SIZE} stocks with ${PAUSE_MINUTES}-minute pauses`);
+      const result = await refreshHandler(directRequest);
+      const resultData = await result.json();
       
-      let totalFetched = 0;
-      let stocksProcessed = 0;
-      const errors: string[] = [];
-      
-      // Process stocks in batches
-      const totalBatches = Math.ceil(uniqueIsins.length / BATCH_SIZE);
-      
-      for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
-        const startIndex = batchIndex * BATCH_SIZE;
-        const endIndex = Math.min(startIndex + BATCH_SIZE, uniqueIsins.length);
-        const batchIsins = uniqueIsins.slice(startIndex, endIndex);
-        
-        console.log(`\n📦 Processing batch ${batchIndex + 1}/${totalBatches} (stocks ${startIndex + 1}-${endIndex} of ${uniqueIsins.length})...`);
-        const batchStartTime = Date.now();
-        
-        // Process stocks in current batch
-        for (let i = 0; i < batchIsins.length; i++) {
-          const isin = batchIsins[i];
-          try {
-            // Fetch last 3 days including today ONLY (forceFullUpdate = false)
-            // This ensures we only fetch and update today + last 2 days, not full 5 years
-            // Duplicate prevention: StockData has unique index on (isin, date) - duplicates automatically prevented
-            const count = await fetchAndStoreHistoricalData(isin, false);
-            totalFetched += count;
-            stocksProcessed++;
-            
-            // Log progress every 50 stocks within the batch
-            if ((i + 1) % 50 === 0) {
-              console.log(`   ⏳ Batch ${batchIndex + 1}: ${i + 1}/${batchIsins.length} stocks processed (${totalFetched} total records)`);
-            }
-          } catch (error: any) {
-            console.error(`❌ Error refreshing ${isin}:`, error.message);
-            errors.push(`${isin}: ${error.message || 'Unknown error'}`);
-          }
-          
-          // Small delay between stocks to avoid rate limiting
-          if (i < batchIsins.length - 1) {
-            await new Promise(resolve => setTimeout(resolve, 300)); // 300ms
-          }
-        }
-        
-        const batchEndTime = Date.now();
-        const batchDuration = ((batchEndTime - batchStartTime) / 1000 / 60).toFixed(2);
-        console.log(`✅ Batch ${batchIndex + 1}/${totalBatches} completed in ${batchDuration} minutes`);
-        console.log(`   - Processed: ${batchIsins.length} stocks`);
-        console.log(`   - Total processed so far: ${stocksProcessed}/${uniqueIsins.length}`);
-        
-        // Pause 10 minutes before next batch (except after last batch)
-        if (batchIndex < totalBatches - 1) {
-          console.log(`\n⏸️  Pausing for ${PAUSE_MINUTES} minutes before next batch...`);
-          console.log(`   Next batch will start at: ${new Date(Date.now() + PAUSE_MS).toLocaleString()}`);
-          await new Promise(resolve => setTimeout(resolve, PAUSE_MS));
-        }
+      if (resultData.success) {
+        console.log('\n✅ ========================================');
+        console.log('✅ Scheduled refresh completed!');
+        console.log(`✅ Message: ${resultData.message || 'Success'}`);
+        console.log(`✅ Stocks processed: ${resultData.stocksProcessed || 0}`);
+        console.log(`✅ Records fetched: ${resultData.totalRecords || 0}`);
+        console.log(`🕐 Completed at: ${new Date().toLocaleString()}`);
+        console.log('✅ ========================================\n');
+      } else {
+        console.error('\n❌ ========================================');
+        console.error('❌ Scheduled refresh failed');
+        console.error(`❌ Error: ${resultData.error || 'Unknown error'}`);
+        console.error('❌ ========================================\n');
       }
-      
-      console.log('\n✅ ========================================');
-      console.log('✅ Scheduled refresh completed!');
-      console.log(`✅ Total stocks processed: ${stocksProcessed}/${uniqueIsins.length}`);
-      console.log(`   - All stocks: 3-day refresh (including today)`);
-      console.log(`✅ Total records fetched: ${totalFetched}`);
-      console.log(`📦 Total batches processed: ${totalBatches}`);
-      if (errors.length > 0) {
-        console.log(`⚠️  Errors: ${errors.length}`);
-        errors.slice(0, 10).forEach(err => console.log(`   - ${err}`));
-        if (errors.length > 10) {
-          console.log(`   ... and ${errors.length - 10} more errors`);
-        }
-      }
-      console.log(`🕐 Completed at: ${new Date().toLocaleString()}`);
-      console.log('✅ ========================================\n');
       
     } catch (error: any) {
       console.error('\n❌ ========================================');
@@ -120,5 +71,6 @@ export function setupDailyStockDataRefresh() {
   });
   
   console.log('✅ Daily stock data refresh cron job scheduled successfully!');
+  console.log('💡 For serverless deployments, set up Vercel Cron or use cron-job.org to call /api/cron-trigger');
 }
 

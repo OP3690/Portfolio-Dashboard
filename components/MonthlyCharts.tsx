@@ -23,7 +23,14 @@ interface MonthlyChartsProps {
     investmentDetails?: Array<{stockName: string; qty: number; amount: number}>;
     withdrawalDetails?: Array<{stockName: string; qty: number; amount: number}>;
   }>;
+  monthlyInvestmentAverages?: {
+    avgMonthlyInvestment: number;
+    avgMonthlyWithdrawal: number;
+    netCashflow: number;
+  };
   monthlyDividends: Array<{ month: string; amount: number; stockDetails?: Array<{stockName: string; amount: number}> }>;
+  avgMonthlyDividends?: number;
+  medianMonthlyDividendsLast12M?: number;
   monthlyReturns: Array<{ month: string; returnPercent: number; returnAmount: number }>;
   returnStatistics?: {
     xirr: number;
@@ -37,7 +44,10 @@ interface MonthlyChartsProps {
 
 export default function MonthlyCharts({
   monthlyInvestments,
+  monthlyInvestmentAverages,
   monthlyDividends,
+  avgMonthlyDividends,
+  medianMonthlyDividendsLast12M,
   monthlyReturns,
   returnStatistics,
 }: MonthlyChartsProps) {
@@ -66,7 +76,7 @@ export default function MonthlyCharts({
           <h2 className="text-xl font-bold text-gray-800">Month on Month Investments & Withdrawals</h2>
           <div className="flex gap-6 text-right">
             <div>
-              <p className="text-sm text-gray-600">Total Invested:</p>
+              <p className="text-sm text-gray-600">Gross Total Invested:</p>
               <p className="text-lg font-semibold text-blue-600">
                 {formatCurrency(
                   safeMonthlyInvestments.reduce((sum, item) => sum + (item.investments || 0), 0)
@@ -81,6 +91,22 @@ export default function MonthlyCharts({
                 )}
               </p>
             </div>
+            {monthlyInvestmentAverages && (
+              <>
+                <div>
+                  <p className="text-sm text-gray-600">Monthly Avg. Investment:</p>
+                  <p className="text-lg font-semibold text-blue-600">
+                    {formatCurrency(monthlyInvestmentAverages.avgMonthlyInvestment || 0)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-600">Monthly Avg. Withdrawal:</p>
+                  <p className="text-lg font-semibold text-red-600">
+                    {formatCurrency(monthlyInvestmentAverages.avgMonthlyWithdrawal || 0)}
+                  </p>
+                </div>
+              </>
+            )}
           </div>
         </div>
         <ResponsiveContainer width="100%" height={300}>
@@ -174,13 +200,32 @@ export default function MonthlyCharts({
       <div className="bg-white rounded-xl shadow-lg p-6">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-bold text-gray-800">Month on Month Dividends Earned</h2>
-          <div className="text-right">
-            <p className="text-sm text-gray-600">Total Dividend Earned:</p>
-            <p className="text-lg font-semibold text-green-600">
-              {formatCurrency(
-                safeMonthlyDividends.reduce((sum, item) => sum + (item.amount || 0), 0)
-              )}
-            </p>
+          <div className="flex gap-6 text-right">
+            <div>
+              <p className="text-sm text-gray-600">Total Dividend Earned:</p>
+              <p className="text-lg font-semibold text-green-600">
+                {formatCurrency(
+                  safeMonthlyDividends.reduce((sum, item) => sum + (item.amount || 0), 0)
+                )}
+              </p>
+            </div>
+            {avgMonthlyDividends !== undefined && (
+              <div>
+                <p className="text-sm text-gray-600">Avg. Monthly Dividends:</p>
+                <p className="text-lg font-semibold text-green-600">
+                  {formatCurrency(avgMonthlyDividends || 0)}
+                </p>
+              </div>
+            )}
+            {medianMonthlyDividendsLast12M !== undefined && (
+              <div>
+                <p className="text-sm text-gray-600">Avg. Monthly Median Dividends</p>
+                <p className="text-xs text-gray-500">(Last 12M)</p>
+                <p className="text-lg font-semibold text-green-600">
+                  {formatCurrency(medianMonthlyDividendsLast12M || 0)}
+                </p>
+              </div>
+            )}
           </div>
         </div>
         <ResponsiveContainer width="100%" height={300}>

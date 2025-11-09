@@ -5,7 +5,7 @@ import Transaction from '@/models/Transaction';
 import RealizedProfitLoss from '@/models/RealizedProfitLoss';
 // Import StockData dynamically to avoid potential circular dependencies
 // import StockData from '@/models/StockData';
-import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths, parseISO, subYears, startOfYear } from 'date-fns';
+import { format, startOfMonth, endOfMonth, eachMonthOfInterval, subMonths, parseISO, subYears, startOfYear, parse } from 'date-fns';
 
 // Force dynamic rendering
 export const dynamic = 'force-dynamic';
@@ -22,15 +22,18 @@ export async function GET(request: NextRequest) {
     console.log('API: Starting dashboard GET request...');
     console.log('API: Request URL:', request.url);
     
-    // Add timeout to database connection with retry logic for stale connections
+    // Add timeout to database connection with retry logic
     let dbConnected = false;
     let dbError: any = null;
-    for (let retry = 0; retry < 2; retry++) {
+    const maxRetries = 3;
+    
+    for (let retry = 0; retry < maxRetries; retry++) {
       try {
-        console.log(`API: Attempting database connection (attempt ${retry + 1}/2)...`);
+        console.log(`API: Attempting database connection (attempt ${retry + 1}/${maxRetries})...`);
         const connectPromise = connectDB();
+        // Increased timeout to 35 seconds (connection timeout is 30s, so this gives buffer)
         const timeoutPromise = new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Database connection timeout')), 15000)
+          setTimeout(() => reject(new Error('Database connection timeout after 35 seconds')), 35000)
         );
         
         await Promise.race([connectPromise, timeoutPromise]);
@@ -39,26 +42,35 @@ export async function GET(request: NextRequest) {
         break;
       } catch (error: any) {
         dbError = error;
-        console.error(`API: Database connection attempt ${retry + 1} failed:`, error?.message);
+        const errorMessage = error?.message || '';
+        console.error(`API: Database connection attempt ${retry + 1} failed:`, errorMessage);
         
-        // If it's a stale connection error, wait and retry
-        if (error?.message?.includes('stale') || error?.message?.includes('electionId')) {
-          console.log('API: Stale connection detected, will retry...');
-          if (retry < 1) {
-            await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds before retry
-            continue;
-          }
+        // Check if we should retry
+        const shouldRetry = errorMessage.includes('timeout') || 
+                           errorMessage.includes('ETIMEOUT') ||
+                           errorMessage.includes('stale') || 
+                           errorMessage.includes('electionId') ||
+                           errorMessage.includes('ENOTFOUND') ||
+                           errorMessage.includes('ECONNREFUSED');
+        
+        if (shouldRetry && retry < maxRetries - 1) {
+          // Exponential backoff: 2s, 4s, 8s
+          const retryDelay = Math.min(2000 * Math.pow(2, retry), 8000);
+          console.log(`API: Will retry in ${retryDelay / 1000} seconds...`);
+          await new Promise(resolve => setTimeout(resolve, retryDelay));
+          continue;
         }
       }
     }
     
     if (!dbConnected && dbError) {
-      console.error('API: Database connection failed after retries:', dbError);
+      console.error('API: Database connection failed after all retries:', dbError);
       console.error('API: Database error stack:', dbError?.stack);
       return NextResponse.json(
         { 
           error: `Database connection failed: ${dbError.message}`,
-          details: process.env.NODE_ENV === 'development' ? dbError?.stack : undefined
+          details: process.env.NODE_ENV === 'development' ? dbError?.stack : undefined,
+          suggestion: 'Please check your internet connection and MongoDB cluster status. You can retry by refreshing the page.'
         },
         { status: 500 }
       );
@@ -320,9 +332,10 @@ export async function GET(request: NextRequest) {
 
   // Calculate summary metrics
   const currentValue = holdings.reduce((sum, h) => sum + (h.marketValue || 0), 0);
+  
+  // Calculate total invested from current holdings (sum of all investmentAmount)
+  // This represents the actual amount invested in current holdings
   const totalInvested = holdings.reduce((sum, h) => sum + (h.investmentAmount || 0), 0);
-  const totalProfitLoss = holdings.reduce((sum, h) => sum + (h.profitLossTillDate || 0), 0);
-  const totalRealizedPL = realizedPL.reduce((sum, r) => sum + (r.realizedProfitLoss || 0), 0);
   
   // Calculate total invested across all transactions (including sold positions)
   const totalInvestedAll = transactions
@@ -339,6 +352,13 @@ export async function GET(request: NextRequest) {
       const tradeValue = t.tradeValueAdjusted || (t.tradePriceAdjusted || 0) * (t.tradedQty || 0) - (t.charges || 0);
       return sum + tradeValue;
     }, 0);
+  
+  // Net Invested = Total Invested (all BUY) - Total Withdrawn (all SELL)
+  // This represents the actual money still in the portfolio (for reference, not used as KPI)
+  const netInvested = totalInvestedAll - totalWithdrawn;
+  
+  const totalProfitLoss = holdings.reduce((sum, h) => sum + (h.profitLossTillDate || 0), 0);
+  const totalRealizedPL = realizedPL.reduce((sum, r) => sum + (r.realizedProfitLoss || 0), 0);
 
     // Top 3 High Performing Stocks
     const topPerformers = [...holdings]
@@ -374,18 +394,28 @@ export async function GET(request: NextRequest) {
     }
     
     // Month on month investments
-    let monthlyInvestments: Array<{month: string, investments: number, withdrawals: number, investmentDetails: any[], withdrawalDetails: any[]}> = [];
+    let monthlyInvestments: Array<{month: string, investments: number, withdrawals: number, normalizedInvestment: number, normalizedWithdrawal: number, netCashflow: number, investmentDetails: any[], withdrawalDetails: any[]}> = [];
+    let monthlyInvestmentAverages: {avgMonthlyInvestment: number, avgMonthlyWithdrawal: number, netCashflow: number} = {
+      avgMonthlyInvestment: 0,
+      avgMonthlyWithdrawal: 0,
+      netCashflow: 0,
+    };
     try {
       monthlyInvestments = calculateMonthlyInvestments(transactions);
+      monthlyInvestmentAverages = calculateMonthlyInvestmentAverages(monthlyInvestments);
     } catch (error: any) {
       console.error('Error calculating monthly investments:', error);
       monthlyInvestments = [];
     }
     
     // Month on month dividends
-    let monthlyDividends: Array<{month: string, amount: number, stockDetails: any[]}> = [];
+    let monthlyDividends: Array<{month: string, amount: number, stockDetails: any[], sortKey?: number}> = [];
+    let avgMonthlyDividends: number = 0;
+    let medianMonthlyDividendsLast12M: number = 0;
     try {
       monthlyDividends = calculateMonthlyDividends(transactions);
+      avgMonthlyDividends = calculateMonthlyDividendAverage(monthlyDividends);
+      medianMonthlyDividendsLast12M = calculateMonthlyDividendMedianLast12M(monthlyDividends);
     } catch (error: any) {
       console.error('Error calculating monthly dividends:', error);
       monthlyDividends = [];
@@ -1259,7 +1289,14 @@ export async function GET(request: NextRequest) {
           worstPerformers: worstPerformers || [],
           holdings: finalHoldingsResult || [],
           monthlyInvestments: monthlyInvestments || [],
+          monthlyInvestmentAverages: monthlyInvestmentAverages || {
+            avgMonthlyInvestment: 0,
+            avgMonthlyWithdrawal: 0,
+            netCashflow: 0,
+          },
           monthlyDividends: monthlyDividends || [],
+          avgMonthlyDividends: avgMonthlyDividends || 0,
+          medianMonthlyDividendsLast12M: medianMonthlyDividendsLast12M || 0,
           monthlyReturns: monthlyReturns || [],
           returnStatistics: returnStatistics || {
             xirr: 0,
@@ -1678,6 +1715,9 @@ function calculateMonthlyInvestments(transactions: any[]): Array<{
   month: string, 
   investments: number, 
   withdrawals: number,
+  normalizedInvestment: number,
+  normalizedWithdrawal: number,
+  netCashflow: number,
   investmentDetails: Array<{stockName: string, qty: number, amount: number}>,
   withdrawalDetails: Array<{stockName: string, qty: number, amount: number}>
 }> {
@@ -1755,22 +1795,103 @@ function calculateMonthlyInvestments(transactions: any[]): Array<{
   });
 
   return Object.entries(monthlyMap)
-    .map(([month, data]) => ({ 
-      month, 
-      investments: data.investments, 
-      withdrawals: data.withdrawals, 
-      sortKey: data.sortKey,
-      investmentDetails: data.investmentDetails.sort((a, b) => b.amount - a.amount), // Sort by amount descending
-      withdrawalDetails: data.withdrawalDetails.sort((a, b) => b.amount - a.amount) // Sort by amount descending
-    }))
+    .map(([month, data]) => {
+      // Calculate monthly net cashflow
+      const netCashflow = data.investments - data.withdrawals;
+      
+      // Normalize based on net cashflow (industry-standard method)
+      // If Net Cashflow > 0 → Investment month, Withdrawal = 0
+      // If Net Cashflow < 0 → Withdrawal month, Investment = 0
+      // If Net Cashflow = 0 → No external cashflow
+      const normalizedInvestment = Math.max(netCashflow, 0);
+      const normalizedWithdrawal = Math.abs(Math.min(netCashflow, 0));
+      
+      return {
+        month, 
+        investments: data.investments, // Keep original for display
+        withdrawals: data.withdrawals, // Keep original for display
+        normalizedInvestment, // Normalized investment (net cashflow if positive)
+        normalizedWithdrawal, // Normalized withdrawal (abs of net cashflow if negative)
+        netCashflow, // Net cashflow for this month
+        sortKey: data.sortKey,
+        investmentDetails: data.investmentDetails.sort((a, b) => b.amount - a.amount), // Sort by amount descending
+        withdrawalDetails: data.withdrawalDetails.sort((a, b) => b.amount - a.amount) // Sort by amount descending
+      };
+    })
     .sort((a, b) => a.sortKey - b.sortKey)
-    .map(({ month, investments, withdrawals, investmentDetails, withdrawalDetails }) => ({ 
+    .map(({ month, investments, withdrawals, normalizedInvestment, normalizedWithdrawal, netCashflow, investmentDetails, withdrawalDetails }) => ({ 
       month, 
       investments, 
       withdrawals,
+      normalizedInvestment,
+      normalizedWithdrawal,
+      netCashflow,
       investmentDetails,
       withdrawalDetails
     }));
+}
+
+/**
+ * Calculate monthly average investment, withdrawal, and net cashflow
+ * Uses normalized values (based on net cashflow) for accurate averages
+ */
+function calculateMonthlyInvestmentAverages(
+  monthlyInvestments: Array<{
+    month: string;
+    normalizedInvestment: number;
+    normalizedWithdrawal: number;
+    netCashflow: number;
+  }>
+): {
+  avgMonthlyInvestment: number;
+  avgMonthlyWithdrawal: number;
+  netCashflow: number;
+} {
+  if (!monthlyInvestments || monthlyInvestments.length === 0) {
+    return {
+      avgMonthlyInvestment: 0,
+      avgMonthlyWithdrawal: 0,
+      netCashflow: 0,
+    };
+  }
+
+  // Calculate total net cashflow (sum of all monthly net cashflows)
+  const totalNetCashflow = monthlyInvestments.reduce(
+    (sum, item) => sum + (item.netCashflow || 0),
+    0
+  );
+
+  // Calculate average monthly investment (only count months with positive investment)
+  const investmentMonths = monthlyInvestments.filter(
+    (item) => (item.normalizedInvestment || 0) > 0
+  );
+  const totalNormalizedInvestment = monthlyInvestments.reduce(
+    (sum, item) => sum + (item.normalizedInvestment || 0),
+    0
+  );
+  const avgMonthlyInvestment =
+    investmentMonths.length > 0
+      ? totalNormalizedInvestment / investmentMonths.length
+      : 0;
+
+  // Calculate average monthly withdrawal (only count months with positive withdrawal)
+  const withdrawalMonths = monthlyInvestments.filter(
+    (item) => (item.normalizedWithdrawal || 0) > 0
+  );
+  const totalNormalizedWithdrawal = monthlyInvestments.reduce(
+    (sum, item) => sum + (item.normalizedWithdrawal || 0),
+    0
+  );
+  const avgMonthlyWithdrawal =
+    withdrawalMonths.length > 0
+      ? totalNormalizedWithdrawal / withdrawalMonths.length
+      : 0;
+
+  return {
+    avgMonthlyInvestment,
+    avgMonthlyWithdrawal,
+    netCashflow: totalNetCashflow,
+  };
 }
 
 function calculateMonthlyDividends(transactions: any[]): Array<{month: string, amount: number, stockDetails: Array<{stockName: string, amount: number}>}> {
@@ -1811,7 +1932,78 @@ function calculateMonthlyDividends(transactions: any[]): Array<{month: string, a
         .sort((a, b) => b.amount - a.amount) // Sort by amount descending
     }))
     .sort((a, b) => a.sortKey - b.sortKey)
-    .map(({ month, amount, stockDetails }) => ({ month, amount, stockDetails }));
+    .map(({ month, amount, sortKey, stockDetails }) => ({ month, amount, sortKey, stockDetails }));
+}
+
+/**
+ * Calculate average monthly dividends
+ * Only counts months with dividends > 0 for accurate average
+ */
+function calculateMonthlyDividendAverage(
+  monthlyDividends: Array<{ month: string; amount: number }>
+): number {
+  if (!monthlyDividends || monthlyDividends.length === 0) {
+    return 0;
+  }
+
+  // Only count months with dividends > 0
+  const dividendMonths = monthlyDividends.filter(
+    (item) => (item.amount || 0) > 0
+  );
+  const totalDividends = monthlyDividends.reduce(
+    (sum, item) => sum + (item.amount || 0),
+    0
+  );
+
+  return dividendMonths.length > 0 ? totalDividends / dividendMonths.length : 0;
+}
+
+/**
+ * Calculate median monthly dividends for the last 12 months
+ * Returns the median value of monthly dividend amounts
+ */
+function calculateMonthlyDividendMedianLast12M(
+  monthlyDividends: Array<{ month: string; amount: number; sortKey?: number }>
+): number {
+  if (!monthlyDividends || monthlyDividends.length === 0) {
+    return 0;
+  }
+
+  // Sort by date (most recent first) - use sortKey if available, otherwise parse month
+  const sortedDividends = [...monthlyDividends].sort((a, b) => {
+    if (a.sortKey && b.sortKey) {
+      return b.sortKey - a.sortKey; // Descending (most recent first)
+    }
+    // Fallback: parse month string (format: "MMM-yy")
+    const dateA = parse(a.month, 'MMM-yy', new Date());
+    const dateB = parse(b.month, 'MMM-yy', new Date());
+    return dateB.getTime() - dateA.getTime();
+  });
+
+  // Get last 12 months
+  const last12Months = sortedDividends.slice(0, 12);
+
+  if (last12Months.length === 0) {
+    return 0;
+  }
+
+  // Extract amounts and sort
+  const amounts = last12Months
+    .map((item) => item.amount || 0)
+    .filter((amount) => amount > 0) // Only count months with dividends
+    .sort((a, b) => a - b);
+
+  if (amounts.length === 0) {
+    return 0;
+  }
+
+  // Calculate median
+  const mid = Math.floor(amounts.length / 2);
+  if (amounts.length % 2 === 0) {
+    return (amounts[mid - 1] + amounts[mid]) / 2;
+  } else {
+    return amounts[mid];
+  }
 }
 
 async function calculateMonthlyReturns(holdings: any[], transactions: any[]): Promise<Array<{month: string, returnPercent: number, returnAmount: number}>> {
@@ -2098,9 +2290,10 @@ async function calculateMonthlyReturns(holdings: any[], transactions: any[]): Pr
     monthlyReturns.push({ month, returnPercent, returnAmount, sortKey });
   }
   
-  // Sort by date
+  // Sort by date and filter out months with 0 returns
   return monthlyReturns
     .sort((a, b) => a.sortKey - b.sortKey)
+    .filter(({ returnPercent }) => Math.abs(returnPercent) > 0.01) // Filter out months with 0% or near-zero returns
     .map(({ month, returnPercent, returnAmount }) => ({ month, returnPercent, returnAmount }));
 }
 
