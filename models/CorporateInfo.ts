@@ -57,8 +57,8 @@ export interface ICorporateInfo extends Document {
 }
 
 const CorporateInfoSchema: Schema = new Schema({
-  isin: { type: String, required: true, index: true },
-  symbol: { type: String, index: true },
+  isin: { type: String, required: true },
+  symbol: { type: String },
   stockName: { type: String },
   
   announcements: [{
