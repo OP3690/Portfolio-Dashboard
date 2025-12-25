@@ -41,11 +41,34 @@ function findSheetRange(sheet: XLSX.WorkSheet, maxRows: number = 500): { startRo
   let endRow: number | null = null;
   
   // Find header row (row with "Stock Name")
+  // Check column B (index 1) for "Stock Name"
   for (let i = 0; i < 20; i++) {
     const cell = sheet[XLSX.utils.encode_cell({ r: i, c: 1 })];
-    if (cell && (cell.v === 'Stock Name' || cell.v === 'stockName' || String(cell.v).includes('Stock'))) {
-      startRow = i;
-      break;
+    if (cell && cell.v) {
+      const cellValue = String(cell.v).trim();
+      // Check for exact match or contains "Stock Name"
+      if (cellValue === 'Stock Name' || cellValue === 'stockName' || 
+          cellValue.toLowerCase() === 'stock name' || 
+          (cellValue.toLowerCase().includes('stock') && cellValue.toLowerCase().includes('name'))) {
+        startRow = i;
+        console.log(`   Found header row at Excel row ${i + 1} (0-indexed: ${i}), cell value: "${cellValue}"`);
+        break;
+      }
+    }
+  }
+  
+  // If not found in column B, try column C (index 2) as fallback
+  if (startRow === 10) {
+    for (let i = 0; i < 20; i++) {
+      const cell = sheet[XLSX.utils.encode_cell({ r: i, c: 2 })];
+      if (cell && cell.v) {
+        const cellValue = String(cell.v).trim();
+        if (cellValue === 'Stock Name' || cellValue.toLowerCase() === 'stock name') {
+          startRow = i;
+          console.log(`   Found header row in column C at Excel row ${i + 1} (0-indexed: ${i})`);
+          break;
+        }
+      }
     }
   }
   
@@ -171,6 +194,7 @@ function parseSheetData(sheet: XLSX.WorkSheet, range: { startRow: number; endRow
     }
   } else {
     // No end row specified, parse from startRow to end of sheet
+    console.log(`  No endRow specified, parsing from Excel row ${startRow + 1} to end of sheet`);
     data = XLSX.utils.sheet_to_json(sheet, { 
       range: startRow,
       defval: null,
@@ -178,9 +202,12 @@ function parseSheetData(sheet: XLSX.WorkSheet, range: { startRow: number; endRow
       raw: false
     });
     
+    console.log(`  sheet_to_json returned ${data.length} rows (including header row)`);
+    
     // Convert array-of-arrays to array-of-objects
     if (data.length > 0) {
       const headers = data[0] as string[];
+      console.log(`  Headers found: ${headers.slice(0, 5).join(', ')}... (${headers.length} total)`);
       data = data.slice(1).map((row: any[]) => {
         const obj: any = {};
         headers.forEach((header, idx) => {
@@ -192,10 +219,14 @@ function parseSheetData(sheet: XLSX.WorkSheet, range: { startRow: number; endRow
         });
         return obj;
       });
+      console.log(`  Converted to ${data.length} data rows (excluding header)`);
+    } else {
+      console.error(`  ❌ CRITICAL: sheet_to_json returned 0 rows!`);
+      console.error(`     This means the sheet might be empty or the range is incorrect.`);
     }
   }
   
-  console.log(`  sheet_to_json returned ${data.length} rows of data`);
+  console.log(`  Final parseSheetData result: ${data.length} rows of data`);
   if (endRow !== null && data.length !== (endRow - startRow)) {
     console.warn(`  ⚠️  Expected ${endRow - startRow} data rows but got ${data.length} rows`);
   }
@@ -284,9 +315,45 @@ function aggregatePLHoldings(rawData: any[]): any[] {
 export function parseExcelFile(buffer: ArrayBuffer): ExcelData {
   const workbook = XLSX.read(buffer, { type: 'array' });
   
-  // Extract header info (assuming it's in the first sheet)
+  // Extract header info - check BOTH first sheet (Holdings) AND Transaction Details sheet
+  // Client ID is typically in row 4, column C (which is B in 0-indexed, but the value is in C)
   const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-  const clientId = firstSheet['B4']?.v?.toString() || firstSheet['B3']?.v?.toString() || '994826';
+  
+  // Try to find Client ID - it's usually in column C (index 2), row 4 (0-indexed row 3)
+  // Format: Row 4 has "Client ID" label in B4, value in C4
+  let clientId = firstSheet['C4']?.v?.toString() || firstSheet['B4']?.v?.toString() || firstSheet['C3']?.v?.toString() || firstSheet['B3']?.v?.toString() || '994826';
+  
+  // Also check Transaction Details sheet if not found in first sheet
+  if (!clientId || clientId === '994826' || clientId.toLowerCase().includes('client')) {
+    const transSheet = workbook.Sheets['Transaction Details'];
+    if (transSheet) {
+      const transClientId = transSheet['C4']?.v?.toString() || transSheet['C3']?.v?.toString();
+      if (transClientId && !transClientId.toLowerCase().includes('client')) {
+        clientId = transClientId;
+        console.log(`✅ Found Client ID in Transaction Details sheet: ${clientId}`);
+      }
+    }
+  }
+  
+  // Validate clientId - ensure it's not the header text "Client ID"
+  // If it's "Client ID" or similar, try to find the actual ID value
+  if (clientId && (clientId.toLowerCase().includes('client id') || clientId.toLowerCase().includes('clientid'))) {
+    // Try to find actual client ID in nearby cells (check column C which has the value)
+    const altClientId = firstSheet['C4']?.v?.toString() || firstSheet['C3']?.v?.toString() || firstSheet['C5']?.v?.toString() || 
+                        firstSheet['B4']?.v?.toString() || firstSheet['B3']?.v?.toString() || firstSheet['B5']?.v?.toString();
+    if (altClientId && !altClientId.toLowerCase().includes('client')) {
+      clientId = altClientId;
+    } else {
+      clientId = '994826'; // Default fallback
+    }
+  }
+  
+  // Ensure clientId is numeric (remove any non-numeric characters)
+  const numericClientId = clientId.replace(/\D/g, '');
+  clientId = numericClientId || '994826';
+  
+  console.log(`📋 Extracted Client ID: ${clientId}`);
+  
   const clientName = firstSheet['B5']?.v?.toString() || firstSheet['B4']?.v?.toString() || '';
   
   // Try multiple date formats and locations
@@ -375,21 +442,126 @@ export function parseExcelFile(buffer: ArrayBuffer): ExcelData {
 
   // Parse Transaction Details sheet
   console.log('\n=== PARSING TRANSACTION DETAILS SHEET ===');
-  const transactionSheetName = workbook.SheetNames.find(name => 
-    name.toLowerCase().includes('transaction') || name.toLowerCase().includes('transaction details')
-  );
-  console.log(`Looking for Transaction Details sheet. Found: "${transactionSheetName || 'NOT FOUND'}"`);
+  console.log(`Available sheets: ${workbook.SheetNames.join(', ')}`);
   
-  const transactionsSheet = workbook.Sheets['Transaction Details'] || 
-                           (transactionSheetName ? workbook.Sheets[transactionSheetName] : null);
+  // Try multiple strategies to find the transaction sheet
+  let transactionsSheet: XLSX.WorkSheet | null = null;
+  let foundSheetName: string | null = null;
   
-  if (!transactionsSheet) {
-    console.warn(`⚠️  Transaction Details sheet not found! Available sheets: ${workbook.SheetNames.join(', ')}`);
+  // Strategy 1: Exact match
+  if (workbook.Sheets['Transaction Details']) {
+    transactionsSheet = workbook.Sheets['Transaction Details'];
+    foundSheetName = 'Transaction Details';
+    console.log(`✅ Found Transaction Details sheet (exact match)`);
   }
   
-  const transactionsRange = transactionsSheet ? findSheetRange(transactionsSheet) : { startRow: 10, endRow: null };
-  const transactionsData = parseSheetData(transactionsSheet, transactionsRange);
-  console.log(`Parsed Transactions: header at row ${transactionsRange.startRow + 1}, data ends at row ${transactionsRange.endRow !== null ? transactionsRange.endRow + 1 : 'end'}, total rows: ${transactionsData.length}`);
+  // Strategy 2: Case-insensitive search
+  if (!transactionsSheet) {
+    for (const sheetName of workbook.SheetNames) {
+      const lowerName = sheetName.toLowerCase();
+      if (lowerName.includes('transaction') && lowerName.includes('detail')) {
+        transactionsSheet = workbook.Sheets[sheetName];
+        foundSheetName = sheetName;
+        console.log(`✅ Found transaction sheet (case-insensitive): "${sheetName}"`);
+        break;
+      }
+    }
+  }
+  
+  // Strategy 3: Just look for "transaction" in name
+  if (!transactionsSheet) {
+    for (const sheetName of workbook.SheetNames) {
+      if (sheetName.toLowerCase().includes('transaction')) {
+        transactionsSheet = workbook.Sheets[sheetName];
+        foundSheetName = sheetName;
+        console.log(`✅ Found transaction sheet (partial match): "${sheetName}"`);
+        break;
+      }
+    }
+  }
+  
+  if (!transactionsSheet) {
+    console.error(`❌ CRITICAL: Transaction Details sheet not found!`);
+    console.error(`   Available sheets: ${workbook.SheetNames.join(', ')}`);
+    console.error(`   This will result in 0 transactions being parsed!`);
+    console.error(`   Please check that your Excel file has a sheet named "Transaction Details"`);
+  } else {
+    console.log(`✅ Using Transaction Details sheet: "${foundSheetName}"`);
+  }
+  
+  let transactionsRange = transactionsSheet ? findSheetRange(transactionsSheet) : { startRow: 10, endRow: null };
+  console.log(`📊 Transaction sheet range: startRow=${transactionsRange.startRow + 1}, endRow=${transactionsRange.endRow !== null ? transactionsRange.endRow + 1 : 'end'}`);
+  
+  let transactionsData = transactionsSheet ? parseSheetData(transactionsSheet, transactionsRange) : [];
+  console.log(`📊 Parsed Transactions (first attempt): header at row ${transactionsRange.startRow + 1}, total rows: ${transactionsData.length}`);
+  
+  // If no data found, try alternative header row detection
+  if (transactionsData.length === 0 && transactionsSheet) {
+    console.warn(`⚠️  No transactions found with default header detection. Trying alternative methods...`);
+    
+    // Try finding "Stock Name" in different columns or rows
+    for (let row = 0; row < 20; row++) {
+      const cellB = transactionsSheet[XLSX.utils.encode_cell({ r: row, c: 1 })];
+      const cellC = transactionsSheet[XLSX.utils.encode_cell({ r: row, c: 2 })];
+      const cellD = transactionsSheet[XLSX.utils.encode_cell({ r: row, c: 3 })];
+      
+      const cellBVal = cellB?.v?.toString().toLowerCase() || '';
+      const cellCVal = cellC?.v?.toString().toLowerCase() || '';
+      const cellDVal = cellD?.v?.toString().toLowerCase() || '';
+      
+      if (cellBVal.includes('stock name') || cellCVal.includes('stock name') || cellDVal.includes('stock name')) {
+        console.log(`   Found alternative header row at Excel row ${row + 1}`);
+        transactionsRange = { startRow: row, endRow: null };
+        transactionsData = parseSheetData(transactionsSheet, transactionsRange);
+        console.log(`   Retry result: ${transactionsData.length} rows`);
+        if (transactionsData.length > 0) break;
+      }
+    }
+    
+    if (transactionsData.length === 0) {
+      console.error(`❌ CRITICAL: Still no transactions found after retry!`);
+      console.error(`   Sheet exists but parseSheetData returned 0 rows.`);
+      console.error(`   This will result in 0 transactions being saved.`);
+    }
+  }
+  
+  // CRITICAL: Check for Nov-25/Dec-25 transactions in raw parsed data
+  if (transactionsData.length > 0) {
+    const novDecInRaw = transactionsData.filter((row: any) => {
+      const dateStr = String(row['Transaction Date'] || row['transactionDate'] || '').trim();
+      if (dateStr) {
+        // Check string for Nov/Dec 2025
+        if (dateStr.includes('11-2025') || dateStr.includes('12-2025') || 
+            dateStr.toLowerCase().includes('nov') || dateStr.toLowerCase().includes('dec')) {
+          return true;
+        }
+        // Try to parse
+        try {
+          const date = parseDate(dateStr);
+          const year = date.getFullYear();
+          const month = date.getMonth() + 1;
+          return year === 2025 && (month === 11 || month === 12);
+        } catch (e) {
+          return false;
+        }
+      }
+      return false;
+    });
+    console.log(`\n🔍 CRITICAL CHECK: Found ${novDecInRaw.length} Nov-25/Dec-25 transactions in RAW parsed data`);
+    if (novDecInRaw.length > 0) {
+      console.log(`📅 Nov-25/Dec-25 transactions in raw data:`);
+      novDecInRaw.forEach((row: any, i: number) => {
+        const stockName = row['Stock Name'] || row['stockName'] || '';
+        const dateStr = row['Transaction Date'] || row['transactionDate'] || '';
+        const buySell = row['Buy/Sell'] || row['buySell'] || '';
+        const isin = row['ISIN'] || row['isin'] || '';
+        console.log(`   ${i + 1}. ${stockName} - Date: "${dateStr}" - ${buySell} - ISIN: ${isin || 'MISSING'}`);
+      });
+    } else {
+      console.error(`❌ ERROR: No Nov-25/Dec-25 transactions found in raw parsed data!`);
+      console.error(`   This means the Excel file is not being parsed correctly, or the dates are in a different format.`);
+    }
+  }
   
   // Check for Ola Electric in transactions
   const olaInTransactions = transactionsData.filter((t: any) => 
@@ -417,7 +589,7 @@ export function parseExcelFile(buffer: ArrayBuffer): ExcelData {
   }
   
   const realizedRange = realizedSheet ? findSheetRange(realizedSheet) : { startRow: 10, endRow: null };
-  const realizedData = parseSheetData(realizedSheet, realizedRange);
+  const realizedData = realizedSheet ? parseSheetData(realizedSheet, realizedRange) : [];
   console.log(`Parsed Realized P/L: header at row ${realizedRange.startRow + 1}, data ends at row ${realizedRange.endRow !== null ? realizedRange.endRow + 1 : 'end'}, total rows: ${realizedData.length}`);
   
   // Check for Ola Electric in raw realized data BEFORE normalization
@@ -443,7 +615,7 @@ export function parseExcelFile(buffer: ArrayBuffer): ExcelData {
   // Parse Unrealized Profit-Loss sheet
   const unrealizedSheet = workbook.Sheets['Unrealized Profit-Loss'] || workbook.Sheets[workbook.SheetNames.find(name => name.toLowerCase().includes('unrealized')) || ''];
   const unrealizedRange = unrealizedSheet ? findSheetRange(unrealizedSheet) : { startRow: 10, endRow: null };
-  const unrealizedData = parseSheetData(unrealizedSheet, unrealizedRange);
+  const unrealizedData = unrealizedSheet ? parseSheetData(unrealizedSheet, unrealizedRange) : [];
   console.log(`Parsed Unrealized P/L: header at row ${unrealizedRange.startRow + 1}, data ends at row ${unrealizedRange.endRow !== null ? unrealizedRange.endRow + 1 : 'end'}, total rows: ${unrealizedData.length}`);
 
   // Build ISIN lookup map from Transaction Details (for new format where ISIN is not in P&L sheet)
@@ -578,6 +750,11 @@ export function parseExcelFile(buffer: ArrayBuffer): ExcelData {
         ? parseFloat(row.unrealizedProfitLossPercent || 0)
         : parseFloat(row['Profit/Loss Till date %'] || row['profitLossTillDatePercent'] || row['% Unrealized Profit/Loss'] || row['unrealizedProfitLossPercent'] || 0);
       
+      // Extract dividend (available in aggregated data from new format, or from raw Excel)
+      const dividend = isAggregatedData
+        ? parseFloat(row.dividend || 0)
+        : parseFloat(row['Dividend'] || row['dividend'] || 0);
+      
       // Log each row for debugging
       console.log(`  Parsed Row ${index}: StockName="${stockName}", ISIN="${isin}", Qty=${openQty}`);
       
@@ -642,6 +819,7 @@ export function parseExcelFile(buffer: ArrayBuffer): ExcelData {
         avgCost: avgCost,
         profitLossTillDate: profitLossTillDate,
         profitLossTillDatePercent: profitLossTillDatePercent,
+        dividend: dividend,
       };
     })
     .filter((row: any) => {
@@ -704,14 +882,86 @@ export function parseExcelFile(buffer: ArrayBuffer): ExcelData {
   
   console.log('=== END HOLDINGS PARSING ===\n');
 
+  // Log column names for debugging
+  if (transactionsData.length > 0) {
+    console.log(`\n📋 Column names in Transaction Details sheet (first row):`);
+    const firstRow = transactionsData[0];
+    Object.keys(firstRow).forEach(key => {
+      console.log(`   - "${key}"`);
+    });
+  }
+  
+  // Log dividend transactions before filtering
+  const dividendRowsBeforeFilter = transactionsData.filter((row: any) => {
+    const buySell = String(row['Buy/Sell'] || row['buySell'] || '').toUpperCase();
+    return buySell.includes('DIVIDEND');
+  });
+  console.log(`\n🔍 Dividend transactions in raw Excel data: ${dividendRowsBeforeFilter.length}`);
+  
+  // Check specifically for Nov-25 and Dec-25 dividends
+  const novDecDividends = dividendRowsBeforeFilter.filter((row: any) => {
+    const dateStr = String(row['Transaction Date'] || row['transactionDate'] || '').trim();
+    if (dateStr) {
+      // Check if date string contains Nov or Dec 2025
+      if (dateStr.includes('11-2025') || dateStr.includes('12-2025') || 
+          dateStr.includes('nov') || dateStr.includes('dec')) {
+        return true;
+      }
+      // Try to parse the date
+      try {
+        const date = parseDate(dateStr);
+        const year = date.getFullYear();
+        const month = date.getMonth() + 1;
+        return year === 2025 && (month === 11 || month === 12);
+      } catch (e) {
+        return false;
+      }
+    }
+    return false;
+  });
+  console.log(`📅 Nov-25/Dec-25 dividend transactions in raw Excel: ${novDecDividends.length}`);
+  
+  if (dividendRowsBeforeFilter.length > 0) {
+    console.log(`Sample dividend rows (first 10):`);
+    dividendRowsBeforeFilter.slice(0, 10).forEach((row: any, i: number) => {
+      const stockName = row['Stock Name'] || row['stockName'] || '';
+      const isin = row['ISIN'] || row['isin'] || '';
+      const date = row['Transaction Date'] || row['transactionDate'] || '';
+      const buySell = row['Buy/Sell'] || row['buySell'] || '';
+      const isNovDec = novDecDividends.includes(row);
+      console.log(`  ${i + 1}. ${stockName} - ISIN: ${isin || 'MISSING'} - Date: ${date} - ${buySell}${isNovDec ? ' ⭐ NOV/DEC-25' : ''}`);
+    });
+  }
+  
+  if (novDecDividends.length > 0) {
+    console.log(`\n📅 Nov-25/Dec-25 dividend transactions details:`);
+    novDecDividends.forEach((row: any, i: number) => {
+      const stockName = row['Stock Name'] || row['stockName'] || '';
+      const isin = row['ISIN'] || row['isin'] || '';
+      const date = row['Transaction Date'] || row['transactionDate'] || '';
+      const buySell = row['Buy/Sell'] || row['buySell'] || '';
+      console.log(`  ${i + 1}. ${stockName} - ISIN: ${isin || 'MISSING'} - Date: "${date}" - ${buySell}`);
+    });
+  }
+  
   const normalizeTransactions = transactionsData
     .map((row: any) => {
       const stockName = row['Stock Name'] || row['stockName'] || '';
       const isin = row['ISIN'] || row['isin'] || '';
+      const buySell = row['Buy/Sell'] || row['buySell'] || '';
+      const isDividend = String(buySell || '').toUpperCase().includes('DIVIDEND');
       
-      // Skip invalid rows
-      if (!stockName || !isin) {
+      // Don't skip transactions without ISIN - we'll resolve ISINs later in upload route
+      // Only skip if stockName is missing (completely invalid row)
+      if (!stockName) {
         return null;
+      }
+      
+      // Log if ISIN is missing (we'll try to resolve it later)
+      if (!isin || !isin.trim()) {
+        if (isDividend) {
+          console.warn(`⚠️  Dividend transaction without ISIN - Stock: "${stockName}", Buy/Sell: "${buySell}". Will try to resolve ISIN during upload.`);
+        }
       }
       
       // Skip disclaimer/header rows
@@ -722,20 +972,88 @@ export function parseExcelFile(buffer: ArrayBuffer): ExcelData {
         return null;
       }
       
+      const originalDateStr = row['Transaction Date'] || row['transactionDate'] || row['TransactionDate'] || '';
+      const transactionDate = parseDate(originalDateStr);
+      const parsedDateStr = transactionDate.toLocaleDateString('en-GB');
+      
+      // Check if this is a Nov-25 or Dec-25 transaction
+      const year = transactionDate.getFullYear();
+      const month = transactionDate.getMonth() + 1;
+      const isNovDec2025 = year === 2025 && (month === 11 || month === 12);
+      
+      // Log dividend transactions for debugging, especially Nov-25/Dec-25
+      if (isDividend || isNovDec2025) {
+        console.log(`✅ Processing ${isNovDec2025 ? 'Nov/Dec-25' : 'dividend'}: ${stockName} - Date: "${originalDateStr}" -> ${parsedDateStr} (${year}-${month}) - ISIN: ${isin || 'MISSING'} - Buy/Sell: ${buySell}`);
+        
+        // If date parsing seems wrong, log warning
+        if (originalDateStr && (originalDateStr.includes('11-2025') || originalDateStr.includes('12-2025') || originalDateStr.includes('nov') || originalDateStr.includes('dec'))) {
+          if (!isNovDec2025) {
+            console.warn(`⚠️  WARNING: Date "${originalDateStr}" should be Nov/Dec 2025 but parsed as ${parsedDateStr} (${year}-${month})`);
+          }
+        }
+      }
+      
+      const tradedQty = parseFloat(row['Traded Qty'] || row['tradedQty'] || 0);
+      const tradePriceAdjusted = parseFloat(row['Trade Price (Adjusted)'] || row['tradePriceAdjusted'] || 0);
+      let tradeValueAdjusted = parseFloat(row['Trade Value (Adjusted)'] || row['tradeValueAdjusted'] || 0);
+      
+      // If tradeValueAdjusted is 0 or missing, calculate it from price * qty
+      if (tradeValueAdjusted === 0 && tradePriceAdjusted > 0 && tradedQty > 0) {
+        tradeValueAdjusted = tradePriceAdjusted * tradedQty;
+      }
+      
       return {
         stockName: stockName,
         sectorName: row['Sector Name'] || row['sectorName'] || '',
-        isin: isin,
-        transactionDate: parseDate(row['Transaction Date'] || row['transactionDate'] || ''),
+        isin: isin || '', // Allow empty ISIN - will be resolved during upload
+        transactionDate: transactionDate,
         source: row['Source'] || row['source'] || '',
-        buySell: row['Buy/Sell'] || row['buySell'] || '',
-        tradedQty: parseFloat(row['Traded Qty'] || row['tradedQty'] || 0),
-        tradePriceAdjusted: parseFloat(row['Trade Price (Adjusted)'] || row['tradePriceAdjusted'] || 0),
+        buySell: buySell,
+        tradedQty: tradedQty,
+        tradePriceAdjusted: tradePriceAdjusted,
         charges: parseFloat(row['Charges'] || row['charges'] || 0),
-        tradeValueAdjusted: parseFloat(row['Trade Value (Adjusted)'] || row['tradeValueAdjusted'] || 0),
+        tradeValueAdjusted: tradeValueAdjusted,
       };
     })
-    .filter((row: any) => row !== null && row.isin && row.stockName);
+    .filter((row: any) => row !== null && row.stockName); // Only filter out rows without stockName, not without ISIN
+  
+  // Log dividend transactions after filtering
+  const dividendTransactionsAfterFilter = normalizeTransactions.filter((t: any) => 
+    String(t.buySell || '').toUpperCase().includes('DIVIDEND')
+  );
+  console.log(`\n✅ Dividend transactions after filtering: ${dividendTransactionsAfterFilter.length}`);
+  
+  // CRITICAL: Check for Nov-25/Dec-25 transactions after normalization
+  const novDecAfterNormalize = normalizeTransactions.filter((t: any) => {
+    if (!t.transactionDate) return false;
+    const date = new Date(t.transactionDate);
+    if (isNaN(date.getTime())) return false;
+    const year = date.getFullYear();
+    const month = date.getMonth() + 1;
+    return year === 2025 && (month === 11 || month === 12);
+  });
+  console.log(`\n🔍 CRITICAL CHECK: Found ${novDecAfterNormalize.length} Nov-25/Dec-25 transactions AFTER normalization`);
+  if (novDecAfterNormalize.length > 0) {
+    console.log(`📅 Nov-25/Dec-25 transactions after normalization:`);
+    novDecAfterNormalize.forEach((t: any, i: number) => {
+      const date = new Date(t.transactionDate);
+      console.log(`   ${i + 1}. ${t.stockName} - ${date.toLocaleDateString('en-GB')} (${date.getFullYear()}-${date.getMonth() + 1}) - ${t.buySell} - ISIN: ${t.isin || 'MISSING'}`);
+    });
+  } else {
+    console.error(`❌ ERROR: No Nov-25/Dec-25 transactions found after normalization!`);
+    console.error(`   This means they were either not parsed correctly or filtered out during normalization.`);
+  }
+  
+  if (dividendTransactionsAfterFilter.length > 0) {
+    console.log(`\nSample dividend transactions (first 10):`);
+    dividendTransactionsAfterFilter.slice(0, 10).forEach((t: any, i: number) => {
+      const date = new Date(t.transactionDate).toLocaleDateString('en-GB');
+      const year = new Date(t.transactionDate).getFullYear();
+      const month = new Date(t.transactionDate).getMonth() + 1;
+      const isNovDec = year === 2025 && (month === 11 || month === 12);
+      console.log(`  ${i + 1}. ${t.stockName} - ${date} (${year}-${month}) - ${t.buySell} - ISIN: ${t.isin}${isNovDec ? ' ⭐ NOV/DEC-25' : ''}`);
+    });
+  }
 
   // Build ISIN lookup for realized P&L (same as for holdings)
   // For new format: ISIN might not be in Realized Profit-Loss sheet
@@ -990,6 +1308,34 @@ export function parseExcelFile(buffer: ArrayBuffer): ExcelData {
     totalBuyValue: parseFloat(row['Total Buy Value'] || row['totalBuyValue'] || 0),
     totalUnrealizedProfitLoss: parseFloat(row['Total unrealized Profit/Loss'] || row['totalUnrealizedProfitLoss'] || 0),
   }));
+
+  // CRITICAL: Log final counts before returning
+  console.log(`\n=== FINAL PARSING SUMMARY ===`);
+  console.log(`Holdings: ${normalizeHoldings.length}`);
+  console.log(`Transactions: ${normalizeTransactions.length}`);
+  console.log(`Realized P&L: ${normalizeRealized.length}`);
+  console.log(`Unrealized P&L: ${normalizeUnrealized.length}`);
+  
+  // Check Nov-25/Dec-25 in final normalized transactions
+  const novDecFinal = normalizeTransactions.filter((t: any) => {
+    if (!t.transactionDate) return false;
+    const date = new Date(t.transactionDate);
+    const year = date.getFullYear();
+    const month = date.getMonth() + 1;
+    return year === 2025 && (month === 11 || month === 12);
+  });
+  console.log(`Nov-25/Dec-25 transactions in final normalized data: ${novDecFinal.length}`);
+  if (novDecFinal.length > 0) {
+    novDecFinal.forEach((t: any, i: number) => {
+      const date = new Date(t.transactionDate);
+      console.log(`  ${i + 1}. ${t.stockName} - ${date.toLocaleDateString('en-GB')} - ${t.buySell} - ISIN: ${t.isin || 'MISSING'}`);
+    });
+  } else if (normalizeTransactions.length > 0) {
+    console.warn(`⚠️  WARNING: Found ${normalizeTransactions.length} transactions but NONE are Nov-25/Dec-25!`);
+  } else {
+    console.error(`❌ CRITICAL: normalizeTransactions is EMPTY! This means all transactions were filtered out.`);
+  }
+  console.log(`================================\n`);
 
   return {
     clientId,

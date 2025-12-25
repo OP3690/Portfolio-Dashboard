@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState, useRef } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { formatCurrency } from '@/lib/utils';
 
@@ -30,6 +31,26 @@ const COLORS = [
 ];
 
 export default function IndustryPieChart({ data }: IndustryPieChartProps) {
+  // Background animation state
+  const [animationKey, setAnimationKey] = useState(0);
+  const animationRef = useRef<number>();
+
+  // Continuous background animation
+  useEffect(() => {
+    const animate = () => {
+      setAnimationKey(prev => prev + 0.01);
+      animationRef.current = requestAnimationFrame(animate);
+    };
+    
+    animationRef.current = requestAnimationFrame(animate);
+    
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
+  }, []);
+
   const chartData = data.map((item, index) => ({
     ...item,
     name: item.sector,
@@ -96,19 +117,19 @@ export default function IndustryPieChart({ data }: IndustryPieChartProps) {
   };
 
   return (
-    <div className="bg-white rounded-xl shadow-lg p-6">
+    <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg p-6" style={{ position: 'relative', zIndex: 1 }}>
       <div className="flex justify-between items-center mb-4">
-        <h2 className="text-xl font-bold text-gray-800">
+        <h2 className="text-xl font-bold text-gray-800 dark:text-white">
           Holdings Across Industries
         </h2>
-        <h3 className="text-lg font-semibold text-gray-700">Industry Breakdown</h3>
+        <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300">Industry Breakdown</h3>
       </div>
       {data.length === 0 ? (
-        <p className="text-gray-500 text-center py-8">No data available</p>
+        <p className="text-gray-500 dark:text-gray-400 text-center py-8">No data available</p>
       ) : (
         <div className="flex flex-col lg:flex-row gap-6">
           {/* Left side - Pie Chart */}
-          <div className="flex-1 lg:w-1/2">
+          <div className="flex-1 lg:w-1/2" style={{ position: 'relative', zIndex: 10, backgroundColor: '#f9fafb', borderRadius: '8px', padding: '10px' }}>
             <ResponsiveContainer width="100%" height={400}>
               <PieChart>
                 <Pie
@@ -121,9 +142,15 @@ export default function IndustryPieChart({ data }: IndustryPieChartProps) {
                   fill="#8884d8"
                   dataKey="amount"
                   nameKey="sector"
+                  isAnimationActive={false}
                 >
                   {chartData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.fill} />
+                    <Cell 
+                      key={`cell-${index}-${animationKey}`} 
+                      fill={entry.fill}
+                      stroke="#ffffff"
+                      strokeWidth={2}
+                    />
                   ))}
                 </Pie>
                 <Tooltip content={<CustomTooltip />} />
@@ -138,7 +165,7 @@ export default function IndustryPieChart({ data }: IndustryPieChartProps) {
               {data.map((item, index) => (
                 <div
                   key={item.sector}
-                  className="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors border border-gray-200"
+                  className="p-4 bg-gray-50 dark:bg-slate-700 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-600 transition-colors border border-gray-200 dark:border-slate-600"
                 >
                   {/* Header */}
                   <div className="flex items-center justify-between mb-3">
@@ -147,13 +174,13 @@ export default function IndustryPieChart({ data }: IndustryPieChartProps) {
                         className="w-4 h-4 rounded flex-shrink-0"
                         style={{ backgroundColor: COLORS[index % COLORS.length] }}
                       />
-                      <span className="text-sm font-semibold text-gray-800">{item.sector}</span>
+                      <span className="text-sm font-semibold text-gray-800 dark:text-white">{item.sector}</span>
                     </div>
                     <div className="text-right">
-                      <span className="text-sm font-semibold text-gray-800 block">
+                      <span className="text-sm font-semibold text-gray-800 dark:text-white block">
                         {formatCurrency(item.amount)}
                       </span>
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-gray-500 dark:text-gray-400">
                         {item.percentage.toFixed(1)}%
                       </span>
                     </div>
@@ -162,45 +189,45 @@ export default function IndustryPieChart({ data }: IndustryPieChartProps) {
                   {/* Metrics */}
                   <div className="grid grid-cols-2 gap-2 text-xs">
                     <div>
-                      <span className="text-gray-600">XIRR:</span>
+                      <span className="text-gray-600 dark:text-gray-400">XIRR:</span>
                       <span className={`ml-1 font-medium ${
-                        item.xirr >= 9 ? 'text-green-600' : 
-                        item.xirr >= 5 ? 'text-yellow-600' : 
-                        'text-red-600'
+                        item.xirr >= 9 ? 'text-green-600 dark:text-green-400' : 
+                        item.xirr >= 5 ? 'text-yellow-600 dark:text-yellow-400' : 
+                        'text-red-600 dark:text-red-400'
                       }`}>
                         {item.xirr >= 0 ? '+' : ''}{item.xirr.toFixed(2)}%
                       </span>
                     </div>
                     <div>
-                      <span className="text-gray-600">CAGR:</span>
+                      <span className="text-gray-600 dark:text-gray-400">CAGR:</span>
                       <span className={`ml-1 font-medium ${
-                        item.cagr >= 9 ? 'text-green-600' : 
-                        item.cagr >= 5 ? 'text-yellow-600' : 
-                        'text-red-600'
+                        item.cagr >= 9 ? 'text-green-600 dark:text-green-400' : 
+                        item.cagr >= 5 ? 'text-yellow-600 dark:text-yellow-400' : 
+                        'text-red-600 dark:text-red-400'
                       }`}>
                         {item.cagr >= 0 ? '+' : ''}{item.cagr.toFixed(2)}%
                       </span>
                     </div>
                     <div>
-                      <span className="text-gray-600">Overall Return %:</span>
+                      <span className="text-gray-600 dark:text-gray-400">Overall Return %:</span>
                       <span className={`ml-1 font-medium ${
-                        item.overallReturnPercent >= 0 ? 'text-green-600' : 'text-red-600'
+                        item.overallReturnPercent >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
                       }`}>
                         {item.overallReturnPercent >= 0 ? '+' : ''}{item.overallReturnPercent.toFixed(2)}%
                       </span>
                     </div>
                     <div>
-                      <span className="text-gray-600">P/L %:</span>
+                      <span className="text-gray-600 dark:text-gray-400">P/L %:</span>
                       <span className={`ml-1 font-medium ${
-                        item.profitLossPercent >= 0 ? 'text-green-600' : 'text-red-600'
+                        item.profitLossPercent >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
                       }`}>
                         {item.profitLossPercent >= 0 ? '+' : ''}{item.profitLossPercent.toFixed(2)}%
                       </span>
                     </div>
                     <div className="col-span-2">
-                      <span className="text-gray-600">P/L Amount:</span>
+                      <span className="text-gray-600 dark:text-gray-400">P/L Amount:</span>
                       <span className={`ml-1 font-medium ${
-                        item.profitLossAmount >= 0 ? 'text-green-600' : 'text-red-600'
+                        item.profitLossAmount >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
                       }`}>
                         {item.profitLossAmount >= 0 ? '+' : ''}{formatCurrency(item.profitLossAmount)}
                       </span>

@@ -16,16 +16,16 @@ interface TopPerformersProps {
 
 export default function TopPerformers({ title, performers, isPositive }: TopPerformersProps) {
   return (
-    <div className="bg-white rounded-xl shadow-lg p-6">
-      <h2 className="text-xl font-bold text-gray-800 mb-4">{title}</h2>
+    <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg p-6">
+      <h2 className="text-xl font-bold text-gray-800 dark:text-white mb-4">{title}</h2>
       {performers.length === 0 ? (
-        <p className="text-gray-500 text-center py-8">No data available</p>
+        <p className="text-gray-500 dark:text-gray-400 text-center py-8">No data available</p>
       ) : (
         <div className="space-y-4">
           {performers.map((performer, index) => (
             <div
               key={performer.isin}
-              className="flex items-center justify-between p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+              className="flex items-center justify-between p-4 bg-gray-50 dark:bg-slate-700 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-600 transition-colors"
             >
               <div className="flex items-center gap-4">
                 <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-white ${
@@ -34,19 +34,19 @@ export default function TopPerformers({ title, performers, isPositive }: TopPerf
                   {index + 1}
                 </div>
                 <div>
-                  <p className="font-semibold text-gray-800">{performer.stockName}</p>
-                  <p className="text-sm text-gray-500">Value: {formatCurrency(performer.marketValue)}</p>
+                  <p className="font-semibold text-gray-800 dark:text-white">{performer.stockName}</p>
+                  <p className="text-sm text-gray-500 dark:text-gray-400">Value: {formatCurrency(performer.marketValue)}</p>
                 </div>
               </div>
               <div className="text-right">
                 <p className={`font-bold ${
-                  performer.profitLossPercent >= 0 ? 'text-green-600' : 'text-red-600'
+                  performer.profitLossPercent >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
                 }`}>
                   {performer.profitLossPercent >= 0 ? '+' : ''}
                   {performer.profitLossPercent.toFixed(2)}%
                 </p>
                 <p className={`text-sm ${
-                  performer.profitLoss >= 0 ? 'text-green-600' : 'text-red-600'
+                  performer.profitLoss >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
                 }`}>
                   {formatCurrency(performer.profitLoss)}
                 </p>

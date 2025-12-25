@@ -61,21 +61,25 @@ export default function SummaryCards({ summary }: SummaryCardsProps) {
       {cards.map((card, index) => (
         <div
           key={index}
-          className="bg-white rounded-xl shadow-lg p-6 hover:shadow-xl transition-shadow"
+          className="group bg-white dark:bg-slate-800 rounded-2xl shadow-md hover:shadow-2xl transition-all duration-300 p-6 border border-gray-100 dark:border-slate-700 hover:scale-[1.02] hover:-translate-y-1"
         >
           <div className="flex items-center justify-between">
-            <div>
-              <p className="text-gray-600 text-sm font-medium mb-1">{card.title}</p>
-              <p className={`text-2xl font-bold ${
-                card.value >= 0 ? 'text-gray-800' : 'text-red-600'
+            <div className="flex-1">
+              <p className="text-gray-500 dark:text-gray-400 text-sm font-medium mb-2 uppercase tracking-wide">
+                {card.title}
+              </p>
+              <p className={`text-3xl font-bold transition-colors ${
+                card.value >= 0 
+                  ? 'text-gray-900 dark:text-white' 
+                  : 'text-red-600 dark:text-red-400'
               }`}>
                 {card.isPercent 
-                  ? `${card.value.toFixed(2)}%`
+                  ? `${card.value >= 0 ? '+' : ''}${card.value.toFixed(2)}%`
                   : formatCurrency(card.value)
                 }
               </p>
             </div>
-            <div className={`${card.color} rounded-full w-12 h-12 flex items-center justify-center text-2xl`}>
+            <div className={`${card.color} rounded-2xl w-14 h-14 flex items-center justify-center text-2xl shadow-lg group-hover:scale-110 transition-transform duration-300`}>
               {card.icon}
             </div>
           </div>

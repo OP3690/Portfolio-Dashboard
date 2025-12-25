@@ -163,15 +163,20 @@ export default function Navigation({ onUploadSuccess, activeTab = 'dashboard', o
         console.log('=== UPLOAD PARSING DETAILS ===');
         console.log('Holdings parsed:', data.parsingDetails.holdingsParsed);
         console.log('Holdings from Excel:', data.parsingDetails.holdingsFromExcel);
-        console.log('Holdings in database:', data.parsingDetails.holdingsInDatabase);
-        // Log Ola Electric verification
+        console.log('Total unique stocks:', data.parsingDetails.totalUniqueStocks);
+        console.log('Current holdings count:', data.parsingDetails.currentHoldingsCount);
+        console.log('Historical holdings count:', data.parsingDetails.historicalHoldingsCount);
+        // Log Ola Electric verification if available
         if (data.parsingDetails.olaElectricFound) {
           console.log('🔍 OLA ELECTRIC VERIFICATION:');
           console.log('  - In parsed realized P&L:', data.parsingDetails.olaElectricFound.inParsedRealizedPL);
           console.log('  - Count in parsed realized P&L:', data.parsingDetails.olaElectricFound.countInParsedRealizedPL);
           console.log('  - In database:', data.parsingDetails.olaElectricFound.inDatabase);
         }
-        console.log('All ISINs:', data.parsingDetails.allIsins);
+        // Log ISINs if available
+        if (data.parsingDetails.allIsins) {
+          console.log('All ISINs:', data.parsingDetails.allIsins);
+        }
         if (data.parsingDetails.currentHoldingsIsins) {
           console.log('Current Holdings ISINs:', data.parsingDetails.currentHoldingsIsins);
         }
@@ -299,55 +304,59 @@ export default function Navigation({ onUploadSuccess, activeTab = 'dashboard', o
         />
       )}
       
-      <nav className="sticky top-0 z-40 bg-white bg-opacity-95 backdrop-blur-lg shadow-md border-b border-gray-200">
+      <nav className="sticky top-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl shadow-lg border-b border-gray-200 dark:border-slate-700">
         <div className="container mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center gap-6">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-blue-700 rounded-lg flex items-center justify-center shadow-lg">
+                <div className="w-10 h-10 bg-gradient-to-br from-blue-600 via-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-lg transform hover:scale-110 transition-transform duration-200">
                   <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                   </svg>
                 </div>
-                <h1 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-blue-600 to-blue-800 bg-clip-text text-transparent">
+                <h1 className="text-xl sm:text-2xl font-bold bg-gradient-to-r from-blue-600 via-blue-500 to-indigo-600 bg-clip-text text-transparent">
                   Portfolio Dashboard
                 </h1>
               </div>
               {/* Tabs */}
-              <div className="flex items-center gap-1 border-l border-gray-300 pl-6 ml-2">
+              <div className="hidden md:flex items-center gap-2 border-l border-gray-300 dark:border-slate-700 pl-6 ml-2">
                 <button
                   onClick={() => onTabChange?.('dashboard')}
-                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                  className={`px-4 py-2 text-sm font-semibold rounded-xl transition-all duration-200 ${
                     activeTab === 'dashboard'
-                      ? 'bg-blue-600 text-white shadow-md'
-                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                      ? 'bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/50 scale-105'
+                      : 'text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-slate-800'
                   }`}
                 >
                   Dashboard
                 </button>
                 <button
                   onClick={() => onTabChange?.('stock-analytics')}
-                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                  className={`px-4 py-2 text-sm font-semibold rounded-xl transition-all duration-200 ${
                     activeTab === 'stock-analytics'
-                      ? 'bg-blue-600 text-white shadow-md'
-                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                      ? 'bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/50 scale-105'
+                      : 'text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-slate-800'
                   }`}
                 >
                   Stock Analytics
                 </button>
                 <button
                   onClick={() => onTabChange?.('stock-research')}
-                  className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
+                  className={`px-4 py-2 text-sm font-semibold rounded-xl transition-all duration-200 ${
                     activeTab === 'stock-research'
-                      ? 'bg-blue-600 text-white shadow-md'
-                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                      ? 'bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/50 scale-105'
+                      : 'text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-slate-800'
                   }`}
                 >
                   Stock Research
                 </button>
                 <button
                   onClick={() => window.location.href = '/db-stats'}
-                  className="px-4 py-2 text-sm font-medium rounded-lg transition-colors text-gray-600 hover:text-gray-900 hover:bg-gray-100"
+                  className={`px-4 py-2 text-sm font-semibold rounded-xl transition-all duration-200 ${
+                    window.location.pathname === '/db-stats'
+                      ? 'bg-gradient-to-r from-blue-600 to-blue-700 text-white shadow-lg shadow-blue-500/50'
+                      : 'text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-gray-100 dark:hover:bg-slate-800'
+                  }`}
                   title="Database Statistics"
                 >
                   DB Stats
@@ -356,8 +365,8 @@ export default function Navigation({ onUploadSuccess, activeTab = 'dashboard', o
             </div>
             <div className="flex items-center gap-2 sm:gap-3">
               {latestStockDate && (
-                <div className="text-sm text-gray-600 font-medium">
-                  Latest Stock Date: <span className="text-gray-900 font-semibold">{latestStockDate}</span>
+                <div className="text-sm text-gray-600 dark:text-gray-300 font-medium">
+                  Latest Stock Date: <span className="text-gray-900 dark:text-white font-semibold">{latestStockDate}</span>
                 </div>
               )}
               <button
@@ -406,31 +415,30 @@ export default function Navigation({ onUploadSuccess, activeTab = 'dashboard', o
       {/* Upload Modal */}
       {showUploadModal && (
         <div 
-          className="fixed inset-0 backdrop-blur-sm flex items-center justify-center z-50"
-          style={{
-            backgroundColor: 'rgba(0, 0, 0, 0.05)',
-          }}
+          className="fixed inset-0 backdrop-blur-md bg-black/20 dark:bg-black/40 flex items-center justify-center z-50 animate-fadeIn"
           onClick={handleCloseModal}
           onKeyDown={handleKeyDown}
         >
           <div 
-            className="bg-white bg-opacity-85 backdrop-blur-2xl rounded-2xl shadow-2xl p-6 max-w-lg w-full mx-4 border border-white border-opacity-70"
-            style={{
-              backdropFilter: 'blur(40px) saturate(180%)',
-              WebkitBackdropFilter: 'blur(40px) saturate(180%)',
-              boxShadow: '0 8px 32px 0 rgba(31, 38, 135, 0.37)',
-            }}
+            className="bg-white dark:bg-slate-800 rounded-3xl shadow-2xl p-6 sm:p-8 max-w-lg w-full mx-4 border border-gray-200 dark:border-slate-700 animate-fadeIn transform scale-100"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-6">
               <div>
-                <h2 className="text-xl font-bold text-gray-800">Upload File</h2>
-                <p className="text-sm text-gray-500 mt-1">Upload your portfolio Excel file or stock master data</p>
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                  <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center">
+                    <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    </svg>
+                  </div>
+                  Upload File
+                </h2>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">Upload your portfolio Excel file or stock master data</p>
               </div>
               <button
                 onClick={handleCloseModal}
                 disabled={uploading}
-                className="text-gray-400 hover:text-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition-colors p-1 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -438,8 +446,8 @@ export default function Navigation({ onUploadSuccess, activeTab = 'dashboard', o
               </button>
             </div>
 
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+            <div className="mb-6">
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                 File Type <span className="text-red-500">*</span>
               </label>
               <select
@@ -449,12 +457,15 @@ export default function Navigation({ onUploadSuccess, activeTab = 'dashboard', o
                   setSelectedFile(null);
                 }}
                 disabled={uploading}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
+                className="w-full px-4 py-3 border-2 border-gray-300 dark:border-slate-600 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 dark:disabled:bg-slate-700 disabled:cursor-not-allowed bg-white dark:bg-slate-700 text-gray-900 dark:text-white transition-all duration-200"
               >
                 <option value="holdings">Portfolio Holdings (Holding_equity_open.xlsx)</option>
                 <option value="stockMaster">Stock Master (NSE_BSE_Active_Scripts_with_ISIN.xlsx)</option>
               </select>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 flex items-center gap-1">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
                 {uploadType === 'holdings' 
                   ? 'Upload your portfolio holdings, transactions, and P/L data'
                   : 'Upload the master list of stocks with ISIN numbers'}
@@ -462,20 +473,20 @@ export default function Navigation({ onUploadSuccess, activeTab = 'dashboard', o
             </div>
 
             {/* Drag and Drop Area */}
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+            <div className="mb-6">
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                 Select File <span className="text-red-500">*</span>
               </label>
               <div
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
-                className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
+                className={`border-2 border-dashed rounded-2xl p-8 text-center transition-all duration-300 ${
                   isDragging
-                    ? 'border-blue-500 bg-blue-50'
+                    ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 scale-105'
                     : selectedFile
-                    ? 'border-green-500 bg-green-50'
-                    : 'border-gray-300 bg-gray-50 hover:border-blue-400 hover:bg-blue-50'
+                    ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
+                    : 'border-gray-300 dark:border-slate-600 bg-gray-50 dark:bg-slate-700/50 hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:scale-[1.02]'
                 } ${uploading ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                 onClick={() => !uploading && fileInputRef.current?.click()}
               >
@@ -488,13 +499,20 @@ export default function Navigation({ onUploadSuccess, activeTab = 'dashboard', o
                   className="hidden"
                 />
                 {selectedFile ? (
-                  <div className="space-y-2">
-                    <svg className="w-12 h-12 mx-auto text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
+                  <div className="space-y-3">
+                    <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center mx-auto">
+                      <svg className="w-8 h-8 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </div>
                     <div>
-                      <p className="text-sm font-medium text-gray-800">{selectedFile.name}</p>
-                      <p className="text-xs text-gray-500 mt-1">{formatFileSize(selectedFile.size)}</p>
+                      <p className="text-sm font-semibold text-gray-900 dark:text-white">{selectedFile.name}</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 flex items-center justify-center gap-1">
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                        </svg>
+                        {formatFileSize(selectedFile.size)}
+                      </p>
                     </div>
                     <button
                       onClick={(e) => {
@@ -503,21 +521,28 @@ export default function Navigation({ onUploadSuccess, activeTab = 'dashboard', o
                         if (fileInputRef.current) fileInputRef.current.value = '';
                       }}
                       disabled={uploading}
-                      className="text-xs text-red-600 hover:text-red-800 disabled:opacity-50"
+                      className="text-xs text-red-600 dark:text-red-400 hover:text-red-800 dark:hover:text-red-300 disabled:opacity-50 font-medium hover:underline transition-all"
                     >
                       Remove file
                     </button>
                   </div>
                 ) : (
-                  <div className="space-y-2">
-                    <svg className="w-12 h-12 mx-auto text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                    </svg>
+                  <div className="space-y-3">
+                    <div className="w-16 h-16 bg-blue-100 dark:bg-blue-900/30 rounded-full flex items-center justify-center mx-auto">
+                      <svg className="w-8 h-8 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                      </svg>
+                    </div>
                     <div>
-                      <p className="text-sm text-gray-600">
-                        <span className="font-medium text-blue-600">Click to upload</span> or drag and drop
+                      <p className="text-sm text-gray-700 dark:text-gray-300">
+                        <span className="font-semibold text-blue-600 dark:text-blue-400">Click to upload</span> or drag and drop
                       </p>
-                      <p className="text-xs text-gray-500 mt-1">Excel (.xlsx, .xls) files • Max 50MB</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-2 flex items-center justify-center gap-1">
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        Excel (.xlsx, .xls) files • Max 50MB
+                      </p>
                     </div>
                   </div>
                 )}
@@ -529,18 +554,18 @@ export default function Navigation({ onUploadSuccess, activeTab = 'dashboard', o
               <button
                 onClick={handleCloseModal}
                 disabled={uploading}
-                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="px-6 py-3 text-sm font-semibold text-gray-700 dark:text-gray-300 bg-white dark:bg-slate-700 border-2 border-gray-300 dark:border-slate-600 rounded-xl hover:bg-gray-50 dark:hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 hover:scale-105"
               >
                 Cancel
               </button>
               <button
                 onClick={handleUpload}
                 disabled={!selectedFile || uploading}
-                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center gap-2"
+                className="px-6 py-3 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-indigo-600 rounded-xl hover:from-blue-700 hover:to-indigo-700 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed transition-all duration-200 flex items-center gap-2 shadow-lg hover:shadow-xl hover:scale-105 disabled:hover:scale-100"
               >
                 {uploading ? (
                   <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
                     <span>Uploading...</span>
                   </>
                 ) : (

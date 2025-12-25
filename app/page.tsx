@@ -19,35 +19,43 @@ export default function Dashboard() {
   const [authLoading, setAuthLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'stock-analytics' | 'stock-research'>('dashboard');
+  const [redirecting, setRedirecting] = useState(false); // Prevent multiple redirects
 
-  // Check authentication on mount
+  // Check authentication on mount (only once)
   useEffect(() => {
     checkAuthentication();
-  }, []);
+  }, []); // Empty dependency array - only run once on mount
 
   const checkAuthentication = async () => {
+    // Prevent multiple redirects
+    if (redirecting) return;
+    
     try {
+      // Check if we're in browser environment
+      if (typeof window === 'undefined') {
+        setAuthLoading(false);
+        return;
+      }
+
       const token = localStorage.getItem('authToken');
       
       if (!token) {
         setAuthLoading(false);
-        router.push('/login');
-        // Fallback in case router.push doesn't work
-        setTimeout(() => {
-          if (window.location.pathname !== '/login') {
-            window.location.href = '/login';
-          }
-        }, 100);
+        if (!redirecting) {
+          setRedirecting(true);
+          window.location.href = '/login';
+        }
         return;
       }
 
       // Verify token with backend (with timeout)
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
 
       try {
         const authResponse = await fetch(`/api/auth/verify?token=${encodeURIComponent(token)}`, {
-          signal: controller.signal
+          signal: controller.signal,
+          cache: 'no-store'
         });
         clearTimeout(timeoutId);
 
@@ -61,13 +69,10 @@ export default function Dashboard() {
           localStorage.removeItem('authToken');
           localStorage.removeItem('userEmail');
           setAuthLoading(false);
-          router.push('/login');
-          // Fallback in case router.push doesn't work
-          setTimeout(() => {
-            if (window.location.pathname !== '/login') {
-              window.location.href = '/login';
-            }
-          }, 100);
+          if (!redirecting) {
+            setRedirecting(true);
+            window.location.href = '/login';
+          }
           return;
         }
 
@@ -76,48 +81,61 @@ export default function Dashboard() {
         fetchDashboardData();
       } catch (fetchError: any) {
         clearTimeout(timeoutId);
-        if (fetchError.name === 'AbortError') {
-          console.error('Auth check timeout');
-        } else {
+        // Only redirect if it's not an abort error (timeout)
+        if (fetchError.name !== 'AbortError') {
           console.error('Auth check error:', fetchError);
+          localStorage.removeItem('authToken');
+          localStorage.removeItem('userEmail');
         }
-        localStorage.removeItem('authToken');
-        localStorage.removeItem('userEmail');
         setAuthLoading(false);
-        router.push('/login');
-        // Fallback in case router.push doesn't work
-        setTimeout(() => {
-          if (window.location.pathname !== '/login') {
-            window.location.href = '/login';
-          }
-        }, 100);
+        if (!redirecting && !token) {
+          setRedirecting(true);
+          window.location.href = '/login';
+        }
       }
     } catch (err) {
       console.error('Auth check error:', err);
-      localStorage.removeItem('authToken');
-      localStorage.removeItem('userEmail');
-      setAuthLoading(false);
-      router.push('/login');
-      // Fallback in case router.push doesn't work
-      setTimeout(() => {
-        if (window.location.pathname !== '/login') {
-          window.location.href = '/login';
-        }
-      }, 100);
+      const token = localStorage.getItem('authToken');
+      if (!token && !redirecting) {
+        localStorage.removeItem('authToken');
+        localStorage.removeItem('userEmail');
+        setAuthLoading(false);
+        setRedirecting(true);
+        window.location.href = '/login';
+      } else {
+        setAuthLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    if (!authLoading) {
+    if (!authLoading && !dashboardData) {
       console.log('Dashboard component mounted, fetching data...');
       fetchDashboardData();
     }
-  }, [authLoading]);
+  }, [authLoading]); // Only fetch once when auth completes, not on every authLoading change
 
-  const fetchDashboardData = async () => {
+  // Background data refresh - runs every 30 seconds (only when authenticated)
+  useEffect(() => {
+    if (authLoading) return; // Don't start interval if still checking auth
+    
+    // Start interval only once when auth is complete
+    const intervalId = setInterval(() => {
+      // Silently refresh data in background (don't show loading state)
+      fetchDashboardData(false).catch(err => {
+        console.log('Background refresh failed:', err);
+      });
+    }, 30000); // 30 seconds
+
+    return () => clearInterval(intervalId);
+  }, [authLoading]); // Only depend on authLoading, not dashboardData
+
+  const fetchDashboardData = async (showLoading: boolean = true) => {
     try {
       console.log('Starting fetch...');
-      setLoading(true);
+      if (showLoading) {
+        setLoading(true);
+      }
       setError(null);
       
       const response = await fetch('/api/dashboard?clientId=994826', {
@@ -162,8 +180,10 @@ export default function Dashboard() {
       console.error('Dashboard fetch error:', err);
       setError(err.message || 'Failed to fetch dashboard data');
     } finally {
-      setLoading(false);
-      console.log('Loading set to false');
+      if (showLoading) {
+        setLoading(false);
+        console.log('Loading set to false');
+      }
     }
   };
 
@@ -238,10 +258,16 @@ export default function Dashboard() {
   // Show loading during authentication check
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Verifying authentication...</p>
+          <div className="relative">
+            <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-200 dark:border-blue-900 border-t-blue-600 dark:border-t-blue-400 mx-auto"></div>
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="h-8 w-8 bg-blue-600 dark:bg-blue-400 rounded-full animate-pulse"></div>
+            </div>
+          </div>
+          <p className="mt-6 text-gray-600 dark:text-gray-300 text-lg font-medium">Verifying authentication...</p>
+          <p className="mt-2 text-gray-400 dark:text-gray-500 text-sm">Please wait</p>
         </div>
       </div>
     );
@@ -249,16 +275,22 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900">
         <Navigation 
           onUploadSuccess={fetchDashboardData} 
           activeTab={activeTab}
           onTabChange={setActiveTab}
         />
-        <div className="flex items-center justify-center min-h-screen">
+        <div className="flex items-center justify-center min-h-[calc(100vh-80px)]">
           <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-            <p className="mt-4 text-gray-600">Loading dashboard...</p>
+            <div className="relative inline-block">
+              <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-200 dark:border-blue-900 border-t-blue-600 dark:border-t-blue-400"></div>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="h-8 w-8 bg-blue-600 dark:bg-blue-400 rounded-full animate-pulse"></div>
+              </div>
+            </div>
+            <p className="mt-6 text-gray-600 dark:text-gray-300 text-lg font-medium">Loading dashboard...</p>
+            <p className="mt-2 text-gray-400 dark:text-gray-500 text-sm">Fetching your portfolio data</p>
           </div>
         </div>
       </div>
@@ -267,20 +299,26 @@ export default function Dashboard() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900">
         <Navigation 
           onUploadSuccess={fetchDashboardData} 
           activeTab={activeTab}
           onTabChange={setActiveTab}
         />
-        <div className="flex items-center justify-center min-h-screen">
-          <div className="text-center">
-            <p className="text-red-600 mb-4">Error: {error}</p>
+        <div className="flex items-center justify-center min-h-[calc(100vh-80px)]">
+          <div className="text-center bg-white dark:bg-slate-800 rounded-2xl shadow-xl p-8 max-w-md mx-4 border border-red-200 dark:border-red-900">
+            <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg className="w-8 h-8 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Oops! Something went wrong</h3>
+            <p className="text-red-600 dark:text-red-400 mb-6 text-sm">{error}</p>
             <button
-              onClick={fetchDashboardData}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+              onClick={() => fetchDashboardData()}
+              className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-medium shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105"
             >
-              Retry
+              Try Again
             </button>
           </div>
         </div>
@@ -309,15 +347,17 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900">
       <Navigation 
         onUploadSuccess={fetchDashboardData} 
         activeTab={activeTab}
         onTabChange={setActiveTab}
       />
       
-      <div className="container mx-auto px-4 py-8">
-        {renderContent()}
+      <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
+        <div className="animate-fadeIn">
+          {renderContent()}
+        </div>
       </div>
     </div>
   );

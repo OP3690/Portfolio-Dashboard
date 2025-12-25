@@ -12,6 +12,7 @@ export interface IHolding extends Document {
   avgCost: number;
   profitLossTillDate: number;
   profitLossTillDatePercent: number;
+  dividend: number;
   lastUpdated: Date;
   clientId: string;
   clientName: string;
@@ -30,6 +31,7 @@ const HoldingSchema: Schema = new Schema({
   avgCost: { type: Number, required: true },
   profitLossTillDate: { type: Number, required: true },
   profitLossTillDatePercent: { type: Number, required: true },
+  dividend: { type: Number, default: 0 },
   lastUpdated: { type: Date, default: Date.now },
   clientId: { type: String, required: true, index: true },
   clientName: { type: String, required: true },
