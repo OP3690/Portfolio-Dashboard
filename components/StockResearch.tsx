@@ -1,23 +1,13 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import React from 'react';
 import { LineChart, Line, ResponsiveContainer, Tooltip } from 'recharts';
 import SmartAllocation from './SmartAllocation';
 import DetailedStockAnalysis from './DetailedStockAnalysis';
 import StockIntelligenceBoards from './StockIntelligenceBoards';
 
-// CSS to hide number input spinners
-const numberInputStyles = `
-  input[type="number"]::-webkit-inner-spin-button,
-  input[type="number"]::-webkit-outer-spin-button {
-    -webkit-appearance: none;
-    margin: 0;
-  }
-  input[type="number"] {
-    -moz-appearance: textfield;
-  }
-`;
+// ── Types ────────────────────────────────────────────────────────────────────
 
 interface StockSignal {
   isin: string;
@@ -41,1151 +31,713 @@ interface StockSignal {
 }
 
 interface FilterState {
-  volumeSpikes: { minVolSpike: number; minPriceMove: number; minPrice: number };
-  deepPullbacks: { maxFromHigh: number; minVol: number; minPrice: number };
-  capitulated: { maxFromHigh: number; minVolSpike: number; minPrice: number };
-  fiveDayDecliners: { minDownDays: number; maxReturn: number; minPrice: number };
-  fiveDayClimbers: { minUpDays: number; minReturn: number; minPrice: number };
+  volumeSpikes:        { minVolSpike: number; minPriceMove: number; minPrice: number };
+  deepPullbacks:       { maxFromHigh: number; minVol: number; minPrice: number };
+  capitulated:         { maxFromHigh: number; minVolSpike: number; minPrice: number };
+  fiveDayDecliners:    { minDownDays: number; maxReturn: number; minPrice: number };
+  fiveDayClimbers:     { minUpDays: number; minReturn: number; minPrice: number };
   tightRangeBreakouts: { maxRange: number; minBoScore: number; minVolSpike: number; minPrice: number };
-  quantPredictions: { minProbability: number; minPredictedReturn: number; minCAGR: number; maxVolatility: number; minMomentum: number; minPrice: number };
+  quantPredictions:    { minProbability: number; minPredictedReturn: number; minCAGR: number; maxVolatility: number; minMomentum: number; minPrice: number };
 }
 
+type SignalKey = keyof FilterState;
+
+const SIGNAL_KEYS: SignalKey[] = [
+  'quantPredictions',
+  'volumeSpikes',
+  'deepPullbacks',
+  'capitulated',
+  'fiveDayDecliners',
+  'fiveDayClimbers',
+  'tightRangeBreakouts',
+];
+
 const defaultFilters: FilterState = {
-  volumeSpikes: { minVolSpike: 30, minPriceMove: 0.5, minPrice: 30 },
-  deepPullbacks: { maxFromHigh: -50, minVol: 5000, minPrice: 30 },
-  capitulated: { maxFromHigh: -90, minVolSpike: 0, minPrice: 10 },
-  fiveDayDecliners: { minDownDays: 3, maxReturn: -1.5, minPrice: 30 },
-  fiveDayClimbers: { minUpDays: 3, minReturn: 1.5, minPrice: 30 },
+  volumeSpikes:        { minVolSpike: 30, minPriceMove: 0.5, minPrice: 30 },
+  deepPullbacks:       { maxFromHigh: -50, minVol: 5000, minPrice: 30 },
+  capitulated:         { maxFromHigh: -90, minVolSpike: 0, minPrice: 10 },
+  fiveDayDecliners:    { minDownDays: 3, maxReturn: -1.5, minPrice: 30 },
+  fiveDayClimbers:     { minUpDays: 3, minReturn: 1.5, minPrice: 30 },
   tightRangeBreakouts: { maxRange: 15, minBoScore: 0, minVolSpike: 50, minPrice: 30 },
-  quantPredictions: { minProbability: 0.40, minPredictedReturn: 8, minCAGR: -100, maxVolatility: 100, minMomentum: 0, minPrice: 0 },
+  quantPredictions:    { minProbability: 0.40, minPredictedReturn: 8, minCAGR: -100, maxVolatility: 100, minMomentum: 0, minPrice: 0 },
 };
 
+// ── Session cache ─────────────────────────────────────────────────────────────
+const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+
+function getCached(key: string): any | null {
+  try {
+    const raw = sessionStorage.getItem(`research_${key}`);
+    if (!raw) return null;
+    const { data, ts } = JSON.parse(raw);
+    if (Date.now() - ts > CACHE_TTL_MS) { sessionStorage.removeItem(`research_${key}`); return null; }
+    return data;
+  } catch { return null; }
+}
+
+function setCache(key: string, data: any) {
+  try { sessionStorage.setItem(`research_${key}`, JSON.stringify({ data, ts: Date.now() })); } catch {}
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const fmtPrice   = (p: number) => `₹${p.toFixed(2)}`;
+const fmtPct     = (p: number) => `${p >= 0 ? '+' : ''}${p.toFixed(2)}%`;
+
+// ── Sparkline ─────────────────────────────────────────────────────────────────
+const Sparkline = React.memo(({ data }: { data: number[] }) => {
+  if (!data || data.length === 0) return <div className="text-xs" style={{ color: 'var(--text-lo)' }}>—</div>;
+  const isUp = data[data.length - 1] > data[0];
+  const chartData = data.map((value, index) => ({ value, index }));
+  return (
+    <ResponsiveContainer width="100%" height={36}>
+      <LineChart data={chartData}>
+        <Line type="monotone" dataKey="value"
+          stroke={isUp ? 'var(--gain)' : 'var(--loss)'}
+          strokeWidth={2} dot={false} isAnimationActive={false} />
+        <Tooltip content={() => null} />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+});
+Sparkline.displayName = 'Sparkline';
+
+// ── Skeleton row ─────────────────────────────────────────────────────────────
+function SkeletonRows({ cols = 8 }: { cols?: number }) {
+  return (
+    <>
+      {[0, 1, 2, 3, 4, 5].map(i => (
+        <tr key={i} style={{ background: i % 2 === 0 ? 'transparent' : 'var(--bg-raised)' }}>
+          {Array.from({ length: cols }).map((_, j) => (
+            <td key={j} className="px-4 py-3">
+              <div className="skeleton h-4 rounded" style={{ width: j === 0 ? '80%' : j === cols - 1 ? '60%' : '50%' }} />
+            </td>
+          ))}
+        </tr>
+      ))}
+    </>
+  );
+}
+
+// ── Build URL params for a signal ─────────────────────────────────────────────
+function buildParams(signalType: SignalKey, f: FilterState): URLSearchParams {
+  const p = new URLSearchParams({ signalType });
+  switch (signalType) {
+    case 'volumeSpikes':
+      p.set('volSpike_minVolSpike', f.volumeSpikes.minVolSpike.toString());
+      p.set('volSpike_minPriceMove', f.volumeSpikes.minPriceMove.toString());
+      p.set('volSpike_minPrice', f.volumeSpikes.minPrice.toString());
+      break;
+    case 'deepPullbacks':
+      p.set('pullback_maxFromHigh', f.deepPullbacks.maxFromHigh.toString());
+      p.set('pullback_minVol', f.deepPullbacks.minVol.toString());
+      p.set('pullback_minPrice', f.deepPullbacks.minPrice.toString());
+      break;
+    case 'capitulated':
+      p.set('cap_maxFromHigh', f.capitulated.maxFromHigh.toString());
+      p.set('cap_minVolSpike', f.capitulated.minVolSpike.toString());
+      p.set('cap_minPrice', f.capitulated.minPrice.toString());
+      break;
+    case 'fiveDayDecliners':
+      p.set('decliner_minDownDays', f.fiveDayDecliners.minDownDays.toString());
+      p.set('decliner_maxReturn', f.fiveDayDecliners.maxReturn.toString());
+      p.set('decliner_minPrice', f.fiveDayDecliners.minPrice.toString());
+      break;
+    case 'fiveDayClimbers':
+      p.set('climber_minUpDays', f.fiveDayClimbers.minUpDays.toString());
+      p.set('climber_minReturn', f.fiveDayClimbers.minReturn.toString());
+      p.set('climber_minPrice', f.fiveDayClimbers.minPrice.toString());
+      break;
+    case 'tightRangeBreakouts':
+      p.set('breakout_maxRange', f.tightRangeBreakouts.maxRange.toString());
+      p.set('breakout_minBoScore', f.tightRangeBreakouts.minBoScore.toString());
+      p.set('breakout_minVolSpike', f.tightRangeBreakouts.minVolSpike.toString());
+      p.set('breakout_minPrice', f.tightRangeBreakouts.minPrice.toString());
+      break;
+    case 'quantPredictions':
+      p.set('quant_minProbability', f.quantPredictions.minProbability.toString());
+      p.set('quant_minPredictedReturn', f.quantPredictions.minPredictedReturn.toString());
+      p.set('quant_minCAGR', f.quantPredictions.minCAGR.toString());
+      p.set('quant_maxVolatility', f.quantPredictions.maxVolatility.toString());
+      p.set('quant_minMomentum', f.quantPredictions.minMomentum.toString());
+      p.set('quant_minPrice', f.quantPredictions.minPrice.toString());
+      break;
+  }
+  return p;
+}
+
+// ── Main component ───────────────────────────────────────────────────────────
 export default function StockResearch() {
-  const [loading, setLoading] = useState(true);
-  const [sectionLoading, setSectionLoading] = useState<{ [key: string]: boolean }>({});
-  const [data, setData] = useState<{
-    quantPredictions?: any[];
-    volumeSpikes: StockSignal[];
-    deepPullbacks: StockSignal[];
-    capitulated: StockSignal[];
-    fiveDayDecliners: StockSignal[];
-    fiveDayClimbers: StockSignal[];
-    tightRangeBreakouts: StockSignal[];
-  } | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [signals, setSignals] = useState<Partial<Record<SignalKey, any[]>>>({});
+  const [loadingMap, setLoadingMap] = useState<Record<string, boolean>>(
+    Object.fromEntries(SIGNAL_KEYS.map(k => [k, true]))
+  );
+  const [errorMap, setErrorMap] = useState<Record<string, string | null>>({});
   const [filters, setFilters] = useState<FilterState>(defaultFilters);
   const [activeFilters, setActiveFilters] = useState<FilterState>(defaultFilters);
-  const [showFilters, setShowFilters] = useState<{ [key: string]: boolean }>({});
+  const [showFilters, setShowFilters] = useState<Record<string, boolean>>({});
 
-  useEffect(() => {
-    fetchResearchData();
-  }, []);
+  // Fetch a single signal, with cache
+  const fetchSignal = useCallback(async (type: SignalKey, overrideFilters?: FilterState, skipCache = false) => {
+    const f = overrideFilters ?? activeFilters;
+    const cacheKey = `${type}_${JSON.stringify(f[type])}`;
 
-  const fetchResearchData = async (signalType?: string, customFilters?: Partial<FilterState>) => {
+    if (!skipCache) {
+      const cached = getCached(cacheKey);
+      if (cached !== null) {
+        setSignals(prev => ({ ...prev, [type]: cached }));
+        setLoadingMap(prev => ({ ...prev, [type]: false }));
+        return;
+      }
+    }
+
+    setLoadingMap(prev => ({ ...prev, [type]: true }));
+    setErrorMap(prev => ({ ...prev, [type]: null }));
+
     try {
-      if (signalType) {
-        setSectionLoading(prev => ({ ...prev, [signalType]: true }));
-      } else {
-        setLoading(true);
-      }
-      setError(null);
-      
-      const params = new URLSearchParams();
-      if (signalType) {
-        params.append('signalType', signalType);
-      }
-      
-      // Use customFilters if provided, otherwise use activeFilters or defaultFilters
-      let filtersToUse: Partial<FilterState> = {};
-      if (customFilters) {
-        filtersToUse = customFilters;
-      } else if (signalType && activeFilters[signalType as keyof FilterState]) {
-        filtersToUse = { [signalType]: activeFilters[signalType as keyof FilterState] } as Partial<FilterState>;
-      } else if (!signalType) {
-        filtersToUse = activeFilters;
-      }
-      
-      // Add filter parameters
-      if (signalType === 'volumeSpikes' || !signalType) {
-        const volSpikeFilters = filtersToUse.volumeSpikes || activeFilters.volumeSpikes || defaultFilters.volumeSpikes;
-        params.append('volSpike_minVolSpike', volSpikeFilters.minVolSpike.toString());
-        params.append('volSpike_minPriceMove', volSpikeFilters.minPriceMove.toString());
-        params.append('volSpike_minPrice', volSpikeFilters.minPrice.toString());
-      }
-      
-      if (signalType === 'deepPullbacks' || !signalType) {
-        const pullbackFilters = filtersToUse.deepPullbacks || activeFilters.deepPullbacks || defaultFilters.deepPullbacks;
-        params.append('pullback_maxFromHigh', pullbackFilters.maxFromHigh.toString());
-        params.append('pullback_minVol', pullbackFilters.minVol.toString());
-        params.append('pullback_minPrice', pullbackFilters.minPrice.toString());
-      }
-      
-      if (signalType === 'capitulated' || !signalType) {
-        const capFilters = filtersToUse.capitulated || activeFilters.capitulated || defaultFilters.capitulated;
-        params.append('cap_maxFromHigh', capFilters.maxFromHigh.toString());
-        params.append('cap_minVolSpike', capFilters.minVolSpike.toString());
-        params.append('cap_minPrice', capFilters.minPrice.toString());
-      }
-      
-      if (signalType === 'fiveDayDecliners' || !signalType) {
-        const declinerFilters = filtersToUse.fiveDayDecliners || activeFilters.fiveDayDecliners || defaultFilters.fiveDayDecliners;
-        params.append('decliner_minDownDays', declinerFilters.minDownDays.toString());
-        params.append('decliner_maxReturn', declinerFilters.maxReturn.toString());
-        params.append('decliner_minPrice', declinerFilters.minPrice.toString());
-      }
-      
-      if (signalType === 'fiveDayClimbers' || !signalType) {
-        const climberFilters = filtersToUse.fiveDayClimbers || activeFilters.fiveDayClimbers || defaultFilters.fiveDayClimbers;
-        params.append('climber_minUpDays', climberFilters.minUpDays.toString());
-        params.append('climber_minReturn', climberFilters.minReturn.toString());
-        params.append('climber_minPrice', climberFilters.minPrice.toString());
-      }
-      
-      if (signalType === 'tightRangeBreakouts' || !signalType) {
-        const breakoutFilters = filtersToUse.tightRangeBreakouts || activeFilters.tightRangeBreakouts || defaultFilters.tightRangeBreakouts;
-        params.append('breakout_maxRange', breakoutFilters.maxRange.toString());
-        params.append('breakout_minBoScore', breakoutFilters.minBoScore.toString());
-        params.append('breakout_minVolSpike', breakoutFilters.minVolSpike.toString());
-        params.append('breakout_minPrice', breakoutFilters.minPrice.toString());
-      }
-      
-      if (signalType === 'quantPredictions' || !signalType) {
-        const quantFilters = filtersToUse.quantPredictions || activeFilters.quantPredictions || defaultFilters.quantPredictions;
-        params.append('quant_minProbability', quantFilters.minProbability.toString());
-        params.append('quant_minPredictedReturn', quantFilters.minPredictedReturn.toString());
-        params.append('quant_minCAGR', quantFilters.minCAGR.toString());
-        params.append('quant_maxVolatility', quantFilters.maxVolatility.toString());
-        params.append('quant_minMomentum', quantFilters.minMomentum.toString());
-        params.append('quant_minPrice', quantFilters.minPrice.toString());
-      }
-      
-      const response = await fetch(`/api/stock-research?${params.toString()}`);
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`HTTP error! status: ${response.status}, ${errorText}`);
-      }
-      
-      const result = await response.json();
-      
+      const res = await fetch(`/api/stock-research?${buildParams(type, f).toString()}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const result = await res.json();
       if (result.success) {
-        if (signalType) {
-          // Update only the specific signal type
-          setData(prev => prev ? { ...prev, [signalType]: result.data[signalType] || [] } : null);
-        } else {
-          console.log('📊 Stock Research Data Received:', {
-            quantPredictions: result.data?.quantPredictions?.length || 0,
-            volumeSpikes: result.data?.volumeSpikes?.length || 0,
-            deepPullbacks: result.data?.deepPullbacks?.length || 0,
-            allKeys: Object.keys(result.data || {})
-          });
-          if (result.data?.quantPredictions) {
-            console.log('🔍 Quant Predictions Sample:', result.data.quantPredictions.slice(0, 2));
-          }
-          setData(result.data);
-          if (result.filters) {
-            // Merge with defaults to ensure all filter types are present
-            setActiveFilters(prev => ({
-              ...defaultFilters,
-              ...result.filters,
-            }));
-          }
-        }
+        const payload = result.data?.[type] ?? [];
+        setSignals(prev => ({ ...prev, [type]: payload }));
+        setCache(cacheKey, payload);
       } else {
-        setError(result.error || 'Failed to fetch stock research data');
+        throw new Error(result.error || 'Failed');
       }
     } catch (err: any) {
-      console.error('Fetch error:', err);
-      setError(err.message || 'Failed to fetch stock research data');
+      setErrorMap(prev => ({ ...prev, [type]: err.message }));
+      setSignals(prev => ({ ...prev, [type]: [] }));
     } finally {
-      if (signalType) {
-        setSectionLoading(prev => ({ ...prev, [signalType]: false }));
-      } else {
-        setLoading(false);
-      }
+      setLoadingMap(prev => ({ ...prev, [type]: false }));
     }
+  }, [activeFilters]);
+
+  // Fetch all signals in parallel on mount
+  useEffect(() => {
+    SIGNAL_KEYS.forEach(type => fetchSignal(type));
+  }, []);
+
+  const applyFilters = async (type: SignalKey, newFilters?: FilterState[SignalKey]) => {
+    const merged = { ...activeFilters, [type]: newFilters ?? filters[type] };
+    setFilters(merged);
+    setActiveFilters(merged);
+    setShowFilters(prev => ({ ...prev, [type]: false }));
+    await fetchSignal(type, merged, true);
   };
 
-  const applyFilters = async (signalType: keyof FilterState, filterValues?: FilterState[keyof FilterState]) => {
-    try {
-      // Use provided filter values if available, otherwise get from state
-      const filtersToApply = filterValues || filters[signalType];
-      
-      console.log(`Applying filters for ${signalType}:`, filtersToApply);
-      
-      // Update both filters and activeFilters state
-      setFilters(prev => ({ ...prev, [signalType]: filtersToApply }));
-      setActiveFilters(prev => ({ ...prev, [signalType]: filtersToApply }));
-      setShowFilters(prev => ({ ...prev, [signalType]: false }));
-      
-      // Fetch with the current filter values immediately - fetchResearchData will handle loading state
-      await fetchResearchData(signalType, { [signalType]: filtersToApply } as Partial<FilterState>);
-    } catch (error) {
-      console.error('Error applying filters:', error);
-      setError('Failed to apply filters. Please try again.');
-    }
+  const resetFilters = (type: SignalKey) => {
+    const merged = { ...activeFilters, [type]: defaultFilters[type] };
+    setFilters(merged);
+    setActiveFilters(merged);
+    setShowFilters(prev => ({ ...prev, [type]: false }));
+    fetchSignal(type, merged, true);
   };
 
-  const resetFilters = (signalType: keyof FilterState) => {
-    setFilters(prev => ({ ...prev, [signalType]: defaultFilters[signalType] }));
-    setActiveFilters(prev => ({ ...prev, [signalType]: defaultFilters[signalType] }));
-    setShowFilters(prev => ({ ...prev, [signalType]: false }));
-    fetchResearchData(signalType, { [signalType]: defaultFilters[signalType] } as Partial<FilterState>);
-  };
-
-  const formatPrice = (price: number) => {
-    return `₹${price.toFixed(2)}`;
-  };
-
-  const formatPercent = (percent: number) => {
-    return `${percent >= 0 ? '+' : ''}${percent.toFixed(2)}%`;
-  };
-
-  // Sparkline component
-  const Sparkline = ({ data }: { data: number[] }) => {
-    if (!data || data.length === 0) return <div className="text-xs text-gray-400">No data</div>;
-    
-    const chartData = data.map((val, idx) => ({ value: val, index: idx }));
-    const min = Math.min(...data);
-    const max = Math.max(...data);
-    const range = max - min || 1;
-    const isUptrend = data[data.length - 1] > data[0];
-    
-    return (
-      <ResponsiveContainer width="100%" height={40}>
-        <LineChart data={chartData}>
-          <Line
-            type="monotone"
-            dataKey="value"
-            stroke={isUptrend ? '#10b981' : '#ef4444'}
-            strokeWidth={2}
-            dot={false}
-            isAnimationActive={false}
-          />
-          <Tooltip content={() => null} />
-        </LineChart>
-      </ResponsiveContainer>
-    );
-  };
-
-  const FilterPanel = ({ 
-    signalType, 
-    filters, 
-    activeFilters, 
-    onChange, 
-    onApply, 
-    onReset,
-    onApplyWithFilters
-  }: { 
-    signalType: keyof FilterState;
-    filters: FilterState[keyof FilterState];
-    activeFilters: FilterState[keyof FilterState];
-    onChange: (signalType: keyof FilterState, field: string, value: number) => void;
-    onApply: () => void;
-    onReset: () => void;
-    onApplyWithFilters?: (filterValues: FilterState[keyof FilterState]) => void;
-  }) => {
-    const isVisible = showFilters[signalType];
-    const [focusedField, setFocusedField] = useState<string | null>(null);
-    const [inputValues, setInputValues] = useState<{ [key: string]: string }>({});
-    const buttonRef = useRef<HTMLButtonElement>(null);
-    
-    // Save pending input value to filters
-    const savePendingInput = (fieldName: string, defaultValue: number) => {
-      if (focusedField === fieldName && inputValues[fieldName] !== undefined) {
-        const inputVal = inputValues[fieldName].trim();
-        const val = inputVal === '' ? null : parseFloat(inputVal);
-        if (val !== null && !isNaN(val)) {
-          onChange(signalType, fieldName, val);
-        } else {
-          onChange(signalType, fieldName, defaultValue);
-        }
-        setInputValues(prev => {
-          const newVals = { ...prev };
-          delete newVals[fieldName];
-          return newVals;
-        });
-        setFocusedField(null);
-      }
-    };
-    
-    // Helper function to create input props
-    const getInputProps = (fieldName: string, fieldValue: number, step?: string) => {
-      const displayValue = focusedField === fieldName 
-        ? (inputValues[fieldName] ?? '') 
-        : fieldValue;
-      
-      return {
-        value: displayValue,
-        onFocus: (e: React.FocusEvent<HTMLInputElement>) => {
-          setFocusedField(fieldName);
-          setInputValues(prev => ({ ...prev, [fieldName]: '' }));
-          e.target.select();
-        },
-        onBlur: (e: React.FocusEvent<HTMLInputElement>) => {
-          setFocusedField(null);
-          const inputVal = e.target.value.trim();
-          const val = inputVal === '' ? null : parseFloat(inputVal);
-          if (val !== null && !isNaN(val)) {
-            onChange(signalType, fieldName, val);
-          } else {
-            // Restore original value if invalid or empty
-            onChange(signalType, fieldName, fieldValue);
-          }
-          setInputValues(prev => {
-            const newVals = { ...prev };
-            delete newVals[fieldName];
-            return newVals;
-          });
-        },
-        onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => {
-          // Save on Enter key
-          if (e.key === 'Enter') {
-            e.currentTarget.blur();
-          }
-        },
-        onChange: (e: React.ChangeEvent<HTMLInputElement>) => {
-          const newValue = e.target.value;
-          // Allow empty string, negative sign, decimal point, and numbers
-          if (newValue === '' || /^-?\d*\.?\d*$/.test(newValue)) {
-            setInputValues(prev => ({ ...prev, [fieldName]: newValue }));
-          }
-        },
-        ...(step && { step })
-      };
-    };
-    
-    // Wrap onApply to save pending inputs first
-    const handleApply = () => {
-      // Build the final filter values to apply with any pending input values
-      let finalFilters = { ...filters };
-      
-      // Save any pending input values
-      if (focusedField && inputValues[focusedField] !== undefined) {
-        const inputVal = inputValues[focusedField].trim();
-        const val = inputVal === '' ? null : parseFloat(inputVal);
-        if (val !== null && !isNaN(val)) {
-          finalFilters = { ...filters, [focusedField]: val };
-          // Save to parent state immediately
-          onChange(signalType, focusedField, val);
-        }
-        // Clear the focused field state
-        setFocusedField(null);
-        setInputValues(prev => {
-          const newVals = { ...prev };
-          delete newVals[focusedField];
-          return newVals;
-        });
-      }
-      
-      // Force blur on any focused input
-      const activeElement = document.activeElement;
-      if (activeElement && activeElement instanceof HTMLInputElement) {
-        activeElement.blur();
-      }
-      
-      // Apply filters immediately with the final filter values
-      // Use onApplyWithFilters if provided (preferred for immediate application with values)
-      if (onApplyWithFilters) {
-        onApplyWithFilters(finalFilters);
-      } else {
-        // Fallback: call regular onApply, which will trigger applyFilters in parent
-        // The parent will read the latest filters state which was updated via onChange
-        onApply();
-      }
-    };
-    
-    return (
-      <div className="mt-2">
-        {signalType !== 'quantPredictions' && (
-          <button
-            ref={buttonRef}
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              
-              // Store current scroll position and the button's position
-              const scrollY = window.scrollY;
-              const scrollX = window.scrollX;
-              const buttonRect = buttonRef.current?.getBoundingClientRect();
-              const buttonTop = buttonRect ? buttonRect.top + scrollY : scrollY;
-              
-              // Toggle filter visibility
-              setShowFilters(prev => ({ ...prev, [signalType]: !prev[signalType] }));
-              
-              // Restore scroll position after state update using multiple strategies
-              requestAnimationFrame(() => {
-                window.scrollTo({
-                  left: scrollX,
-                  top: scrollY,
-                  behavior: 'auto'
-                });
-                // Also try to maintain button position if possible
-                if (buttonRef.current && buttonTop !== scrollY) {
-                  const newButtonRect = buttonRef.current.getBoundingClientRect();
-                  const newButtonTop = newButtonRect.top + window.scrollY;
-                  if (Math.abs(newButtonTop - buttonTop) > 10) {
-                    window.scrollTo({
-                      left: scrollX,
-                      top: scrollY + (buttonTop - newButtonTop),
-                      behavior: 'auto'
-                    });
-                  }
-                }
-              });
-              
-              // Double check after a short delay
-              setTimeout(() => {
-                window.scrollTo({
-                  left: scrollX,
-                  top: scrollY,
-                  behavior: 'auto'
-                });
-              }, 10);
-            }}
-            className="text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
-            type="button"
-          >
-            {isVisible ? '▼' : '▶'} Filter Conditions
-          </button>
-        )}
-        
-        {isVisible && (
-          <div className="mt-3 p-4 bg-gray-50 rounded-lg border border-gray-200">
-            <style dangerouslySetInnerHTML={{ __html: numberInputStyles }} />
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {signalType === 'volumeSpikes' && (() => {
-                const volFilters = filters as FilterState['volumeSpikes'];
-                const volActiveFilters = activeFilters as FilterState['volumeSpikes'];
-                return (
-                  <>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Vol Spike (%)</label>
-                      <input
-                        type="number"
-                        {...getInputProps('minVolSpike', volFilters.minVolSpike)}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Active: {volActiveFilters.minVolSpike}</p>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Price Move (%)</label>
-                      <input
-                        type="number"
-                        {...getInputProps('minPriceMove', volFilters.minPriceMove, '0.1')}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Active: {volActiveFilters.minPriceMove}</p>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Price (₹)</label>
-                      <input
-                        type="number"
-                        {...getInputProps('minPrice', volFilters.minPrice)}
-                      className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                    />
-                    <p className="text-xs text-gray-500 mt-1">Active: {volActiveFilters.minPrice}</p>
-                  </div>
-                  </>
-                );
-              })()}
-              
-              {signalType === 'deepPullbacks' && (() => {
-                const pullbackFilters = filters as FilterState['deepPullbacks'];
-                const pullbackActiveFilters = activeFilters as FilterState['deepPullbacks'];
-                return (
-                  <>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Max % from 52W High</label>
-                      <input
-                        type="number"
-                        {...getInputProps('maxFromHigh', pullbackFilters.maxFromHigh)}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Active: {pullbackActiveFilters.maxFromHigh}</p>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Volume</label>
-                      <input
-                        type="number"
-                        {...getInputProps('minVol', pullbackFilters.minVol)}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Active: {pullbackActiveFilters.minVol}</p>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Price (₹)</label>
-                      <input
-                        type="number"
-                        {...getInputProps('minPrice', pullbackFilters.minPrice)}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Active: {pullbackActiveFilters.minPrice}</p>
-                    </div>
-                  </>
-                );
-              })()}
-              
-              {signalType === 'capitulated' && (() => {
-                const capFilters = filters as FilterState['capitulated'];
-                const capActiveFilters = activeFilters as FilterState['capitulated'];
-                return (
-                  <>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Max % from 52W High</label>
-                      <input
-                        type="number"
-                        {...getInputProps('maxFromHigh', capFilters.maxFromHigh)}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Active: {capActiveFilters.maxFromHigh}</p>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Vol Spike (%)</label>
-                      <input
-                        type="number"
-                        {...getInputProps('minVolSpike', capFilters.minVolSpike)}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Active: {capActiveFilters.minVolSpike}</p>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Price (₹)</label>
-                      <input
-                        type="number"
-                        {...getInputProps('minPrice', capFilters.minPrice)}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Active: {capActiveFilters.minPrice}</p>
-                    </div>
-                  </>
-                );
-              })()}
-              
-              {signalType === 'fiveDayDecliners' && (() => {
-                const declinerFilters = filters as FilterState['fiveDayDecliners'];
-                const declinerActiveFilters = activeFilters as FilterState['fiveDayDecliners'];
-                return (
-                  <>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Down Days</label>
-                      <input
-                        type="number"
-                        min="1"
-                        max="5"
-                        {...getInputProps('minDownDays', declinerFilters.minDownDays)}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Active: {declinerActiveFilters.minDownDays}</p>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Max 5D Return (%)</label>
-                      <input
-                        type="number"
-                        {...getInputProps('maxReturn', declinerFilters.maxReturn, '0.1')}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Active: {declinerActiveFilters.maxReturn}</p>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Price (₹)</label>
-                      <input
-                        type="number"
-                        {...getInputProps('minPrice', declinerFilters.minPrice)}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Active: {declinerActiveFilters.minPrice}</p>
-                    </div>
-                  </>
-                );
-              })()}
-              
-              {signalType === 'fiveDayClimbers' && (() => {
-                const climberFilters = filters as FilterState['fiveDayClimbers'];
-                const climberActiveFilters = activeFilters as FilterState['fiveDayClimbers'];
-                return (
-                  <>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Up Days</label>
-                      <input
-                        type="number"
-                        min="1"
-                        max="5"
-                        {...getInputProps('minUpDays', climberFilters.minUpDays)}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Active: {climberActiveFilters.minUpDays}</p>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Min 5D Return (%)</label>
-                      <input
-                        type="number"
-                        {...getInputProps('minReturn', climberFilters.minReturn, '0.1')}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Active: {climberActiveFilters.minReturn}</p>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Price (₹)</label>
-                      <input
-                        type="number"
-                        {...getInputProps('minPrice', climberFilters.minPrice)}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Active: {climberActiveFilters.minPrice}</p>
-                    </div>
-                  </>
-                );
-              })()}
-              
-              {signalType === 'tightRangeBreakouts' && (() => {
-                const breakoutFilters = filters as FilterState['tightRangeBreakouts'];
-                const breakoutActiveFilters = activeFilters as FilterState['tightRangeBreakouts'];
-                return (
-                  <>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Max Range (%)</label>
-                      <input
-                        type="number"
-                        {...getInputProps('maxRange', breakoutFilters.maxRange)}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Active: {breakoutActiveFilters.maxRange}</p>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Min BO Score</label>
-                      <input
-                        type="number"
-                        {...getInputProps('minBoScore', breakoutFilters.minBoScore, '0.1')}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Active: {breakoutActiveFilters.minBoScore}</p>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Vol Spike (%)</label>
-                      <input
-                        type="number"
-                        {...getInputProps('minVolSpike', breakoutFilters.minVolSpike)}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Active: {breakoutActiveFilters.minVolSpike}</p>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Price (₹)</label>
-                      <input
-                        type="number"
-                        {...getInputProps('minPrice', breakoutFilters.minPrice)}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Active: {breakoutActiveFilters.minPrice}</p>
-                    </div>
-                  </>
-                );
-              })()}
-              
-              {signalType === 'quantPredictions' && (() => {
-                const quantFilters = (filters as FilterState['quantPredictions']) || defaultFilters.quantPredictions;
-                const quantActiveFilters = (activeFilters as FilterState['quantPredictions']) || defaultFilters.quantPredictions;
-                return (
-                  <>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Probability (0-1)</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        max="1"
-                        {...getInputProps('minProbability', quantFilters?.minProbability ?? 0.40, '0.01')}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Active: {((quantActiveFilters?.minProbability ?? 0.40) * 100).toFixed(0)}%</p>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Predicted Return (%)</label>
-                      <input
-                        type="number"
-                        step="0.1"
-                        {...getInputProps('minPredictedReturn', quantFilters?.minPredictedReturn ?? 8, '0.1')}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Active: {quantActiveFilters?.minPredictedReturn ?? 8}%</p>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Min 3Yr CAGR (%)</label>
-                      <input
-                        type="number"
-                        step="0.1"
-                        {...getInputProps('minCAGR', quantFilters?.minCAGR ?? -100, '0.1')}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Active: {quantActiveFilters?.minCAGR ?? -100}%</p>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Max Volatility (%)</label>
-                      <input
-                        type="number"
-                        step="0.1"
-                        {...getInputProps('maxVolatility', quantFilters?.maxVolatility ?? 100, '0.1')}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Active: {quantActiveFilters?.maxVolatility ?? 100}%</p>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Min 3M Momentum (0-1)</label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        max="1"
-                        {...getInputProps('minMomentum', quantFilters?.minMomentum ?? 0, '0.01')}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Active: {(quantActiveFilters?.minMomentum ?? 0).toFixed(2)}</p>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-gray-700 mb-1">Min Price (₹)</label>
-                      <input
-                        type="number"
-                        {...getInputProps('minPrice', quantFilters?.minPrice ?? 0)}
-                        className="w-full px-2 py-1 text-sm border border-gray-300 rounded"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">Active: ₹{quantActiveFilters?.minPrice ?? 0}</p>
-                    </div>
-                  </>
-                );
-              })()}
-            </div>
-            
-            <div className="flex gap-2 mt-4">
-              <button
-                onClick={handleApply}
-                disabled={sectionLoading[signalType] || loading}
-                className="px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-              >
-                {(sectionLoading[signalType] || (signalType === 'quantPredictions' && loading)) ? (
-                  <>
-                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                    <span>Applying...</span>
-                  </>
-                ) : (
-                  'Apply'
-                )}
-              </button>
-              <button
-                onClick={onReset}
-                className="px-4 py-2 bg-gray-300 text-gray-700 text-sm font-medium rounded hover:bg-gray-400"
-              >
-                Reset to Default
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  const SignalCard = ({ 
-    title, 
-    icon, 
-    subtitle, 
-    stocks,
-    marketingLabel,
-    signalType,
-    isLoading = false
-  }: { 
-    title: string; 
-    icon: string;
-    subtitle: string;
-    stocks: StockSignal[];
-    marketingLabel?: string;
-    signalType: keyof FilterState;
-    isLoading?: boolean;
-  }) => {
-    return (
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-        <div className="bg-gradient-to-r from-blue-50 to-indigo-50 px-6 py-4 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <div className="flex-1">
-              <div className="flex items-center gap-3">
-                <span className="text-2xl">{icon}</span>
-                <div>
-                  <h3 className="text-lg font-bold text-gray-800">{title}</h3>
-                  <p className="text-xs text-gray-600 mt-0.5">{subtitle}</p>
-                </div>
-              </div>
-              <div className="mt-2">
-                <FilterPanel
-                  signalType={signalType}
-                  filters={filters[signalType]}
-                  activeFilters={activeFilters[signalType]}
-                  onChange={(st, field, value) => {
-                    setFilters(prev => ({
-                      ...prev,
-                      [st]: { ...prev[st], [field]: value }
-                    }));
-                  }}
-                  onApply={() => applyFilters(signalType)}
-                  onApplyWithFilters={(filterValues) => applyFilters(signalType, filterValues)}
-                  onReset={() => resetFilters(signalType)}
-                />
-              </div>
-            </div>
-            {marketingLabel && (
-              <span className="px-3 py-1 bg-blue-100 text-blue-800 text-xs font-semibold rounded-full ml-4">
-                {marketingLabel}
-              </span>
-            )}
-          </div>
-        </div>
-        
-        {isLoading ? (
-          <div className="p-8 text-center">
-            <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-            <p className="mt-4 text-sm text-gray-600">Applying filters...</p>
-          </div>
-        ) : stocks.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">
-            <p className="text-sm">No stocks found in this category</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stock Name</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Last Close</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">% from 52W High</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">5D Return</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">15D Vol vs Avg</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Consistency (5D)</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">10D Trend</th>
-                  <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Strategy Hint</th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {stocks.map((stock, idx) => (
-                  <tr key={stock.isin} className={idx % 2 === 0 ? 'bg-white hover:bg-blue-50' : 'bg-gray-50 hover:bg-blue-50'}>
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <div className="text-sm font-semibold text-gray-900">{stock.stockName}</div>
-                      <div className="text-xs text-gray-500">{stock.symbol || 'N/A'}</div>
-                    </td>
-                    <td className="px-4 py-3 text-center text-sm font-medium text-gray-900">
-                      {formatPrice(stock.close)}
-                    </td>
-                    <td className="px-4 py-3 text-center text-sm">
-                      <span className={`font-semibold ${stock.percentFrom52WHigh < -50 ? 'text-red-600' : stock.percentFrom52WHigh < -20 ? 'text-orange-600' : 'text-gray-600'}`}>
-                        {formatPercent(stock.percentFrom52WHigh)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-center text-sm">
-                      <span className={`font-semibold ${stock.return5D >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {formatPercent(stock.return5D)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-center text-sm">
-                      <span className={`font-semibold ${stock.volSpike > 100 ? 'text-orange-600' : stock.volSpike > 50 ? 'text-yellow-600' : 'text-gray-600'}`}>
-                        {formatPercent(stock.volSpike)}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-center text-sm text-gray-700">
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${
-                        stock.upDays >= 4 ? 'bg-green-100 text-green-800' :
-                        stock.downDays >= 4 ? 'bg-red-100 text-red-800' :
-                        'bg-gray-100 text-gray-800'
-                      }`}>
-                        {stock.consistency5D} {stock.upDays >= 4 ? '⬆️' : stock.downDays >= 4 ? '⬇️' : '↔️'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <div className="w-24 h-10 mx-auto">
-                        <Sparkline data={stock.sparkline} />
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-center text-xs text-gray-600 max-w-xs">
-                      <div className="px-2 py-1 bg-blue-50 rounded border border-blue-200">
-                        {stock.strategyHint}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  if (loading && !data) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Analyzing OHLCV data with mathematical models...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <p className="text-red-600 mb-4">Error: {error}</p>
-          <button
-            onClick={() => fetchResearchData()}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-          >
-            Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  // Show loading state but still render the quant section structure
-  if (!data) {
-    return (
-      <div className="container mx-auto px-4 py-6 space-y-6">
-        <div className="mb-6">
-          <h2 className="text-3xl font-bold text-gray-800 mb-2">Stock Research Dashboard</h2>
-          <p className="text-gray-600 text-sm">
-            Rules-driven technical analysis powered by OHLCV data • Mathematical models • Trading strategies
-          </p>
-        </div>
-
-        {/* Quantitative Prediction Dashboard - Show loading state */}
-        <div className="mb-8 bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 rounded-xl p-8 border-2 border-indigo-200 shadow-xl">
-          <div className="text-center py-8">
-            <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-indigo-100 to-purple-100 mb-4">
-              <span className="text-4xl">🔍</span>
-            </div>
-            <h3 className="text-2xl font-bold text-gray-800 mb-2">🚀 Quantitative Stock Screening Framework</h3>
-            <p className="text-gray-600 mb-4">Loading advanced quantitative analysis...</p>
-            <div className="flex justify-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const isPageLoading = SIGNAL_KEYS.some(k => loadingMap[k]) && Object.keys(signals).length === 0;
 
   return (
-    <div className="container mx-auto px-4 py-6 space-y-6">
-      <div className="mb-6">
-        <h2 className="text-3xl font-bold text-gray-800 mb-2">Stock Research Dashboard</h2>
-        <p className="text-gray-600 text-sm">
-          Rules-driven technical analysis powered by OHLCV data • Mathematical models • Trading strategies
+    <div className="space-y-5">
+      {/* Header */}
+      <div>
+        <h2 className="text-2xl font-bold text-hi">Stock Research</h2>
+        <p className="text-sm mt-0.5" style={{ color: 'var(--text-lo)' }}>
+          Rules-driven technical analysis • Mathematical models • Trading strategies
+          {isPageLoading && <span className="ml-2 inline-flex items-center gap-1.5"><span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{ background: 'var(--brand)' }} /> Loading…</span>}
         </p>
       </div>
 
-      {/* Quantitative Prediction Dashboard - Top Section - Always Show First */}
-      {data && data.quantPredictions !== undefined ? (
-        data.quantPredictions.length > 0 ? (
-        <div className="mb-8 bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 rounded-xl p-6 border-2 border-indigo-200 shadow-lg">
-          <div className="mb-4">
-            <div className="flex items-center justify-between mb-2">
-              <div>
-                <h3 className="text-2xl font-bold text-gray-800 mb-1 flex items-center gap-2">
-                  🚀 Quantitative Stock Screening Framework
-                </h3>
-                <p className="text-gray-600 text-sm">
-                  Top 6 Stocks with &gt;{((activeFilters.quantPredictions?.minProbability ?? defaultFilters.quantPredictions.minProbability) * 100).toFixed(0)}% Probability of +{(activeFilters.quantPredictions?.minPredictedReturn ?? defaultFilters.quantPredictions.minPredictedReturn).toFixed(0)}% 3-Month Return • Based on 1-3 Year OHLC + Volume Data
-                </p>
-              </div>
-              <button
-                onClick={() => setShowFilters(prev => ({ ...prev, quantPredictions: !prev.quantPredictions }))}
-                className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-700 transition-colors"
-              >
-                {showFilters.quantPredictions ? '▼' : '►'} Filter Criteria
-              </button>
-            </div>
-            {showFilters.quantPredictions && (
-              <div className="mt-4 p-4 bg-white rounded-lg border border-indigo-200 shadow-sm">
-                <FilterPanel
-                  signalType="quantPredictions"
-                  filters={filters.quantPredictions}
-                  activeFilters={activeFilters.quantPredictions}
-                  onChange={(st, field, value) => {
-                    setFilters(prev => ({
-                      ...prev,
-                      [st]: { ...prev[st], [field]: value }
-                    }));
-                  }}
-                  onApply={() => applyFilters('quantPredictions')}
-                  onApplyWithFilters={(filterValues) => applyFilters('quantPredictions', filterValues)}
-                  onReset={() => resetFilters('quantPredictions')}
-                />
-              </div>
-            )}
+      {/* Quant Predictions */}
+      <QuantSection
+        data={signals.quantPredictions}
+        isLoading={!!loadingMap.quantPredictions}
+        filters={filters.quantPredictions}
+        activeFilters={activeFilters.quantPredictions}
+        showFilter={!!showFilters.quantPredictions}
+        onToggleFilter={() => setShowFilters(prev => ({ ...prev, quantPredictions: !prev.quantPredictions }))}
+        onFilterChange={(field, val) => setFilters(prev => ({ ...prev, quantPredictions: { ...prev.quantPredictions, [field]: val } }))}
+        onApply={(vals) => applyFilters('quantPredictions', vals)}
+        onReset={() => resetFilters('quantPredictions')}
+      />
+
+      {/* Signal cards */}
+      {([
+        { type: 'volumeSpikes',        title: 'Top 6 Volume Spikes (15D)',              icon: '🔥', sub: 'VolSpike > 30% • Price move > 0.5%',                           badge: 'Unusual Activity' },
+        { type: 'deepPullbacks',       title: 'Top 6 Deep Pullbacks (≤ 50% from High)', icon: '📉', sub: '≥ 50% off 52W High • Possible reversal zone',                   badge: '50% Off Peak' },
+        { type: 'capitulated',         title: 'Top 6 Capitulated (≤ 90% from High)',    icon: '🛑', sub: '≥ 90% off 52W High • Oversold with volume',                     badge: 'High Risk / Reward' },
+        { type: 'fiveDayDecliners',    title: 'Top 6 5-Day Decliners',                  icon: '📉', sub: '3–5 consecutive down days • Return5D < −1.5%',                   badge: 'Selling Pressure' },
+        { type: 'fiveDayClimbers',     title: 'Top 6 5-Day Climbers',                   icon: '📈', sub: '3–5 consecutive up days • Return5D > +1.5%',                     badge: 'Momentum' },
+        { type: 'tightRangeBreakouts', title: 'Top 6 Tight-Range Breakout Candidates', icon: '🎯', sub: '20D Range < 15% • Breakout above 20D High • VolSpike > 50%',     badge: 'Breakout Setup' },
+      ] as const).map(({ type, title, icon, sub, badge }) => (
+        <SignalCard
+          key={type}
+          type={type as SignalKey}
+          title={title}
+          icon={icon}
+          sub={sub}
+          badge={badge}
+          stocks={signals[type as SignalKey] ?? []}
+          isLoading={!!loadingMap[type]}
+          error={errorMap[type] ?? null}
+          filters={filters[type as SignalKey]}
+          activeFilters={activeFilters[type as SignalKey]}
+          showFilter={!!showFilters[type]}
+          onToggleFilter={() => setShowFilters(prev => ({ ...prev, [type]: !prev[type] }))}
+          onFilterChange={(field, val) => setFilters(prev => ({ ...prev, [type]: { ...prev[type as SignalKey], [field]: val } }))}
+          onApply={(vals) => applyFilters(type as SignalKey, vals)}
+          onReset={() => resetFilters(type as SignalKey)}
+        />
+      ))}
+
+      {/* Sub-components */}
+      <SmartAllocation quantPredictions={signals.quantPredictions} />
+      <DetailedStockAnalysis />
+      <div className="mt-4"><StockIntelligenceBoards /></div>
+    </div>
+  );
+}
+
+// ── FilterPanel ───────────────────────────────────────────────────────────────
+function FilterPanel({
+  signalType, filters, activeFilters, onChange, onApplyWithFilters, onReset, isLoading,
+}: {
+  signalType: SignalKey;
+  filters: FilterState[SignalKey];
+  activeFilters: FilterState[SignalKey];
+  onChange: (field: string, val: number) => void;
+  onApplyWithFilters: (vals: FilterState[SignalKey]) => void;
+  onReset: () => void;
+  isLoading: boolean;
+}) {
+  const [focused, setFocused] = useState<string | null>(null);
+  const [inputVals, setInputVals] = useState<Record<string, string>>({});
+  const pendingRef = useRef<Record<string, number>>({});
+
+  const field = (name: string, defaultVal: number, step?: string) => {
+    const stored = (filters as any)[name];
+    const display = focused === name ? (inputVals[name] ?? '') : stored;
+    return {
+      value: display,
+      step,
+      onFocus: (e: React.FocusEvent<HTMLInputElement>) => {
+        setFocused(name);
+        setInputVals(p => ({ ...p, [name]: '' }));
+        e.target.select();
+      },
+      onBlur: (e: React.FocusEvent<HTMLInputElement>) => {
+        setFocused(null);
+        const val = parseFloat(e.target.value);
+        if (!isNaN(val)) { onChange(name, val); pendingRef.current[name] = val; }
+        else pendingRef.current[name] = stored;
+        setInputVals(p => { const n = { ...p }; delete n[name]; return n; });
+      },
+      onKeyDown: (e: React.KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter') e.currentTarget.blur(); },
+      onChange: (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.value === '' || /^-?\d*\.?\d*$/.test(e.target.value))
+          setInputVals(p => ({ ...p, [name]: e.target.value }));
+      },
+    };
+  };
+
+  const handleApply = () => {
+    if (focused && inputVals[focused] !== undefined) {
+      const val = parseFloat(inputVals[focused]);
+      if (!isNaN(val)) { onChange(focused, val); pendingRef.current[focused] = val; }
+      setFocused(null);
+      setInputVals({});
+      document.activeElement instanceof HTMLInputElement && (document.activeElement as HTMLInputElement).blur();
+    }
+    const merged = { ...filters, ...pendingRef.current } as FilterState[SignalKey];
+    onApplyWithFilters(merged);
+    pendingRef.current = {};
+  };
+
+  const inputCls = 'form-input w-full py-1 text-sm';
+  const labelCls = 'block text-xs font-medium mb-1';
+  const activeCls = 'text-xs mt-0.5';
+
+  return (
+    <div className="mt-3 p-4 rounded-xl" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-sm)' }}>
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        {signalType === 'volumeSpikes' && (() => {
+          const f = filters as FilterState['volumeSpikes'];
+          const a = activeFilters as FilterState['volumeSpikes'];
+          return (<>
+            <div><label className={labelCls} style={{ color: 'var(--text-mid)' }}>Min Vol Spike (%)</label><input type="number" className={inputCls} {...field('minVolSpike', f.minVolSpike)} /><p className={activeCls} style={{ color: 'var(--text-lo)' }}>Active: {a.minVolSpike}</p></div>
+            <div><label className={labelCls} style={{ color: 'var(--text-mid)' }}>Min Price Move (%)</label><input type="number" className={inputCls} {...field('minPriceMove', f.minPriceMove, '0.1')} /><p className={activeCls} style={{ color: 'var(--text-lo)' }}>Active: {a.minPriceMove}</p></div>
+            <div><label className={labelCls} style={{ color: 'var(--text-mid)' }}>Min Price (₹)</label><input type="number" className={inputCls} {...field('minPrice', f.minPrice)} /><p className={activeCls} style={{ color: 'var(--text-lo)' }}>Active: {a.minPrice}</p></div>
+          </>);
+        })()}
+        {signalType === 'deepPullbacks' && (() => {
+          const f = filters as FilterState['deepPullbacks'];
+          const a = activeFilters as FilterState['deepPullbacks'];
+          return (<>
+            <div><label className={labelCls} style={{ color: 'var(--text-mid)' }}>Max % from 52W High</label><input type="number" className={inputCls} {...field('maxFromHigh', f.maxFromHigh)} /><p className={activeCls} style={{ color: 'var(--text-lo)' }}>Active: {a.maxFromHigh}</p></div>
+            <div><label className={labelCls} style={{ color: 'var(--text-mid)' }}>Min Volume</label><input type="number" className={inputCls} {...field('minVol', f.minVol)} /><p className={activeCls} style={{ color: 'var(--text-lo)' }}>Active: {a.minVol}</p></div>
+            <div><label className={labelCls} style={{ color: 'var(--text-mid)' }}>Min Price (₹)</label><input type="number" className={inputCls} {...field('minPrice', f.minPrice)} /><p className={activeCls} style={{ color: 'var(--text-lo)' }}>Active: {a.minPrice}</p></div>
+          </>);
+        })()}
+        {signalType === 'capitulated' && (() => {
+          const f = filters as FilterState['capitulated'];
+          const a = activeFilters as FilterState['capitulated'];
+          return (<>
+            <div><label className={labelCls} style={{ color: 'var(--text-mid)' }}>Max % from 52W High</label><input type="number" className={inputCls} {...field('maxFromHigh', f.maxFromHigh)} /><p className={activeCls} style={{ color: 'var(--text-lo)' }}>Active: {a.maxFromHigh}</p></div>
+            <div><label className={labelCls} style={{ color: 'var(--text-mid)' }}>Min Vol Spike (%)</label><input type="number" className={inputCls} {...field('minVolSpike', f.minVolSpike)} /><p className={activeCls} style={{ color: 'var(--text-lo)' }}>Active: {a.minVolSpike}</p></div>
+            <div><label className={labelCls} style={{ color: 'var(--text-mid)' }}>Min Price (₹)</label><input type="number" className={inputCls} {...field('minPrice', f.minPrice)} /><p className={activeCls} style={{ color: 'var(--text-lo)' }}>Active: {a.minPrice}</p></div>
+          </>);
+        })()}
+        {signalType === 'fiveDayDecliners' && (() => {
+          const f = filters as FilterState['fiveDayDecliners'];
+          const a = activeFilters as FilterState['fiveDayDecliners'];
+          return (<>
+            <div><label className={labelCls} style={{ color: 'var(--text-mid)' }}>Min Down Days</label><input type="number" min="1" max="5" className={inputCls} {...field('minDownDays', f.minDownDays)} /><p className={activeCls} style={{ color: 'var(--text-lo)' }}>Active: {a.minDownDays}</p></div>
+            <div><label className={labelCls} style={{ color: 'var(--text-mid)' }}>Max 5D Return (%)</label><input type="number" className={inputCls} {...field('maxReturn', f.maxReturn, '0.1')} /><p className={activeCls} style={{ color: 'var(--text-lo)' }}>Active: {a.maxReturn}</p></div>
+            <div><label className={labelCls} style={{ color: 'var(--text-mid)' }}>Min Price (₹)</label><input type="number" className={inputCls} {...field('minPrice', f.minPrice)} /><p className={activeCls} style={{ color: 'var(--text-lo)' }}>Active: {a.minPrice}</p></div>
+          </>);
+        })()}
+        {signalType === 'fiveDayClimbers' && (() => {
+          const f = filters as FilterState['fiveDayClimbers'];
+          const a = activeFilters as FilterState['fiveDayClimbers'];
+          return (<>
+            <div><label className={labelCls} style={{ color: 'var(--text-mid)' }}>Min Up Days</label><input type="number" min="1" max="5" className={inputCls} {...field('minUpDays', f.minUpDays)} /><p className={activeCls} style={{ color: 'var(--text-lo)' }}>Active: {a.minUpDays}</p></div>
+            <div><label className={labelCls} style={{ color: 'var(--text-mid)' }}>Min 5D Return (%)</label><input type="number" className={inputCls} {...field('minReturn', f.minReturn, '0.1')} /><p className={activeCls} style={{ color: 'var(--text-lo)' }}>Active: {a.minReturn}</p></div>
+            <div><label className={labelCls} style={{ color: 'var(--text-mid)' }}>Min Price (₹)</label><input type="number" className={inputCls} {...field('minPrice', f.minPrice)} /><p className={activeCls} style={{ color: 'var(--text-lo)' }}>Active: {a.minPrice}</p></div>
+          </>);
+        })()}
+        {signalType === 'tightRangeBreakouts' && (() => {
+          const f = filters as FilterState['tightRangeBreakouts'];
+          const a = activeFilters as FilterState['tightRangeBreakouts'];
+          return (<>
+            <div><label className={labelCls} style={{ color: 'var(--text-mid)' }}>Max Range (%)</label><input type="number" className={inputCls} {...field('maxRange', f.maxRange)} /><p className={activeCls} style={{ color: 'var(--text-lo)' }}>Active: {a.maxRange}</p></div>
+            <div><label className={labelCls} style={{ color: 'var(--text-mid)' }}>Min BO Score</label><input type="number" className={inputCls} {...field('minBoScore', f.minBoScore, '0.1')} /><p className={activeCls} style={{ color: 'var(--text-lo)' }}>Active: {a.minBoScore}</p></div>
+            <div><label className={labelCls} style={{ color: 'var(--text-mid)' }}>Min Vol Spike (%)</label><input type="number" className={inputCls} {...field('minVolSpike', f.minVolSpike)} /><p className={activeCls} style={{ color: 'var(--text-lo)' }}>Active: {a.minVolSpike}</p></div>
+            <div><label className={labelCls} style={{ color: 'var(--text-mid)' }}>Min Price (₹)</label><input type="number" className={inputCls} {...field('minPrice', f.minPrice)} /><p className={activeCls} style={{ color: 'var(--text-lo)' }}>Active: {a.minPrice}</p></div>
+          </>);
+        })()}
+        {signalType === 'quantPredictions' && (() => {
+          const f = filters as FilterState['quantPredictions'];
+          const a = activeFilters as FilterState['quantPredictions'];
+          return (<>
+            <div><label className={labelCls} style={{ color: 'var(--text-mid)' }}>Min Probability (0–1)</label><input type="number" step="0.01" min="0" max="1" className={inputCls} {...field('minProbability', f.minProbability, '0.01')} /><p className={activeCls} style={{ color: 'var(--text-lo)' }}>Active: {(a.minProbability * 100).toFixed(0)}%</p></div>
+            <div><label className={labelCls} style={{ color: 'var(--text-mid)' }}>Min Predicted Return (%)</label><input type="number" step="0.1" className={inputCls} {...field('minPredictedReturn', f.minPredictedReturn, '0.1')} /><p className={activeCls} style={{ color: 'var(--text-lo)' }}>Active: {a.minPredictedReturn}%</p></div>
+            <div><label className={labelCls} style={{ color: 'var(--text-mid)' }}>Min 3Yr CAGR (%)</label><input type="number" step="0.1" className={inputCls} {...field('minCAGR', f.minCAGR, '0.1')} /><p className={activeCls} style={{ color: 'var(--text-lo)' }}>Active: {a.minCAGR}%</p></div>
+            <div><label className={labelCls} style={{ color: 'var(--text-mid)' }}>Max Volatility (%)</label><input type="number" step="0.1" className={inputCls} {...field('maxVolatility', f.maxVolatility, '0.1')} /><p className={activeCls} style={{ color: 'var(--text-lo)' }}>Active: {a.maxVolatility}%</p></div>
+            <div><label className={labelCls} style={{ color: 'var(--text-mid)' }}>Min 3M Momentum (0–1)</label><input type="number" step="0.01" min="0" max="1" className={inputCls} {...field('minMomentum', f.minMomentum, '0.01')} /><p className={activeCls} style={{ color: 'var(--text-lo)' }}>Active: {a.minMomentum.toFixed(2)}</p></div>
+            <div><label className={labelCls} style={{ color: 'var(--text-mid)' }}>Min Price (₹)</label><input type="number" className={inputCls} {...field('minPrice', f.minPrice)} /><p className={activeCls} style={{ color: 'var(--text-lo)' }}>Active: ₹{a.minPrice}</p></div>
+          </>);
+        })()}
+      </div>
+      <div className="flex gap-2 mt-3">
+        <button onClick={handleApply} disabled={isLoading}
+          className="btn btn-primary text-sm px-4 py-1.5 flex items-center gap-1.5"
+          style={{ opacity: isLoading ? 0.6 : 1 }}>
+          {isLoading && <span className="inline-block w-3 h-3 rounded-full border-2 animate-spin" style={{ borderColor: '#fff transparent #fff #fff' }} />}
+          Apply
+        </button>
+        <button onClick={onReset} className="btn btn-ghost text-sm px-4 py-1.5">Reset</button>
+      </div>
+    </div>
+  );
+}
+
+// ── SignalCard ─────────────────────────────────────────────────────────────────
+function SignalCard({
+  type, title, icon, sub, badge, stocks, isLoading, error,
+  filters, activeFilters, showFilter, onToggleFilter, onFilterChange, onApply, onReset,
+}: {
+  type: SignalKey; title: string; icon: string; sub: string; badge: string;
+  stocks: StockSignal[]; isLoading: boolean; error: string | null;
+  filters: FilterState[SignalKey]; activeFilters: FilterState[SignalKey];
+  showFilter: boolean;
+  onToggleFilter: () => void;
+  onFilterChange: (field: string, val: number) => void;
+  onApply: (vals: FilterState[SignalKey]) => void;
+  onReset: () => void;
+}) {
+  return (
+    <div className="card overflow-hidden">
+      {/* Card header */}
+      <div className="flex items-start justify-between px-5 pt-4 pb-3"
+        style={{ borderBottom: '1px solid var(--border-sm)', background: 'var(--bg-raised)' }}>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xl leading-none">{icon}</span>
+            <h3 className="text-sm font-bold text-hi">{title}</h3>
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold"
+              style={{ background: 'var(--brand-bg)', color: 'var(--brand)' }}>{badge}</span>
           </div>
-          
-          <div className="relative overflow-x-auto min-h-[400px]">
-            {/* Loading Overlay */}
-            {(loading || sectionLoading.quantPredictions) && (
-              <div className="absolute inset-0 bg-white/90 backdrop-blur-sm z-50 flex items-center justify-center rounded-lg">
+          <p className="text-xs mt-0.5" style={{ color: 'var(--text-lo)' }}>{sub}</p>
+          {/* Filter toggle */}
+          <button onClick={onToggleFilter}
+            className="mt-2 text-xs font-medium flex items-center gap-1 transition-colors"
+            style={{ color: showFilter ? 'var(--brand)' : 'var(--text-lo)' }}>
+            {showFilter ? '▼' : '▶'} Filter Conditions
+          </button>
+          {showFilter && (
+            <FilterPanel
+              signalType={type} filters={filters} activeFilters={activeFilters}
+              onChange={onFilterChange} onApplyWithFilters={onApply} onReset={onReset}
+              isLoading={isLoading}
+            />
+          )}
+        </div>
+        {isLoading && (
+          <span className="ml-3 mt-0.5 shrink-0 inline-block w-4 h-4 rounded-full border-2 animate-spin"
+            style={{ borderColor: 'var(--brand) transparent var(--brand) transparent' }} />
+        )}
+      </div>
+
+      {/* Table */}
+      {error ? (
+        <div className="p-6 text-center text-sm" style={{ color: 'var(--loss)' }}>Error: {error}</div>
+      ) : (
+        <div className="tbl-wrap">
+          <table className="tbl">
+            <thead>
+              <tr>
+                {['Stock', 'Close', '% from 52W High', '5D Return', 'Vol Spike', 'Consistency (5D)', '10D Trend', 'Strategy'].map(h => (
+                  <th key={h} className={`px-4 py-2.5 text-xs font-semibold uppercase tracking-wide ${h === 'Stock' ? 'text-left' : 'text-center'}`}
+                    style={{ color: 'var(--text-mid)' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading && stocks.length === 0 ? (
+                <SkeletonRows cols={8} />
+              ) : stocks.length === 0 ? (
+                <tr><td colSpan={8} className="px-4 py-8 text-center text-sm" style={{ color: 'var(--text-lo)' }}>No stocks match this criteria</td></tr>
+              ) : (
+                stocks.map((s, i) => (
+                  <tr key={s.isin} style={{ background: i % 2 === 0 ? 'transparent' : 'var(--bg-raised)' }}>
+                    <td className="px-4 py-2.5 whitespace-nowrap">
+                      <div className="text-sm font-semibold text-hi">{s.stockName}</div>
+                      <div className="text-xs" style={{ color: 'var(--text-lo)' }}>{s.symbol || 'N/A'}</div>
+                    </td>
+                    <td className="px-4 py-2.5 text-center text-sm font-semibold metric-value text-hi">{fmtPrice(s.close)}</td>
+                    <td className="px-4 py-2.5 text-center text-sm font-semibold metric-value"
+                      style={{ color: s.percentFrom52WHigh < -50 ? 'var(--loss)' : s.percentFrom52WHigh < -20 ? 'var(--warn)' : 'var(--text-mid)' }}>
+                      {fmtPct(s.percentFrom52WHigh)}
+                    </td>
+                    <td className="px-4 py-2.5 text-center text-sm font-semibold metric-value"
+                      style={{ color: s.return5D >= 0 ? 'var(--gain)' : 'var(--loss)' }}>
+                      {fmtPct(s.return5D)}
+                    </td>
+                    <td className="px-4 py-2.5 text-center text-sm font-semibold metric-value"
+                      style={{ color: s.volSpike > 100 ? 'var(--warn)' : s.volSpike > 50 ? 'var(--brand)' : 'var(--text-mid)' }}>
+                      {fmtPct(s.volSpike)}
+                    </td>
+                    <td className="px-4 py-2.5 text-center">
+                      <span className="px-2 py-0.5 rounded text-xs font-semibold"
+                        style={{
+                          background: s.upDays >= 4 ? 'color-mix(in srgb, var(--gain) 12%, transparent)' : s.downDays >= 4 ? 'color-mix(in srgb, var(--loss) 12%, transparent)' : 'var(--bg-raised)',
+                          color: s.upDays >= 4 ? 'var(--gain)' : s.downDays >= 4 ? 'var(--loss)' : 'var(--text-mid)',
+                          border: '1px solid',
+                          borderColor: s.upDays >= 4 ? 'color-mix(in srgb, var(--gain) 25%, transparent)' : s.downDays >= 4 ? 'color-mix(in srgb, var(--loss) 25%, transparent)' : 'var(--border-sm)',
+                        }}>
+                        {s.consistency5D} {s.upDays >= 4 ? '⬆' : s.downDays >= 4 ? '⬇' : '↔'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-center">
+                      <div className="w-20 h-9 mx-auto"><Sparkline data={s.sparkline} /></div>
+                    </td>
+                    <td className="px-4 py-2.5 text-center max-w-[160px]">
+                      <div className="px-2 py-1 rounded text-xs" style={{ background: 'var(--brand-bg)', color: 'var(--brand)', border: '1px solid color-mix(in srgb, var(--brand) 20%, transparent)' }}>
+                        {s.strategyHint}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Quant Section ─────────────────────────────────────────────────────────────
+function QuantSection({
+  data, isLoading, filters, activeFilters, showFilter,
+  onToggleFilter, onFilterChange, onApply, onReset,
+}: {
+  data: any[] | undefined; isLoading: boolean;
+  filters: FilterState['quantPredictions']; activeFilters: FilterState['quantPredictions'];
+  showFilter: boolean;
+  onToggleFilter: () => void;
+  onFilterChange: (field: string, val: number) => void;
+  onApply: (vals: FilterState['quantPredictions']) => void;
+  onReset: () => void;
+}) {
+  const sorted = (data ?? [])
+    .sort((a: any, b: any) => (b.exp3MReturn || b.predictedReturn || 0) - (a.exp3MReturn || a.predictedReturn || 0))
+    .slice(0, 6);
+
+  const metricColor = (val: number, hi: number, mid: number) =>
+    val >= hi ? 'var(--gain)' : val >= mid ? 'var(--warn)' : 'var(--text-mid)';
+
+  const rankBg = (i: number) =>
+    i === 0 ? 'linear-gradient(135deg, #f59e0b, #d97706)' :
+    i === 1 ? 'linear-gradient(135deg, #9ca3af, #6b7280)' :
+    i === 2 ? 'linear-gradient(135deg, #b45309, #92400e)' :
+    'var(--bg-raised)';
+
+  return (
+    <div className="card overflow-hidden">
+      {/* Header */}
+      <div className="px-5 pt-4 pb-3" style={{ borderBottom: '1px solid var(--border-sm)', background: 'var(--bg-raised)' }}>
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xl">🚀</span>
+              <h3 className="text-sm font-bold text-hi">Quantitative Stock Screening Framework</h3>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold"
+                style={{ background: 'color-mix(in srgb, var(--brand) 12%, transparent)', color: 'var(--brand)' }}>
+                AI-Powered
+              </span>
+            </div>
+            <p className="text-xs mt-0.5" style={{ color: 'var(--text-lo)' }}>
+              Top stocks with &gt;{(activeFilters.minProbability * 100).toFixed(0)}% probability of +{activeFilters.minPredictedReturn.toFixed(0)}% 3-month return
+              {' '}• Hurst, Kalman, RSRS, Regime Detection, KAMA
+            </p>
+          </div>
+          <button onClick={onToggleFilter}
+            className="btn btn-ghost text-xs px-3 py-1.5 shrink-0">
+            {showFilter ? '▼' : '⚙'} Filters
+          </button>
+        </div>
+        {showFilter && (
+          <FilterPanel
+            signalType="quantPredictions" filters={filters} activeFilters={activeFilters}
+            onChange={onFilterChange} onApplyWithFilters={onApply} onReset={onReset}
+            isLoading={isLoading}
+          />
+        )}
+      </div>
+
+      {/* Table / loading / empty */}
+      <div className="relative">
+        {isLoading && (data === undefined || data.length === 0) && (
+          <div className="tbl-wrap">
+            <table className="tbl">
+              <thead>
+                <tr>
+                  {['Rank', 'Stock', 'Price', 'p12', 'Exp 3M Ret', 'Regime', 'Hurst', 'Kalman SNR', 'RSRS z', 'VolSpike', 'Donchian%', 'KAMA ER', 'VWAP/ATR', 'Filters', 'Action'].map(h => (
+                    <th key={h} className="px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-center" style={{ color: 'var(--text-mid)' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody><SkeletonRows cols={15} /></tbody>
+            </table>
+          </div>
+        )}
+
+        {!isLoading && data !== undefined && data.length === 0 && (
+          <div className="p-8 text-center">
+            <div className="w-14 h-14 rounded-2xl mx-auto mb-4 flex items-center justify-center"
+              style={{ background: 'var(--brand-bg)', border: '1px solid var(--brand-glow)' }}>
+              <span className="text-2xl">📊</span>
+            </div>
+            <p className="font-semibold text-hi mb-1">No stocks match current criteria</p>
+            <p className="text-sm mb-4" style={{ color: 'var(--text-lo)' }}>Try relaxing the probability or return thresholds</p>
+            <div className="flex gap-2 justify-center">
+              <button onClick={() => onApply({ minProbability: 0.30, minPredictedReturn: 6, minCAGR: -100, maxVolatility: 100, minMomentum: 0, minPrice: 0 })}
+                className="btn btn-primary text-xs px-4 py-1.5">Try Relaxed Filters</button>
+              <button onClick={onReset} className="btn btn-ghost text-xs px-4 py-1.5">Reset to Default</button>
+            </div>
+          </div>
+        )}
+
+        {data !== undefined && data.length > 0 && (
+          <div className="tbl-wrap">
+            {isLoading && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center rounded-b-xl"
+                style={{ background: 'color-mix(in srgb, var(--bg-surface) 85%, transparent)', backdropFilter: 'blur(2px)' }}>
                 <div className="text-center">
-                  <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mb-4"></div>
-                  <p className="text-sm font-medium text-gray-700">Applying filters and analyzing stocks...</p>
-                  <p className="text-xs text-gray-500 mt-2">This may take a few moments</p>
+                  <div className="w-8 h-8 rounded-full border-2 animate-spin mx-auto mb-2"
+                    style={{ borderColor: 'var(--brand) transparent var(--brand) transparent' }} />
+                  <p className="text-xs" style={{ color: 'var(--text-mid)' }}>Applying filters…</p>
                 </div>
               </div>
             )}
-            
-            <table className="min-w-full bg-white rounded-lg shadow-md overflow-hidden">
-              <thead className="bg-gradient-to-r from-indigo-600 to-purple-600 text-white">
-                <tr>
-                  <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider">Rank</th>
-                  <th className="px-3 py-3 text-left text-xs font-semibold uppercase tracking-wider">Stock</th>
-                  <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider">Px (₹)</th>
-                  <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider">p12</th>
-                  <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider">Exp 3M Ret %</th>
-                  <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider">Regime (Bull %)</th>
-                  <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider">Hurst</th>
-                  <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider">Kalman SNR</th>
-                  <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider">RSRS z</th>
-                  <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider">VolSpike (15/63)</th>
-                  <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider">Donchian% (63)</th>
-                  <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider">KAMA ER</th>
-                  <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider">VWAP Dist / ATR</th>
-                  <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider">Filters Pass</th>
-                  <th className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wider">Action</th>
+            <table className="tbl">
+              <thead>
+                <tr style={{ background: 'linear-gradient(135deg, var(--brand) 0%, #7c3aed 100%)' }}>
+                  {['Rank', 'Stock', 'Price', 'p12', 'Exp 3M Ret', 'Regime %', 'Hurst', 'Kalman SNR', 'RSRS z', 'VolSpike', 'Donchian%', 'KAMA ER', 'VWAP/ATR', 'Filters', 'Action'].map(h => (
+                    <th key={h} className="px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-center" style={{ color: 'rgba(255,255,255,0.9)' }}>{h}</th>
+                  ))}
                 </tr>
               </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {data.quantPredictions
-                  .sort((a: any, b: any) => (b.exp3MReturn || b.predictedReturn || 0) - (a.exp3MReturn || a.predictedReturn || 0))
-                  .slice(0, 6)
-                  .map((stock: any, idx: number) => (
-                  <tr 
-                    key={stock.isin} 
-                    className={`${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-indigo-50 transition-colors`}
-                  >
-                    <td className="px-3 py-3 whitespace-nowrap">
-                      <div className="flex items-center justify-center">
-                        <span className={`inline-flex items-center justify-center w-8 h-8 rounded-full text-sm font-bold ${
-                          idx === 0 ? 'bg-gradient-to-r from-yellow-400 to-orange-400 text-white' :
-                          idx === 1 ? 'bg-gradient-to-r from-gray-300 to-gray-400 text-white' :
-                          idx === 2 ? 'bg-gradient-to-r from-amber-600 to-amber-700 text-white' :
-                          'bg-gray-200 text-gray-700'
-                        }`}>
-                          {idx + 1}
-                        </span>
-                      </div>
+              <tbody>
+                {sorted.map((s: any, i: number) => (
+                  <tr key={s.isin} style={{ background: i % 2 === 0 ? 'transparent' : 'var(--bg-raised)' }}>
+                    <td className="px-3 py-2.5 text-center">
+                      <span className="inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold text-white"
+                        style={{ background: rankBg(i) }}>{i + 1}</span>
                     </td>
-                    <td className="px-3 py-3 whitespace-nowrap">
-                      <div className="text-sm font-semibold text-gray-900">{stock.stockName}</div>
-                      <div className="text-xs text-gray-500">{stock.symbol || 'N/A'}</div>
+                    <td className="px-3 py-2.5 whitespace-nowrap">
+                      <div className="text-sm font-semibold text-hi">{s.stockName}</div>
+                      <div className="text-xs" style={{ color: 'var(--text-lo)' }}>{s.symbol || 'N/A'}</div>
                     </td>
-                    <td className="px-3 py-3 text-center text-sm font-semibold text-gray-900">
-                      ₹{stock.currentPrice?.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || 'N/A'}
+                    <td className="px-3 py-2.5 text-center text-sm font-semibold metric-value text-hi">
+                      ₹{s.currentPrice?.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) || 'N/A'}
                     </td>
-                    <td className="px-3 py-3 text-center text-sm">
-                      <span className={`font-bold px-2 py-1 rounded ${
-                        (stock.p12 || stock.probability || 0) >= 0.80 ? 'bg-green-100 text-green-800' :
-                        (stock.p12 || stock.probability || 0) >= 0.70 ? 'bg-yellow-100 text-yellow-800' :
-                        (stock.p12 || stock.probability || 0) >= 0.60 ? 'bg-blue-100 text-blue-800' :
-                        'bg-gray-100 text-gray-800'
-                      }`}>
-                        {((stock.p12 || stock.probability || 0) * 100)?.toFixed(0) || 'N/A'}%
+                    <td className="px-3 py-2.5 text-center">
+                      <span className="font-bold px-2 py-0.5 rounded text-xs"
+                        style={{
+                          background: (s.p12||s.probability||0) >= 0.80 ? 'color-mix(in srgb,var(--gain) 12%,transparent)' : (s.p12||s.probability||0) >= 0.60 ? 'color-mix(in srgb,var(--warn) 12%,transparent)' : 'var(--bg-raised)',
+                          color: (s.p12||s.probability||0) >= 0.80 ? 'var(--gain)' : (s.p12||s.probability||0) >= 0.60 ? 'var(--warn)' : 'var(--text-mid)',
+                        }}>
+                        {((s.p12||s.probability||0)*100).toFixed(0)}%
                       </span>
                     </td>
-                    <td className="px-3 py-3 text-center text-sm">
-                      <span className={`font-bold ${
-                        (stock.exp3MReturn || stock.predictedReturn || 0) >= 15 ? 'text-green-600' :
-                        (stock.exp3MReturn || stock.predictedReturn || 0) >= 10 ? 'text-yellow-600' :
-                        'text-gray-600'
-                      }`}>
-                        +{(stock.exp3MReturn || stock.predictedReturn || 0)?.toFixed(1) || 'N/A'}%
-                      </span>
+                    <td className="px-3 py-2.5 text-center text-sm font-semibold metric-value"
+                      style={{ color: (s.exp3MReturn||s.predictedReturn||0) >= 15 ? 'var(--gain)' : (s.exp3MReturn||s.predictedReturn||0) >= 10 ? 'var(--warn)' : 'var(--text-mid)' }}>
+                      +{(s.exp3MReturn||s.predictedReturn||0).toFixed(1)}%
                     </td>
-                    <td className="px-3 py-3 text-center text-sm">
-                      <span className={`font-medium ${
-                        (stock.regimeBull || 0) >= 0.70 ? 'text-green-600' :
-                        (stock.regimeBull || 0) >= 0.55 ? 'text-yellow-600' :
-                        'text-gray-600'
-                      }`}>
-                        {((stock.regimeBull || 0) * 100)?.toFixed(0) || 'N/A'}%
-                      </span>
+                    <td className="px-3 py-2.5 text-center text-sm metric-value"
+                      style={{ color: metricColor((s.regimeBull||0), 0.70, 0.55) }}>
+                      {((s.regimeBull||0)*100).toFixed(0)}%
                     </td>
-                    <td className="px-3 py-3 text-center text-sm">
-                      <span className={`font-medium ${
-                        (stock.hurst || 0.5) >= 0.6 ? 'text-green-600' :
-                        (stock.hurst || 0.5) >= 0.5 ? 'text-yellow-600' :
-                        'text-gray-600'
-                      }`}>
-                        {(stock.hurst || 0.5)?.toFixed(2) || '0.50'}
-                      </span>
+                    <td className="px-3 py-2.5 text-center text-sm metric-value"
+                      style={{ color: metricColor((s.hurst||0.5), 0.6, 0.5) }}>
+                      {(s.hurst||0.5).toFixed(2)}
                     </td>
-                    <td className="px-3 py-3 text-center text-sm">
-                      <span className={`font-medium ${
-                        (stock.kalmanSNR || 0) >= 1.5 ? 'text-green-600' :
-                        (stock.kalmanSNR || 0) >= 1.0 ? 'text-yellow-600' :
-                        'text-gray-600'
-                      }`}>
-                        {(stock.kalmanSNR || 0)?.toFixed(2) || 'N/A'}
-                      </span>
+                    <td className="px-3 py-2.5 text-center text-sm metric-value"
+                      style={{ color: metricColor((s.kalmanSNR||0), 1.5, 1.0) }}>
+                      {(s.kalmanSNR||0).toFixed(2)}
                     </td>
-                    <td className="px-3 py-3 text-center text-sm">
-                      <span className={`font-medium ${
-                        (stock.rsrsZ || 0) >= 1.5 ? 'text-green-600' :
-                        (stock.rsrsZ || 0) >= 1.0 ? 'text-yellow-600' :
-                        'text-gray-600'
-                      }`}>
-                        {(stock.rsrsZ || 0)?.toFixed(2) || 'N/A'}
-                      </span>
+                    <td className="px-3 py-2.5 text-center text-sm metric-value"
+                      style={{ color: metricColor((s.rsrsZ||0), 1.5, 1.0) }}>
+                      {(s.rsrsZ||0).toFixed(2)}
                     </td>
-                    <td className="px-3 py-3 text-center text-sm">
-                      <span className={`font-medium ${
-                        (stock.volSpike || stock.volumeSpikeRatio || 0) >= 1.5 ? 'text-green-600' :
-                        (stock.volSpike || stock.volumeSpikeRatio || 0) >= 1.3 ? 'text-yellow-600' :
-                        'text-gray-600'
-                      }`}>
-                        {(stock.volSpike || stock.volumeSpikeRatio || 0)?.toFixed(2) || 'N/A'}x
-                      </span>
+                    <td className="px-3 py-2.5 text-center text-sm metric-value"
+                      style={{ color: metricColor((s.volSpike||s.volumeSpikeRatio||0), 1.5, 1.3) }}>
+                      {(s.volSpike||s.volumeSpikeRatio||0).toFixed(2)}x
                     </td>
-                    <td className="px-3 py-3 text-center text-sm">
-                      <span className={`font-medium ${
-                        (stock.donchianPercent || 0) >= 0.8 ? 'text-green-600' :
-                        (stock.donchianPercent || 0) >= 0.6 ? 'text-yellow-600' :
-                        'text-gray-600'
-                      }`}>
-                        {((stock.donchianPercent || 0) * 100)?.toFixed(0) || 'N/A'}%
-                      </span>
+                    <td className="px-3 py-2.5 text-center text-sm metric-value"
+                      style={{ color: metricColor((s.donchianPercent||0), 0.8, 0.6) }}>
+                      {((s.donchianPercent||0)*100).toFixed(0)}%
                     </td>
-                    <td className="px-3 py-3 text-center text-sm">
-                      <span className={`font-medium ${
-                        (stock.kamaER || 0) >= 0.6 ? 'text-green-600' :
-                        (stock.kamaER || 0) >= 0.4 ? 'text-yellow-600' :
-                        'text-gray-600'
-                      }`}>
-                        {(stock.kamaER || 0)?.toFixed(2) || 'N/A'}
-                      </span>
+                    <td className="px-3 py-2.5 text-center text-sm metric-value"
+                      style={{ color: metricColor((s.kamaER||0), 0.6, 0.4) }}>
+                      {(s.kamaER||0).toFixed(2)}
                     </td>
-                    <td className="px-3 py-3 text-center text-sm">
-                      <span className={`font-medium ${
-                        (stock.vwapDistATR || 0) >= 0.5 ? 'text-green-600' :
-                        (stock.vwapDistATR || 0) >= 0 ? 'text-yellow-600' :
-                        'text-red-600'
-                      }`}>
-                        {(stock.vwapDistATR || 0)?.toFixed(2) || 'N/A'}
-                      </span>
+                    <td className="px-3 py-2.5 text-center text-sm metric-value"
+                      style={{ color: (s.vwapDistATR||0) >= 0.5 ? 'var(--gain)' : (s.vwapDistATR||0) >= 0 ? 'var(--warn)' : 'var(--loss)' }}>
+                      {(s.vwapDistATR||0).toFixed(2)}
                     </td>
-                    <td className="px-3 py-3 text-center text-sm">
-                      {stock.filtersPass ? (
-                        <span className="text-green-600 font-bold">✅</span>
-                      ) : (
-                        <span className="text-red-600 font-bold" title={stock.filterFlags?.join(', ') || ''}>🚫</span>
-                      )}
+                    <td className="px-3 py-2.5 text-center text-sm">
+                      {s.filtersPass
+                        ? <span style={{ color: 'var(--gain)' }}>✅</span>
+                        : <span style={{ color: 'var(--loss)' }} title={s.filterFlags?.join(', ') || ''}>🚫</span>}
                     </td>
-                    <td className="px-3 py-3 text-center text-sm font-semibold">
-                      <span className={`px-2 py-1 rounded text-xs ${
-                        (stock.action || stock.decision || '').includes('✅ Buy') ? 'bg-green-100 text-green-800' :
-                        (stock.action || stock.decision || '').includes('⚠️') ? 'bg-yellow-100 text-yellow-800' :
-                        'bg-gray-100 text-gray-800'
-                      }`}>
-                        {stock.action || stock.decision || 'N/A'}
+                    <td className="px-3 py-2.5 text-center">
+                      <span className="px-2 py-0.5 rounded text-xs font-semibold"
+                        style={{
+                          background: (s.action||s.decision||'').includes('Buy') ? 'color-mix(in srgb,var(--gain) 12%,transparent)' : (s.action||s.decision||'').includes('⚠') ? 'color-mix(in srgb,var(--warn) 12%,transparent)' : 'var(--bg-raised)',
+                          color: (s.action||s.decision||'').includes('Buy') ? 'var(--gain)' : (s.action||s.decision||'').includes('⚠') ? 'var(--warn)' : 'var(--text-mid)',
+                        }}>
+                        {s.action || s.decision || 'N/A'}
                       </span>
                     </td>
                   </tr>
@@ -1193,266 +745,16 @@ export default function StockResearch() {
               </tbody>
             </table>
           </div>
-          
-          <div className="mt-4 p-4 bg-white/80 rounded-lg border border-indigo-200">
-            <p className="text-xs text-gray-600">
-              <strong>Methodology:</strong> Advanced quantitative framework using OHLCV data only. Features include: Hurst Exponent (trend persistence), Kalman Filter (trend smoothing), RSRS (breakout strength), Markov Switching (regime detection), KAMA Efficiency Ratio, and more. Combined Bayesian Logistic + Gradient Boosting ensemble predicts P(3-month return &gt; +12%). Execution filters ensure quality: Regime Guard, Trend Quality, Energy, and Risk checks.
-            </p>
-          </div>
-        </div>
-        ) : (
-          <div className="mb-8 bg-gradient-to-br from-indigo-50 via-purple-50 to-pink-50 rounded-xl p-8 border-2 border-indigo-200 shadow-xl">
-          <div className="text-center">
-            {/* Icon and Title */}
-            <div className="mb-6">
-              <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-indigo-100 to-purple-100 mb-4">
-                <span className="text-4xl">🔍</span>
-              </div>
-              <h3 className="text-2xl font-bold text-gray-800 mb-2 flex items-center justify-center gap-2">
-                🚀 Quantitative Stock Screening Framework
-              </h3>
-              <p className="text-gray-600 text-base">
-                Advanced AI-powered stock screening with institutional-grade metrics
-              </p>
-            </div>
-
-            {/* Empty State Message */}
-            <div className="bg-white/80 rounded-lg p-6 mb-6 border border-indigo-200 shadow-sm">
-              <div className="flex items-start justify-center gap-3 mb-4">
-                <div className="flex-shrink-0 w-12 h-12 rounded-full bg-amber-100 flex items-center justify-center">
-                  <span className="text-2xl">📊</span>
-                </div>
-                <div className="text-left flex-1">
-                  <h4 className="font-semibold text-gray-800 mb-2">No stocks found matching current criteria</h4>
-                  <p className="text-sm text-gray-600 mb-3">
-                    The quantitative model couldn't find stocks that meet your current filter thresholds. This could mean:
-                  </p>
-                  <ul className="text-sm text-gray-600 space-y-1 ml-4 list-disc">
-                    <li>Market conditions are challenging</li>
-                    <li>Filters are too strict</li>
-                    <li>Stocks need more historical data</li>
-                  </ul>
-                </div>
-              </div>
-
-              {/* Current Filter Display */}
-              <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg p-4 mb-4 border border-indigo-100">
-                <p className="text-xs font-semibold text-indigo-800 mb-2 uppercase tracking-wide">Current Filter Settings</p>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
-                  <div className="bg-white rounded px-3 py-2 border border-indigo-200">
-                    <span className="text-gray-600">Probability:</span>
-                    <span className="font-semibold text-indigo-700 ml-2">
-                      ≥ {((activeFilters.quantPredictions?.minProbability ?? defaultFilters.quantPredictions.minProbability) * 100).toFixed(0)}%
-                    </span>
-                  </div>
-                  <div className="bg-white rounded px-3 py-2 border border-indigo-200">
-                    <span className="text-gray-600">Expected Return:</span>
-                    <span className="font-semibold text-indigo-700 ml-2">
-                      ≥ {(activeFilters.quantPredictions?.minPredictedReturn ?? defaultFilters.quantPredictions.minPredictedReturn).toFixed(0)}%
-                    </span>
-                  </div>
-                  <div className="bg-white rounded px-3 py-2 border border-indigo-200">
-                    <span className="text-gray-600">Min Price:</span>
-                    <span className="font-semibold text-indigo-700 ml-2">
-                      ₹{(activeFilters.quantPredictions?.minPrice ?? defaultFilters.quantPredictions.minPrice).toFixed(0)}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Quick Action Buttons */}
-              <div className="flex flex-wrap gap-3 justify-center">
-                <button
-                  onClick={async (e) => {
-                    e.preventDefault();
-                    const newFilters = {
-                      minProbability: 0.30,
-                      minPredictedReturn: 6,
-                      minCAGR: -100,
-                      maxVolatility: 100,
-                      minMomentum: 0,
-                      minPrice: 0
-                    };
-                    console.log('🎯 Applying relaxed filters:', newFilters);
-                    await applyFilters('quantPredictions', newFilters);
-                  }}
-                  disabled={loading || sectionLoading.quantPredictions}
-                  className="px-5 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 text-white text-sm font-medium rounded-lg hover:from-indigo-700 hover:to-purple-700 transition-all shadow-md hover:shadow-lg transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none flex items-center gap-2"
-                >
-                  {(loading || sectionLoading.quantPredictions) ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
-                      <span>Loading...</span>
-                    </>
-                  ) : (
-                    '🎯 Try Relaxed Filters'
-                  )}
-                </button>
-                <button
-                  onClick={async (e) => {
-                    e.preventDefault();
-                    const newFilters = {
-                      minProbability: 0.20,
-                      minPredictedReturn: 5,
-                      minCAGR: -100,
-                      maxVolatility: 100,
-                      minMomentum: 0,
-                      minPrice: 0
-                    };
-                    console.log('🔓 Applying very relaxed filters:', newFilters);
-                    await applyFilters('quantPredictions', newFilters);
-                  }}
-                  disabled={loading || sectionLoading.quantPredictions}
-                  className="px-5 py-2.5 bg-white text-indigo-600 text-sm font-medium rounded-lg border-2 border-indigo-300 hover:bg-indigo-50 transition-all shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-                >
-                  {(loading || sectionLoading.quantPredictions) ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-indigo-600 border-t-transparent"></div>
-                      <span>Loading...</span>
-                    </>
-                  ) : (
-                    '🔓 Very Relaxed Filters'
-                  )}
-                </button>
-                <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    setShowFilters(prev => ({ ...prev, quantPredictions: !prev.quantPredictions }));
-                  }}
-                  className="px-5 py-2.5 bg-white text-gray-700 text-sm font-medium rounded-lg border-2 border-gray-300 hover:bg-gray-50 transition-all shadow-sm hover:shadow-md"
-                >
-                  {showFilters.quantPredictions ? '▼' : '⚙️'} Customize Filters
-                </button>
-              </div>
-            </div>
-
-            {/* Advanced Filter Panel */}
-            {showFilters.quantPredictions && (
-              <div className="mt-6 bg-white rounded-lg p-6 border-2 border-indigo-200 shadow-lg animate-in fade-in duration-300">
-                <div className="flex items-center justify-between mb-4">
-                  <h4 className="text-lg font-semibold text-gray-800">Advanced Filter Configuration</h4>
-                  <button
-                    onClick={() => setShowFilters(prev => ({ ...prev, quantPredictions: false }))}
-                    className="text-gray-400 hover:text-gray-600"
-                  >
-                    ✕
-                  </button>
-                </div>
-                <FilterPanel
-                  signalType="quantPredictions"
-                  filters={filters.quantPredictions}
-                  activeFilters={activeFilters.quantPredictions}
-                  onChange={(st, field, value) => {
-                    setFilters(prev => ({
-                      ...prev,
-                      [st]: { ...prev[st], [field]: value }
-                    }));
-                  }}
-                  onApply={() => applyFilters('quantPredictions')}
-                  onApplyWithFilters={(filterValues) => applyFilters('quantPredictions', filterValues)}
-                  onReset={() => resetFilters('quantPredictions')}
-                />
-              </div>
-            )}
-
-            {/* Info Section */}
-            <div className="mt-6 pt-6 border-t border-indigo-200">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                <div className="bg-white/60 rounded-lg p-4 border border-indigo-100">
-                  <div className="text-2xl mb-2">📈</div>
-                  <div className="font-semibold text-gray-800 mb-1">Advanced Metrics</div>
-                  <div className="text-gray-600 text-xs">Hurst, Kalman Filter, RSRS, Regime Detection</div>
-                </div>
-                <div className="bg-white/60 rounded-lg p-4 border border-indigo-100">
-                  <div className="text-2xl mb-2">🤖</div>
-                  <div className="font-semibold text-gray-800 mb-1">AI-Powered</div>
-                  <div className="text-gray-600 text-xs">Bayesian Logistic + Gradient Boosting Ensemble</div>
-                </div>
-                <div className="bg-white/60 rounded-lg p-4 border border-indigo-100">
-                  <div className="text-2xl mb-2">✅</div>
-                  <div className="font-semibold text-gray-800 mb-1">Quality Filters</div>
-                  <div className="text-gray-600 text-xs">Regime Guard, Trend Quality, Energy Checks</div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        )
-      ) : null}
-
-      {/* Signal Cards */}
-      <SignalCard
-        title="🔥 Top 6 Volume Spikes (15D)"
-        icon="🔥"
-        subtitle="VolSpike > 50% • Price movement > 1% • Score = 0.7×VolSpike + 0.3×PriceMove"
-        stocks={data.volumeSpikes}
-        marketingLabel="Unusual Activity — 15D Volume Surges"
-        signalType="volumeSpikes"
-        isLoading={sectionLoading.volumeSpikes}
-      />
-
-      <SignalCard
-        title="📉 Top 6 Deep Pullbacks (≤ 50% from 52W High)"
-        icon="📉"
-        subtitle="%FromHigh ≤ -50% • Ranked by ShortTermOversold Index (lower = better)"
-        stocks={data.deepPullbacks}
-        marketingLabel="50% Off Their Peak — Possible Reversal Zone"
-        signalType="deepPullbacks"
-        isLoading={sectionLoading.deepPullbacks}
-      />
-
-      <SignalCard
-        title="🛑 Top 6 Capitulated (≤ 90% from 52W High)"
-        icon="🛑"
-        subtitle="%FromHigh ≤ -90% • VolSpike > 0 • Score = 0.6×VolSpike + 0.4×5DReturn"
-        stocks={data.capitulated}
-        marketingLabel="High-Risk, High-Reward — 90% Down, Waking Up"
-        signalType="capitulated"
-        isLoading={sectionLoading.capitulated}
-      />
-
-      <SignalCard
-        title="📉 Top 6 5-Day Decliners"
-        icon="📉"
-        subtitle="5 consecutive down days (or 4/5) • Return5D < -2% • Score = 0.6×Drop + 0.4×Vol"
-        stocks={data.fiveDayDecliners}
-        marketingLabel="5-Day Selling Pressure — Watch for Breakdown / Short Setups"
-        signalType="fiveDayDecliners"
-        isLoading={sectionLoading.fiveDayDecliners}
-      />
-
-      <SignalCard
-        title="📈 Top 6 5-Day Climbers"
-        icon="📈"
-        subtitle="5 consecutive up days (or 4/5) • Return5D > 2% • Score = 0.5×Gain + 0.3×Vol + 0.2×BullBody"
-        stocks={data.fiveDayClimbers}
-        marketingLabel="Momentum-on-the-Move — 5-Day Climbers"
-        signalType="fiveDayClimbers"
-        isLoading={sectionLoading.fiveDayClimbers}
-      />
-
-      {data.tightRangeBreakouts.length > 0 && (
-        <SignalCard
-          title="🎯 Top 6 Tight-Range Breakout Candidates"
-          icon="🎯"
-          subtitle="20D Range < 15% • Breakout above 20D High • VolSpike > 50%"
-          stocks={data.tightRangeBreakouts}
-          marketingLabel="Tight Range + Breakout → Potential Explosive Move"
-          signalType="tightRangeBreakouts"
-          isLoading={sectionLoading.tightRangeBreakouts}
-        />
-      )}
-
-      {/* Smart Allocation Advisor */}
-      <SmartAllocation quantPredictions={data.quantPredictions} />
-
-      {/* Detailed Stock Analysis */}
-      <DetailedStockAnalysis />
-
-      {/* Stock Intelligence Boards */}
-      <div className="mt-8">
-        <StockIntelligenceBoards />
+        )}
       </div>
+
+      {/* Methodology footer */}
+      {data && data.length > 0 && (
+        <div className="px-5 py-3 text-xs" style={{ borderTop: '1px solid var(--border-sm)', color: 'var(--text-lo)' }}>
+          <strong className="text-hi">Methodology:</strong> Hurst Exponent, Kalman Filter, RSRS, Markov Switching regime, KAMA Efficiency Ratio, VWAP/ATR.
+          Ensemble: Bayesian Logistic + Gradient Boosting predicts P(3M return &gt; +12%).
+        </div>
+      )}
     </div>
   );
 }
