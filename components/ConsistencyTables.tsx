@@ -741,9 +741,17 @@ export default function ConsistencyTables({ stockPerformance, holdings }: Consis
                         <div
                           ref={tooltipRef}
                           className="streak-tooltip fixed w-80 max-w-[calc(100vw-2rem)] text-xs rounded-xl p-4 shadow-2xl z-[99999] pointer-events-auto"
-                          style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-md)', color: 'var(--text-hi)' }}
+                          style={{
+                            background: 'var(--bg-surface)',
+                            border: '1px solid var(--border-md)',
+                            color: 'var(--text-hi)',
+                            maxHeight: '80vh',
+                            overflowY: 'auto',
+                            top: `${tooltipPosition.top}px`,
+                            left: `${tooltipPosition.left}px`,
+                            transform: 'translate(-50%, calc(-100% - 8px))'
+                          }}
                           onMouseEnter={() => {
-                            // Clear timeout if mouse enters tooltip
                             if (tooltipTimeoutRef.current) {
                               clearTimeout(tooltipTimeoutRef.current);
                               tooltipTimeoutRef.current = null;
@@ -752,13 +760,6 @@ export default function ConsistencyTables({ stockPerformance, holdings }: Consis
                           }}
                           onMouseLeave={() => {
                             setShowStreakTooltip(false);
-                          }}
-                          style={{ 
-                            maxHeight: '80vh',
-                            overflowY: 'auto',
-                            top: `${tooltipPosition.top}px`,
-                            left: `${tooltipPosition.left}px`,
-                            transform: 'translate(-50%, calc(-100% - 8px))'
                           }}
                         >
                           <div className="font-semibold mb-2 text-sm">Consistency Streak Explanation:</div>
