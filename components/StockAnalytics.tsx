@@ -236,7 +236,6 @@ export default function StockAnalytics({ holdings, transactions }: StockAnalytic
           className="inline-flex items-center justify-center w-4 h-4 ml-1.5 rounded transition-colors focus:outline-none"
           style={{ color: 'var(--text-muted)' }}
           onMouseEnter={onEnter} onMouseLeave={onLeave}
-          onMouseEnterCapture={() => {}}
           onClick={e => { e.preventDefault(); e.stopPropagation(); onEnter(); }}
         >
           <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20">
