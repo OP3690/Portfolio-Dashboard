@@ -12,217 +12,187 @@ import IndustryPieChart from '@/components/IndustryPieChart';
 import StockAnalytics from '@/components/StockAnalytics';
 import StockResearch from '@/components/StockResearch';
 
-export default function Dashboard() {
-  const router = useRouter();
-  const [dashboardData, setDashboardData] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
-  const [authLoading, setAuthLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'stock-analytics' | 'stock-research'>('dashboard');
-  const [redirecting, setRedirecting] = useState(false); // Prevent multiple redirects
+/* Skeleton block */
+function Skeleton({ className = '', style = {} }: { className?: string; style?: React.CSSProperties }) {
+  return (
+    <div className={`skeleton ${className}`} style={style} />
+  );
+}
 
-  // Check authentication on mount (only once)
-  useEffect(() => {
-    checkAuthentication();
-  }, []); // Empty dependency array - only run once on mount
+/* Full-page loading skeleton matching dashboard layout */
+function DashboardSkeleton() {
+  return (
+    <div className="space-y-6 animate-fadeIn">
+      {/* Summary cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="rounded-2xl p-5"
+            style={{ background: '#1a2240', border: '1px solid rgba(255,255,255,0.06)' }}>
+            <div className="flex items-start justify-between mb-4">
+              <Skeleton style={{ width: 80, height: 10, borderRadius: 6 }} />
+              <Skeleton style={{ width: 32, height: 32, borderRadius: 10 }} />
+            </div>
+            <Skeleton style={{ width: '70%', height: 28, borderRadius: 8 }} />
+            <Skeleton className="mt-4" style={{ height: 2, borderRadius: 99 }} />
+          </div>
+        ))}
+      </div>
+
+      {/* Performers row */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {[0, 1].map(i => (
+          <div key={i} className="rounded-2xl p-5"
+            style={{ background: '#1a2240', border: '1px solid rgba(255,255,255,0.06)' }}>
+            <Skeleton style={{ width: 180, height: 14, borderRadius: 6, marginBottom: 20 }} />
+            {[0, 1, 2].map(j => (
+              <div key={j} className="flex items-center gap-3 mb-3">
+                <Skeleton style={{ width: 32, height: 32, borderRadius: 8 }} />
+                <div className="flex-1 space-y-2">
+                  <Skeleton style={{ height: 10, borderRadius: 6 }} />
+                  <Skeleton style={{ height: 4, borderRadius: 99 }} />
+                  <Skeleton style={{ width: '60%', height: 8, borderRadius: 6 }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+
+      {/* Chart placeholder */}
+      <div className="rounded-2xl p-5"
+        style={{ background: '#1a2240', border: '1px solid rgba(255,255,255,0.06)', height: 260 }}>
+        <Skeleton style={{ width: 140, height: 14, borderRadius: 6, marginBottom: 20 }} />
+        <div className="flex items-end gap-2 h-36">
+          {Array.from({ length: 12 }).map((_, i) => (
+            <Skeleton key={i} className="flex-1" style={{ height: `${30 + Math.random() * 70}%`, borderRadius: 6 }} />
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* Full-page spinner */
+function FullPageSpinner({ message = 'Loading…', sub = '' }: { message?: string; sub?: string }) {
+  return (
+    <div className="min-h-screen flex items-center justify-center" style={{ background: '#0a0f1e' }}>
+      <div className="text-center space-y-4">
+        <div className="relative w-14 h-14 mx-auto">
+          <div className="absolute inset-0 rounded-full border-2 border-t-emerald-400 border-r-transparent border-b-transparent border-l-transparent animate-spin" />
+          <div className="absolute inset-2 rounded-full" style={{ background: 'rgba(16,185,129,0.12)' }} />
+        </div>
+        <p className="text-sm font-semibold" style={{ color: '#f0f4ff' }}>{message}</p>
+        {sub && <p className="text-xs" style={{ color: '#4b5d78' }}>{sub}</p>}
+      </div>
+    </div>
+  );
+}
+
+export default function Dashboard() {
+  const router      = useRouter();
+  const [dashboardData, setDashboardData] = useState<any>(null);
+  const [loading,    setLoading]    = useState(true);
+  const [authLoading,setAuthLoading]= useState(true);
+  const [error,      setError]      = useState<string | null>(null);
+  const [activeTab,  setActiveTab]  = useState<'dashboard' | 'stock-analytics' | 'stock-research'>('dashboard');
+  const [redirecting,setRedirecting]= useState(false);
+
+  useEffect(() => { checkAuthentication(); }, []);
 
   const checkAuthentication = async () => {
-    // Prevent multiple redirects
     if (redirecting) return;
-    
     try {
-      // Check if we're in browser environment
-      if (typeof window === 'undefined') {
-        setAuthLoading(false);
-        return;
-      }
-
+      if (typeof window === 'undefined') { setAuthLoading(false); return; }
       const token = localStorage.getItem('authToken');
-      
       if (!token) {
         setAuthLoading(false);
-        if (!redirecting) {
-          setRedirecting(true);
-          window.location.href = '/login';
-        }
+        if (!redirecting) { setRedirecting(true); window.location.href = '/login'; }
         return;
       }
-
-      // Verify token with backend (with timeout)
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
-
+      const ctrl    = new AbortController();
+      const timerId = setTimeout(() => ctrl.abort(), 5000);
       try {
-        const authResponse = await fetch(`/api/auth/verify?token=${encodeURIComponent(token)}`, {
-          signal: controller.signal,
-          cache: 'no-store'
-        });
-        clearTimeout(timeoutId);
-
-        if (!authResponse.ok) {
-          throw new Error('Auth verification failed');
-        }
-
-        const authData = await authResponse.json();
-
-        if (!authData.authenticated) {
-          localStorage.removeItem('authToken');
-          localStorage.removeItem('userEmail');
+        const res  = await fetch(`/api/auth/verify?token=${encodeURIComponent(token)}`, { signal: ctrl.signal, cache: 'no-store' });
+        clearTimeout(timerId);
+        if (!res.ok) throw new Error('Auth failed');
+        const data = await res.json();
+        if (!data.authenticated) {
+          localStorage.removeItem('authToken'); localStorage.removeItem('userEmail');
           setAuthLoading(false);
-          if (!redirecting) {
-            setRedirecting(true);
-            window.location.href = '/login';
-          }
+          if (!redirecting) { setRedirecting(true); window.location.href = '/login'; }
           return;
         }
-
-        // Authenticated, proceed to load dashboard immediately
         setAuthLoading(false);
         fetchDashboardData();
-      } catch (fetchError: any) {
-        clearTimeout(timeoutId);
-        // Only redirect if it's not an abort error (timeout)
-        if (fetchError.name !== 'AbortError') {
-          console.error('Auth check error:', fetchError);
-          localStorage.removeItem('authToken');
-          localStorage.removeItem('userEmail');
-        }
+      } catch (e: any) {
+        clearTimeout(timerId);
+        if (e.name !== 'AbortError') { localStorage.removeItem('authToken'); localStorage.removeItem('userEmail'); }
         setAuthLoading(false);
-        if (!redirecting && !token) {
-          setRedirecting(true);
-          window.location.href = '/login';
-        }
+        if (!redirecting && !localStorage.getItem('authToken')) { setRedirecting(true); window.location.href = '/login'; }
       }
-    } catch (err) {
-      console.error('Auth check error:', err);
+    } catch (e) {
       const token = localStorage.getItem('authToken');
       if (!token && !redirecting) {
-        localStorage.removeItem('authToken');
-        localStorage.removeItem('userEmail');
-        setAuthLoading(false);
-        setRedirecting(true);
-        window.location.href = '/login';
-      } else {
-        setAuthLoading(false);
-      }
+        localStorage.removeItem('authToken'); localStorage.removeItem('userEmail');
+        setAuthLoading(false); setRedirecting(true); window.location.href = '/login';
+      } else setAuthLoading(false);
     }
   };
 
   useEffect(() => {
-    if (!authLoading && !dashboardData) {
-      console.log('Dashboard component mounted, fetching data...');
-      fetchDashboardData();
-    }
-  }, [authLoading]); // Only fetch once when auth completes, not on every authLoading change
+    if (!authLoading && !dashboardData) fetchDashboardData();
+  }, [authLoading]);
 
-  // Background data refresh - runs every 30 seconds (only when authenticated)
+  // Silent background refresh every 30s
   useEffect(() => {
-    if (authLoading) return; // Don't start interval if still checking auth
-    
-    // Start interval only once when auth is complete
-    const intervalId = setInterval(() => {
-      // Silently refresh data in background (don't show loading state)
-      fetchDashboardData(false).catch(err => {
-        console.log('Background refresh failed:', err);
-      });
-    }, 30000); // 30 seconds
+    if (authLoading) return;
+    const id = setInterval(() => fetchDashboardData(false).catch(() => {}), 30000);
+    return () => clearInterval(id);
+  }, [authLoading]);
 
-    return () => clearInterval(intervalId);
-  }, [authLoading]); // Only depend on authLoading, not dashboardData
-
-  const fetchDashboardData = async (showLoading: boolean = true) => {
+  const fetchDashboardData = async (showLoading = true) => {
     try {
-      console.log('Starting fetch...');
-      if (showLoading) {
-        setLoading(true);
-      }
-      setError(null);
-      
-      const response = await fetch('/api/dashboard?clientId=994826', {
+      if (showLoading) { setLoading(true); setError(null); }
+      const res = await fetch('/api/dashboard?clientId=994826', {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        signal: AbortSignal.timeout(120000), // 120 second timeout (2 minutes)
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(120000),
       });
-      
-      console.log('Response status:', response.status);
-      
-      if (!response.ok) {
-        // Try to get error details from response
-        let errorDetails = '';
-        try {
-          const errorData = await response.json();
-          console.error('Server error response:', errorData);
-          errorDetails = errorData.error || `HTTP error! status: ${response.status}`;
-          if (errorData.details) {
-            console.error('Server error details:', errorData.details);
-          }
-        } catch (e) {
-          errorDetails = `HTTP error! status: ${response.status}`;
-        }
-        throw new Error(errorDetails);
+      if (!res.ok) {
+        let msg = `HTTP ${res.status}`;
+        try { const d = await res.json(); msg = d.error || msg; } catch {}
+        throw new Error(msg);
       }
-      
-      const data = await response.json();
-      console.log('Data received:', data.success ? 'Success' : 'Failed');
-      
-      if (data.success) {
-        // Log holdings received from API
-        console.log('Dashboard API Response - Holdings count:', data.data.holdings?.length || 0);
-        console.log('Dashboard API Response - Realized Stocks count:', data.data.realizedStocks?.length || 0);
-        setDashboardData(data.data);
-        console.log('Dashboard data set successfully');
-      } else {
-        setError(data.error || 'Failed to load dashboard data');
-      }
-    } catch (err: any) {
-      console.error('Dashboard fetch error:', err);
-      setError(err.message || 'Failed to fetch dashboard data');
+      const data = await res.json();
+      if (data.success) setDashboardData(data.data);
+      else setError(data.error || 'Failed to load dashboard data');
+    } catch (e: any) {
+      setError(e.message || 'Failed to fetch dashboard data');
     } finally {
-      if (showLoading) {
-        setLoading(false);
-        console.log('Loading set to false');
-      }
+      if (showLoading) setLoading(false);
     }
   };
 
   const renderContent = () => {
     if (activeTab === 'stock-analytics') {
-      return (
-        <StockAnalytics 
-          holdings={dashboardData?.holdings || []} 
-          transactions={dashboardData?.transactions || []} 
-        />
-      );
+      return <StockAnalytics holdings={dashboardData?.holdings || []} transactions={dashboardData?.transactions || []} />;
     }
-
     if (activeTab === 'stock-research') {
       return <StockResearch />;
     }
-
-    // Dashboard tab content
     return (
-      <>
-        {/* Summary Section */}
+      <div className="space-y-5 animate-fadeIn">
+        {/* Summary cards */}
         <SummaryCards summary={dashboardData.summary} />
 
-        {/* Top Performers Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
-          <TopPerformers 
-            title="Top 3 High Performing Stocks" 
-            performers={dashboardData.topPerformers}
-            isPositive={true}
-          />
-          <TopPerformers 
-            title="Top 3 Worst Performing Stocks" 
-            performers={dashboardData.worstPerformers}
-            isPositive={false}
-          />
+        {/* Top / Worst performers */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+          <TopPerformers title="Top 3 Gainers"  performers={dashboardData.topPerformers}   isPositive={true}  />
+          <TopPerformers title="Top 3 Laggards" performers={dashboardData.worstPerformers} isPositive={false} />
         </div>
 
-        {/* Monthly Charts Section */}
-        <MonthlyCharts 
+        {/* Monthly charts */}
+        <MonthlyCharts
           monthlyInvestments={dashboardData.monthlyInvestments}
           monthlyInvestmentAverages={dashboardData.monthlyInvestmentAverages}
           monthlyDividends={dashboardData.monthlyDividends}
@@ -232,93 +202,55 @@ export default function Dashboard() {
           returnStatistics={dashboardData.returnStatistics}
         />
 
-        {/* Industry Distribution */}
-        <div className="mt-6">
-          <IndustryPieChart data={dashboardData.industryDistribution} />
-        </div>
+        {/* Industry pie */}
+        <IndustryPieChart data={dashboardData.industryDistribution} />
 
-        {/* Holdings Table */}
-        <div className="mt-6">
-          <HoldingsTable holdings={dashboardData.holdings} />
-        </div>
+        {/* Holdings table */}
+        <HoldingsTable holdings={dashboardData.holdings} />
 
-        {/* Realized Stocks Table */}
-        {dashboardData.realizedStocks && dashboardData.realizedStocks.length > 0 && (
-          <div className="mt-6">
-            <RealizedStocksTable 
-              realizedStocks={dashboardData.realizedStocks} 
-              onRefresh={fetchDashboardData}
-            />
-          </div>
+        {/* Realized stocks */}
+        {dashboardData.realizedStocks?.length > 0 && (
+          <RealizedStocksTable realizedStocks={dashboardData.realizedStocks} onRefresh={fetchDashboardData} />
         )}
-      </>
+      </div>
     );
   };
 
-  // Show loading during authentication check
-  if (authLoading) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 flex items-center justify-center">
-        <div className="text-center">
-          <div className="relative">
-            <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-200 dark:border-blue-900 border-t-blue-600 dark:border-t-blue-400 mx-auto"></div>
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div className="h-8 w-8 bg-blue-600 dark:bg-blue-400 rounded-full animate-pulse"></div>
-            </div>
-          </div>
-          <p className="mt-6 text-gray-600 dark:text-gray-300 text-lg font-medium">Verifying authentication...</p>
-          <p className="mt-2 text-gray-400 dark:text-gray-500 text-sm">Please wait</p>
-        </div>
-      </div>
-    );
-  }
+  /* Auth loading */
+  if (authLoading) return <FullPageSpinner message="Verifying session…" sub="Please wait" />;
 
+  /* Data loading — show skeleton with nav */
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900">
-        <Navigation 
-          onUploadSuccess={fetchDashboardData} 
-          activeTab={activeTab}
-          onTabChange={setActiveTab}
-        />
-        <div className="flex items-center justify-center min-h-[calc(100vh-80px)]">
-          <div className="text-center">
-            <div className="relative inline-block">
-              <div className="animate-spin rounded-full h-16 w-16 border-4 border-blue-200 dark:border-blue-900 border-t-blue-600 dark:border-t-blue-400"></div>
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="h-8 w-8 bg-blue-600 dark:bg-blue-400 rounded-full animate-pulse"></div>
-              </div>
-            </div>
-            <p className="mt-6 text-gray-600 dark:text-gray-300 text-lg font-medium">Loading dashboard...</p>
-            <p className="mt-2 text-gray-400 dark:text-gray-500 text-sm">Fetching your portfolio data</p>
-          </div>
+      <div className="min-h-screen" style={{ background: '#0a0f1e' }}>
+        <Navigation onUploadSuccess={fetchDashboardData} activeTab={activeTab} onTabChange={setActiveTab} />
+        <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <DashboardSkeleton />
         </div>
       </div>
     );
   }
 
+  /* Error */
   if (error) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900">
-        <Navigation 
-          onUploadSuccess={fetchDashboardData} 
-          activeTab={activeTab}
-          onTabChange={setActiveTab}
-        />
-        <div className="flex items-center justify-center min-h-[calc(100vh-80px)]">
-          <div className="text-center bg-white dark:bg-slate-800 rounded-2xl shadow-xl p-8 max-w-md mx-4 border border-red-200 dark:border-red-900">
-            <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg className="w-8 h-8 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <div className="min-h-screen" style={{ background: '#0a0f1e' }}>
+        <Navigation onUploadSuccess={fetchDashboardData} activeTab={activeTab} onTabChange={setActiveTab} />
+        <div className="flex items-center justify-center min-h-[calc(100vh-64px)] p-4">
+          <div className="rounded-2xl p-8 max-w-md w-full text-center"
+            style={{ background: '#1a2240', border: '1px solid rgba(244,63,94,0.2)' }}>
+            <div className="w-14 h-14 rounded-2xl mx-auto mb-4 flex items-center justify-center"
+              style={{ background: 'rgba(244,63,94,0.12)' }}>
+              <svg className="w-7 h-7" style={{ color: '#f43f5e' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
-            <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">Oops! Something went wrong</h3>
-            <p className="text-red-600 dark:text-red-400 mb-6 text-sm">{error}</p>
-            <button
-              onClick={() => fetchDashboardData()}
-              className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-medium shadow-lg hover:shadow-xl transition-all duration-200 transform hover:scale-105"
-            >
-              Try Again
+            <h3 className="text-lg font-bold text-white mb-2">Something went wrong</h3>
+            <p className="text-sm mb-6" style={{ color: '#f43f5e' }}>{error}</p>
+            <button onClick={() => fetchDashboardData()}
+              className="px-6 py-2.5 rounded-xl text-sm font-semibold text-white transition-all"
+              style={{ background: 'linear-gradient(135deg,#10b981,#059669)', boxShadow: '0 4px 16px rgba(16,185,129,0.35)' }}>
+              Retry
             </button>
           </div>
         </div>
@@ -326,38 +258,35 @@ export default function Dashboard() {
     );
   }
 
+  /* No data */
   if (!dashboardData) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-        <Navigation 
-          onUploadSuccess={fetchDashboardData} 
-          activeTab={activeTab}
-          onTabChange={setActiveTab}
-        />
-        <div className="container mx-auto px-4 py-8">
-          <div className="bg-white rounded-lg shadow-md p-8 text-center">
-            <h2 className="text-2xl font-bold text-gray-800 mb-4">No Data Available</h2>
-            <p className="text-gray-600 mb-6">
-              Upload your portfolio Excel file to get started.
-            </p>
+      <div className="min-h-screen" style={{ background: '#0a0f1e' }}>
+        <Navigation onUploadSuccess={fetchDashboardData} activeTab={activeTab} onTabChange={setActiveTab} />
+        <div className="flex items-center justify-center min-h-[calc(100vh-64px)] p-4">
+          <div className="rounded-2xl p-8 max-w-md w-full text-center"
+            style={{ background: '#1a2240', border: '1px solid rgba(255,255,255,0.07)' }}>
+            <div className="w-14 h-14 rounded-2xl mx-auto mb-4 flex items-center justify-center"
+              style={{ background: 'rgba(59,130,246,0.12)' }}>
+              <svg className="w-7 h-7" style={{ color: '#60a5fa' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+              </svg>
+            </div>
+            <h3 className="text-lg font-bold text-white mb-2">No Portfolio Data</h3>
+            <p className="text-sm mb-6" style={{ color: '#4b5d78' }}>Upload your portfolio Excel file to get started.</p>
           </div>
         </div>
       </div>
     );
   }
 
+  /* Main dashboard */
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-50 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900">
-      <Navigation 
-        onUploadSuccess={fetchDashboardData} 
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
-      />
-      
-      <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-6 sm:py-8">
-        <div className="animate-fadeIn">
-          {renderContent()}
-        </div>
+    <div className="min-h-screen" style={{ background: '#0a0f1e' }}>
+      <Navigation onUploadSuccess={fetchDashboardData} activeTab={activeTab} onTabChange={setActiveTab} />
+      <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+        {renderContent()}
       </div>
     </div>
   );

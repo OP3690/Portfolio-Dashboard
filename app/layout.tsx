@@ -3,15 +3,10 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 
 // Initialize server-side cron jobs
-// Import serverInit only on server side
 if (typeof window === 'undefined') {
   import('@/lib/serverInit').catch((err) => {
-    // Silently catch errors during development hot reload
     if (process.env.NODE_ENV !== 'production') {
-      // In dev mode, ignore module not found errors during hot reload
-      if (!err.message?.includes('ENOENT')) {
-        console.error('Failed to initialize server cron jobs:', err);
-      }
+      if (!err.message?.includes('ENOENT')) console.error('Failed to initialize server cron jobs:', err);
     } else {
       console.error('Failed to initialize server cron jobs:', err);
     }
@@ -19,39 +14,35 @@ if (typeof window === 'undefined') {
 }
 
 const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-inter",
+  subsets: ['latin'],
+  variable: '--font-inter',
+  display: 'swap',
 });
 
 export const metadata: Metadata = {
-  title: "Portfolio Dashboard",
-  description: "Investment Portfolio Management Dashboard",
+  title: 'Portfolio Dashboard — Investment Analytics',
+  description: 'Advanced investment portfolio management with real-time analytics, performance tracking, and intelligent insights.',
+  keywords: 'portfolio, stocks, investments, analytics, dashboard',
+  themeColor: '#0a0f1e',
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+};
+
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en">
-      <body
-        className={`${inter.variable} font-sans antialiased`}
-      >
+    <html lang="en" className={inter.variable}>
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+      </head>
+      <body className="font-sans antialiased" style={{ background: '#0a0f1e', color: '#f0f4ff' }}>
         {children}
         <script
           dangerouslySetInnerHTML={{
-            __html: `
-              // Unregister any existing service workers
-              if ('serviceWorker' in navigator) {
-                navigator.serviceWorker.getRegistrations().then(function(registrations) {
-                  for(let registration of registrations) {
-                    registration.unregister();
-                    console.log('Service Worker unregistered');
-                  }
-                });
-              }
-            `,
+            __html: `if('serviceWorker' in navigator){navigator.serviceWorker.getRegistrations().then(r=>{for(let reg of r)reg.unregister();})}`,
           }}
         />
       </body>
