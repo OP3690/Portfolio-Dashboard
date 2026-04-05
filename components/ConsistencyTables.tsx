@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, useRef, useEffect } from 'react';
+import React, { useMemo, useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import {
   BarChart,
@@ -603,66 +603,47 @@ export default function ConsistencyTables({ stockPerformance, holdings }: Consis
   return (
     <div className="space-y-6">
       {/* 1. Monthly Consistency Tracker */}
-      <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
-        <h3 className="text-lg font-semibold text-gray-800 mb-4">Monthly Consistency Tracker</h3>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-gray-50">
+      <div className="card p-6">
+        <h3 className="text-base font-bold text-hi mb-4">Monthly Consistency Tracker</h3>
+        <div className="tbl-wrap">
+          <table className="tbl">
+            <thead>
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Month</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">No. of Stocks &gt;1.5%</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">% of Portfolio</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Top Performers</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Underperformers</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-mid)' }}>Month</th>
+                <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-mid)' }}>No. of Stocks &gt;1.5%</th>
+                <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-mid)' }}>% of Portfolio</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-mid)' }}>Top Performers</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-mid)' }}>Underperformers</th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody>
               {monthlyTracker.map((row, idx) => {
                 // Helper function to get styling for top performer stock name (reverse order)
-                const getTopPerformerStyle = (stockName: string) => {
+                const getTopPerformerStyle = (stockName: string): React.CSSProperties => {
                   const rank = topPerformers.indexOf(stockName);
-                  if (rank === 0) {
-                    // 1st most frequent - dark green with white font
-                    return 'bg-green-700 text-white font-semibold px-2 py-0.5 rounded';
-                  } else if (rank === 1) {
-                    // 2nd most frequent - medium green
-                    return 'bg-green-500 text-white font-semibold px-2 py-0.5 rounded';
-                  } else if (rank === 2) {
-                    // 3rd most frequent - light green
-                    return 'bg-green-300 text-green-900 font-semibold px-2 py-0.5 rounded';
-                  }
-                  return '';
+                  if (rank === 0) return { background: 'var(--gain)', color: '#fff', fontWeight: 600, padding: '1px 6px', borderRadius: 4 };
+                  if (rank === 1) return { background: 'color-mix(in srgb, var(--gain) 70%, transparent)', color: '#fff', fontWeight: 600, padding: '1px 6px', borderRadius: 4 };
+                  if (rank === 2) return { background: 'color-mix(in srgb, var(--gain) 30%, transparent)', color: 'var(--gain)', fontWeight: 600, padding: '1px 6px', borderRadius: 4 };
+                  return {};
                 };
 
-                // Helper function to get styling for underperformer stock name
-                const getUnderperformerStyle = (stockName: string) => {
+                const getUnderperformerStyle = (stockName: string): React.CSSProperties => {
                   const rank = topUnderperformers.indexOf(stockName);
-                  if (rank === 0) {
-                    // 1st most frequent - dark red with white font
-                    return 'bg-red-700 text-white font-semibold px-2 py-0.5 rounded';
-                  } else if (rank === 1) {
-                    // 2nd most frequent - medium red
-                    return 'bg-red-500 text-white font-semibold px-2 py-0.5 rounded';
-                  } else if (rank === 2) {
-                    // 3rd most frequent - light red
-                    return 'bg-red-300 text-red-900 font-semibold px-2 py-0.5 rounded';
-                  }
-                  return '';
+                  if (rank === 0) return { background: 'var(--loss)', color: '#fff', fontWeight: 600, padding: '1px 6px', borderRadius: 4 };
+                  if (rank === 1) return { background: 'color-mix(in srgb, var(--loss) 70%, transparent)', color: '#fff', fontWeight: 600, padding: '1px 6px', borderRadius: 4 };
+                  if (rank === 2) return { background: 'color-mix(in srgb, var(--loss) 30%, transparent)', color: 'var(--loss)', fontWeight: 600, padding: '1px 6px', borderRadius: 4 };
+                  return {};
                 };
 
                 // Format top performers with highlighting
                 const formatTopPerformers = () => {
-                  if (!row.topPerformersList || row.topPerformersList.length === 0) {
-                    return <span className="text-gray-700">-</span>;
-                  }
-
+                  if (!row.topPerformersList || row.topPerformersList.length === 0)
+                    return <span style={{ color: 'var(--text-mid)' }}>-</span>;
                   return (
-                    <span className="text-gray-700">
+                    <span style={{ color: 'var(--text-mid)' }}>
                       {row.topPerformersList.map((stock, i) => (
                         <span key={i}>
-                          <span className={getTopPerformerStyle(stock)}>
-                            {stock}
-                          </span>
+                          <span style={getTopPerformerStyle(stock)}>{stock}</span>
                           {i < row.topPerformersList.length - 1 && ', '}
                         </span>
                       ))}
@@ -670,19 +651,14 @@ export default function ConsistencyTables({ stockPerformance, holdings }: Consis
                   );
                 };
 
-                // Format underperformers with highlighting
                 const formatUnderperformers = () => {
-                  if (!row.underperformersList || row.underperformersList.length === 0) {
-                    return <span className="text-gray-700">-</span>;
-                  }
-
+                  if (!row.underperformersList || row.underperformersList.length === 0)
+                    return <span style={{ color: 'var(--text-mid)' }}>-</span>;
                   return (
-                    <span className="text-gray-700">
+                    <span style={{ color: 'var(--text-mid)' }}>
                       {row.underperformersList.map((stock, i) => (
                         <span key={i}>
-                          <span className={getUnderperformerStyle(stock)}>
-                            {stock}
-                          </span>
+                          <span style={getUnderperformerStyle(stock)}>{stock}</span>
                           {i < row.underperformersList.length - 1 && ', '}
                         </span>
                       ))}
@@ -691,10 +667,10 @@ export default function ConsistencyTables({ stockPerformance, holdings }: Consis
                 };
 
                 return (
-                  <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                    <td className="px-4 py-3 font-medium text-gray-900">{row.month}</td>
-                    <td className="px-4 py-3 text-center text-gray-700">{row.count}</td>
-                    <td className="px-4 py-3 text-center text-gray-700">{row.portfolioPercent}%</td>
+                  <tr key={idx} style={{ background: idx % 2 === 0 ? 'transparent' : 'var(--bg-raised)' }}>
+                    <td className="px-4 py-3 font-semibold text-hi">{row.month}</td>
+                    <td className="px-4 py-3 text-center" style={{ color: 'var(--text-mid)' }}>{row.count}</td>
+                    <td className="px-4 py-3 text-center" style={{ color: 'var(--text-mid)' }}>{row.portfolioPercent}%</td>
                     <td className="px-4 py-3">{formatTopPerformers()}</td>
                     <td className="px-4 py-3">{formatUnderperformers()}</td>
                   </tr>
@@ -706,24 +682,25 @@ export default function ConsistencyTables({ stockPerformance, holdings }: Consis
       </div>
 
       {/* 2. Month-over-Month Comparison Table */}
-      <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
-        <h3 className="text-lg font-semibold text-gray-800 mb-4">Month-over-Month Comparison Table</h3>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-gray-50">
+      <div className="card p-6">
+        <h3 className="text-base font-bold text-hi mb-4">Month-over-Month Comparison Table</h3>
+        <div className="tbl-wrap">
+          <table className="tbl">
+            <thead>
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Stock</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Current Month Return</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Prev Month Return</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Δ Change</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-mid)' }}>Stock</th>
+                <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-mid)' }}>Current Month Return</th>
+                <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-mid)' }}>Prev Month Return</th>
+                <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-mid)' }}>Δ Change</th>
+                <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-mid)' }}>
                   <div className="flex items-center justify-center gap-1">
                     <span>Consistency Streak</span>
                     <div className="relative z-50">
                       <button
                         ref={buttonRef}
                         type="button"
-                        className="w-4 h-4 rounded-full bg-gray-300 text-gray-600 hover:bg-gray-400 hover:text-gray-700 text-xs font-bold flex items-center justify-center cursor-help transition-colors"
+                        className="w-4 h-4 rounded-full text-xs font-bold flex items-center justify-center cursor-help transition-colors"
+                        style={{ background: 'var(--brand-bg)', color: 'var(--brand)' }}
                         onMouseEnter={() => {
                           if (buttonRef.current) {
                             const rect = buttonRef.current.getBoundingClientRect();
@@ -761,9 +738,10 @@ export default function ConsistencyTables({ stockPerformance, holdings }: Consis
                         ?
                       </button>
                       {showStreakTooltip && typeof window !== 'undefined' && createPortal(
-                        <div 
+                        <div
                           ref={tooltipRef}
-                          className="streak-tooltip fixed w-80 max-w-[calc(100vw-2rem)] bg-gray-900 text-white text-xs rounded-lg p-4 shadow-2xl z-[99999] pointer-events-auto"
+                          className="streak-tooltip fixed w-80 max-w-[calc(100vw-2rem)] text-xs rounded-xl p-4 shadow-2xl z-[99999] pointer-events-auto"
+                          style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-md)', color: 'var(--text-hi)' }}
                           onMouseEnter={() => {
                             // Clear timeout if mouse enters tooltip
                             if (tooltipTimeoutRef.current) {
@@ -787,64 +765,54 @@ export default function ConsistencyTables({ stockPerformance, holdings }: Consis
                           <div className="space-y-1.5 text-xs">
                             <div>• <strong>Positive Streak (🔁):</strong> Consecutive months with positive returns (&gt;0%)</div>
                             <div>• <strong>Negative Streak (🔻):</strong> Consecutive months with negative returns (≤0%)</div>
-                            <div className="mt-2 pt-2 border-t border-gray-700">
+                            <div className="mt-2 pt-2" style={{ borderTop: '1px solid var(--border-sm)' }}>
                               <strong>Example:</strong> "3 🔁" = 3 consecutive months of positive returns. "4 🔻" = 4 consecutive months of negative returns.
                             </div>
-                            <div className="mt-2 pt-2 border-t border-gray-700 text-yellow-200">
+                            <div className="mt-2 pt-2" style={{ borderTop: '1px solid var(--border-sm)', color: 'var(--warn)' }}>
                               <strong>Note:</strong> Extended negative streaks (4+ months) may trigger exit signals in the trading strategy.
                             </div>
                           </div>
                           <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setShowStreakTooltip(false);
-                            }}
-                            className="absolute top-2 right-2 text-gray-400 hover:text-white text-lg leading-none w-5 h-5 flex items-center justify-center rounded hover:bg-gray-700 transition-colors"
+                            onClick={(e) => { e.stopPropagation(); setShowStreakTooltip(false); }}
+                            className="absolute top-2 right-2 text-lg leading-none w-5 h-5 flex items-center justify-center rounded transition-colors"
+                            style={{ color: 'var(--text-lo)' }}
                             aria-label="Close"
-                          >
-                            ×
-                          </button>
-                          {/* Arrow pointer */}
-                          <div className="absolute left-1/2 transform -translate-x-1/2 top-full w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+                          >×</button>
+                          <div className="absolute left-1/2 -translate-x-1/2 top-full border-4 border-transparent" style={{ borderTopColor: 'var(--border-md)' }} />
                         </div>,
                         document.body
                       )}
                     </div>
                   </div>
                 </th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Volume Trend</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Signal</th>
+                <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-mid)' }}>Volume Trend</th>
+                <th className="px-4 py-3 text-center text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--text-mid)' }}>Signal</th>
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody>
               {momComparison.map((row, idx) => {
-                // Determine volume trend color
-                let volumeTrendColor = 'text-gray-700';
+                let volColor = 'var(--text-mid)';
                 if (row.volumeTrend && row.volumeTrend !== '-') {
-                  const percentMatch = row.volumeTrend.match(/([+-]?\d+\.?\d*)%/);
-                  if (percentMatch) {
-                    const percent = parseFloat(percentMatch[1]);
-                    if (percent > 0) {
-                      volumeTrendColor = 'text-green-600';
-                    } else if (percent < 0) {
-                      volumeTrendColor = 'text-red-600';
-                    }
+                  const m = row.volumeTrend.match(/([+-]?\d+\.?\d*)%/);
+                  if (m) {
+                    const pct = parseFloat(m[1]);
+                    volColor = pct > 0 ? 'var(--gain)' : pct < 0 ? 'var(--loss)' : 'var(--text-mid)';
                   }
                 }
-                
                 return (
-                  <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                    <td className="px-4 py-3 font-medium text-gray-900">{row.stock}</td>
-                    <td className="px-4 py-3 text-center text-gray-700">{row.currentReturn}</td>
-                    <td className="px-4 py-3 text-center text-gray-700">{row.prevReturn}</td>
-                    <td className={`px-4 py-3 text-center font-semibold ${parseFloat(row.change) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  <tr key={idx} style={{ background: idx % 2 === 0 ? 'transparent' : 'var(--bg-raised)' }}>
+                    <td className="px-4 py-3 font-semibold text-hi">{row.stock}</td>
+                    <td className="px-4 py-3 text-center" style={{ color: 'var(--text-mid)' }}>{row.currentReturn}</td>
+                    <td className="px-4 py-3 text-center" style={{ color: 'var(--text-mid)' }}>{row.prevReturn}</td>
+                    <td className="px-4 py-3 text-center font-semibold"
+                      style={{ color: parseFloat(row.change) >= 0 ? 'var(--gain)' : 'var(--loss)' }}>
                       {row.change}
                     </td>
-                    <td className="px-4 py-3 text-center text-gray-700">{row.streak}</td>
-                    <td className={`px-4 py-3 text-center text-sm font-medium ${volumeTrendColor}`}>
+                    <td className="px-4 py-3 text-center" style={{ color: 'var(--text-mid)' }}>{row.streak}</td>
+                    <td className="px-4 py-3 text-center text-sm font-medium" style={{ color: volColor }}>
                       {row.volumeTrend}
                     </td>
-                    <td className="px-4 py-3 text-center font-semibold text-gray-700">{row.signal}</td>
+                    <td className="px-4 py-3 text-center font-semibold" style={{ color: 'var(--text-mid)' }}>{row.signal}</td>
                   </tr>
                 );
               })}
@@ -854,27 +822,26 @@ export default function ConsistencyTables({ stockPerformance, holdings }: Consis
       </div>
 
       {/* 3. Sector-wise Consistency Table */}
-      <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
-        <h3 className="text-lg font-semibold text-gray-800 mb-4">Sector-wise Consistency Table</h3>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-gray-50">
+      <div className="card p-6">
+        <h3 className="text-base font-bold text-hi mb-4">Sector-wise Consistency Table</h3>
+        <div className="tbl-wrap">
+          <table className="tbl">
+            <thead>
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Sector</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">No. of Positive Stocks</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Avg Return (3M)</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">% Above 1.5%</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Consistency Trend</th>
+                {['Sector', 'No. of Positive Stocks', 'Avg Return (3M)', '% Above 1.5%', 'Consistency Trend'].map(h => (
+                  <th key={h} className={`px-4 py-3 ${h === 'Sector' ? 'text-left' : 'text-center'} text-xs font-semibold uppercase tracking-wide`}
+                    style={{ color: 'var(--text-mid)' }}>{h}</th>
+                ))}
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody>
               {sectorConsistency.map((row, idx) => (
-                <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                  <td className="px-4 py-3 font-medium text-gray-900">{row.sector}</td>
-                  <td className="px-4 py-3 text-center text-gray-700">{row.positiveCount}</td>
-                  <td className="px-4 py-3 text-center text-gray-700">{row.avgReturn}</td>
-                  <td className="px-4 py-3 text-center text-gray-700">{row.aboveThresholdPercent}</td>
-                  <td className="px-4 py-3 text-center text-gray-700">{row.trend}</td>
+                <tr key={idx} style={{ background: idx % 2 === 0 ? 'transparent' : 'var(--bg-raised)' }}>
+                  <td className="px-4 py-3 font-semibold text-hi">{row.sector}</td>
+                  <td className="px-4 py-3 text-center" style={{ color: 'var(--text-mid)' }}>{row.positiveCount}</td>
+                  <td className="px-4 py-3 text-center" style={{ color: 'var(--text-mid)' }}>{row.avgReturn}</td>
+                  <td className="px-4 py-3 text-center" style={{ color: 'var(--text-mid)' }}>{row.aboveThresholdPercent}</td>
+                  <td className="px-4 py-3 text-center" style={{ color: 'var(--text-mid)' }}>{row.trend}</td>
                 </tr>
               ))}
             </tbody>
@@ -883,38 +850,33 @@ export default function ConsistencyTables({ stockPerformance, holdings }: Consis
       </div>
 
       {/* 4. Consistency Calendar Table */}
-      <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
-        <h3 className="text-lg font-semibold text-gray-800 mb-4">Consistency Calendar Table</h3>
-        <div className="mb-2 text-xs text-gray-600">
-          <span className="mr-4"><span className="text-green-600 font-semibold">Green</span> = Positive Return</span>
-          <span className="mr-4"><span className="text-red-600 font-semibold">Red</span> = Negative Return</span>
-          <span><span className="text-gray-500">—</span> = No Data</span>
+      <div className="card p-6">
+        <h3 className="text-base font-bold text-hi mb-4">Consistency Calendar Table</h3>
+        <div className="mb-3 text-xs" style={{ color: 'var(--text-lo)' }}>
+          <span className="mr-4"><span className="font-semibold" style={{ color: 'var(--gain)' }}>Green</span> = Positive Return</span>
+          <span className="mr-4"><span className="font-semibold" style={{ color: 'var(--loss)' }}>Red</span> = Negative Return</span>
+          <span style={{ color: 'var(--text-lo)' }}>— = No Data</span>
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-gray-50">
+        <div className="tbl-wrap">
+          <table className="tbl">
+            <thead>
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase sticky left-0 bg-gray-50">Stock</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide sticky left-0"
+                  style={{ color: 'var(--text-mid)', background: 'var(--bg-surface)' }}>Stock</th>
                 {allMonths.map(month => (
-                  <th key={month} className="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase min-w-[80px]">{month}</th>
+                  <th key={month} className="px-3 py-3 text-center text-xs font-semibold uppercase tracking-wide min-w-[80px]"
+                    style={{ color: 'var(--text-mid)' }}>{month}</th>
                 ))}
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody>
               {consistencyCalendar.map((row, idx) => (
-                <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                  <td className="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-white">{row.stock}</td>
+                <tr key={idx} style={{ background: idx % 2 === 0 ? 'transparent' : 'var(--bg-raised)' }}>
+                  <td className="px-4 py-3 font-semibold text-hi sticky left-0"
+                    style={{ background: idx % 2 === 0 ? 'var(--bg-surface)' : 'var(--bg-raised)' }}>{row.stock}</td>
                   {row.months.map((month, i) => (
-                    <td 
-                      key={i} 
-                      className={`px-3 py-3 text-center text-sm font-semibold ${
-                        month.return === null 
-                          ? 'text-gray-500' 
-                          : month.return >= 0 
-                            ? 'text-green-600' 
-                            : 'text-red-600'
-                      }`}
-                    >
+                    <td key={i} className="px-3 py-3 text-center text-sm font-semibold metric-value"
+                      style={{ color: month.return === null ? 'var(--text-lo)' : month.return >= 0 ? 'var(--gain)' : 'var(--loss)' }}>
                       {month.value}
                     </td>
                   ))}
@@ -926,30 +888,28 @@ export default function ConsistencyTables({ stockPerformance, holdings }: Consis
       </div>
 
       {/* 5. Alert & Action Table */}
-      <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
-        <h3 className="text-lg font-semibold text-gray-800 mb-4">Alert & Action Table</h3>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-gray-50">
+      <div className="card p-6">
+        <h3 className="text-base font-bold text-hi mb-4">Alert & Action Table</h3>
+        <div className="tbl-wrap">
+          <table className="tbl">
+            <thead>
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Stock</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Alert Type</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reason</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Last 3M Trend</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Last 3M Volume Trend</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Suggested Action</th>
+                {['Stock', 'Alert Type', 'Reason', 'Last 3M Trend', 'Last 3M Volume Trend', 'Suggested Action'].map((h, i) => (
+                  <th key={h} className={`px-4 py-3 ${i === 0 || i === 2 || i === 3 || i === 4 ? 'text-left' : 'text-center'} text-xs font-semibold uppercase tracking-wide`}
+                    style={{ color: 'var(--text-mid)' }}>{h}</th>
+                ))}
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
+            <tbody>
               {alertsTable.map((row, idx) => (
                 row && (
-                  <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                    <td className="px-4 py-3 font-medium text-gray-900">{row.stock}</td>
-                    <td className="px-4 py-3 text-center text-gray-700">{row.alertType}</td>
-                    <td className="px-4 py-3 text-gray-700">{row.reason}</td>
-                    <td className="px-4 py-3 text-gray-700">{row.trend}</td>
-                    <td className="px-4 py-3 text-gray-700 text-sm">{row.volumeTrend}</td>
-                    <td className="px-4 py-3 text-center text-gray-700">{row.action}</td>
+                  <tr key={idx} style={{ background: idx % 2 === 0 ? 'transparent' : 'var(--bg-raised)' }}>
+                    <td className="px-4 py-3 font-semibold text-hi">{row.stock}</td>
+                    <td className="px-4 py-3 text-center" style={{ color: 'var(--text-mid)' }}>{row.alertType}</td>
+                    <td className="px-4 py-3" style={{ color: 'var(--text-mid)' }}>{row.reason}</td>
+                    <td className="px-4 py-3" style={{ color: 'var(--text-mid)' }}>{row.trend}</td>
+                    <td className="px-4 py-3 text-sm" style={{ color: 'var(--text-mid)' }}>{row.volumeTrend}</td>
+                    <td className="px-4 py-3 text-center" style={{ color: 'var(--text-mid)' }}>{row.action}</td>
                   </tr>
                 )
               ))}
@@ -959,48 +919,33 @@ export default function ConsistencyTables({ stockPerformance, holdings }: Consis
       </div>
 
       {/* 6. Portfolio Health Snapshot */}
-      <div className="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
-        <h3 className="text-lg font-semibold text-gray-800 mb-4">Portfolio Health Snapshot Table</h3>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200 text-sm">
-            <thead className="bg-gray-50">
+      <div className="card p-6">
+        <h3 className="text-base font-bold text-hi mb-4">Portfolio Health Snapshot</h3>
+        <div className="tbl-wrap">
+          <table className="tbl">
+            <thead>
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Metric</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Current</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Previous Month</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Δ Change</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Status</th>
+                {['Metric', 'Current', 'Previous Month', 'Δ Change', 'Status'].map((h, i) => (
+                  <th key={h} className={`px-4 py-3 ${i === 0 ? 'text-left' : 'text-center'} text-xs font-semibold uppercase tracking-wide`}
+                    style={{ color: 'var(--text-mid)' }}>{h}</th>
+                ))}
               </tr>
             </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              <tr>
-                <td className="px-4 py-3 font-medium text-gray-900">% Positive Stocks</td>
-                <td className="px-4 py-3 text-center text-gray-700">{portfolioHealth.positivePercent.current}%</td>
-                <td className="px-4 py-3 text-center text-gray-700">{portfolioHealth.positivePercent.previous}%</td>
-                <td className="px-4 py-3 text-center text-green-600 font-semibold">{portfolioHealth.positivePercent.change}%</td>
-                <td className="px-4 py-3 text-center text-gray-700">{portfolioHealth.positivePercent.status}</td>
-              </tr>
-              <tr className="bg-gray-50">
-                <td className="px-4 py-3 font-medium text-gray-900">Avg Monthly Return</td>
-                <td className="px-4 py-3 text-center text-gray-700">{portfolioHealth.avgMonthlyReturn.current}</td>
-                <td className="px-4 py-3 text-center text-gray-700">{portfolioHealth.avgMonthlyReturn.previous}</td>
-                <td className="px-4 py-3 text-center text-green-600 font-semibold">{portfolioHealth.avgMonthlyReturn.change}</td>
-                <td className="px-4 py-3 text-center text-gray-700">{portfolioHealth.avgMonthlyReturn.status}</td>
-              </tr>
-              <tr>
-                <td className="px-4 py-3 font-medium text-gray-900">Avg Consistency (3M)</td>
-                <td className="px-4 py-3 text-center text-gray-700">{portfolioHealth.avgConsistency3M.current} months</td>
-                <td className="px-4 py-3 text-center text-gray-700">{portfolioHealth.avgConsistency3M.previous} months</td>
-                <td className="px-4 py-3 text-center text-green-600 font-semibold">{portfolioHealth.avgConsistency3M.change}</td>
-                <td className="px-4 py-3 text-center text-gray-700">{portfolioHealth.avgConsistency3M.status}</td>
-              </tr>
-              <tr className="bg-gray-50">
-                <td className="px-4 py-3 font-medium text-gray-900">Negative Stocks &gt;6M</td>
-                <td className="px-4 py-3 text-center text-gray-700">{portfolioHealth.negativeStocksLongTerm.current}</td>
-                <td className="px-4 py-3 text-center text-gray-700">{portfolioHealth.negativeStocksLongTerm.previous}</td>
-                <td className="px-4 py-3 text-center text-green-600 font-semibold">{portfolioHealth.negativeStocksLongTerm.change}</td>
-                <td className="px-4 py-3 text-center text-gray-700">{portfolioHealth.negativeStocksLongTerm.status}</td>
-              </tr>
+            <tbody>
+              {[
+                { label: '% Positive Stocks', curr: `${portfolioHealth.positivePercent.current}%`, prev: `${portfolioHealth.positivePercent.previous}%`, chg: `${portfolioHealth.positivePercent.change}%`, status: portfolioHealth.positivePercent.status },
+                { label: 'Avg Monthly Return', curr: portfolioHealth.avgMonthlyReturn.current, prev: portfolioHealth.avgMonthlyReturn.previous, chg: portfolioHealth.avgMonthlyReturn.change, status: portfolioHealth.avgMonthlyReturn.status },
+                { label: 'Avg Consistency (3M)', curr: `${portfolioHealth.avgConsistency3M.current} months`, prev: `${portfolioHealth.avgConsistency3M.previous} months`, chg: portfolioHealth.avgConsistency3M.change, status: portfolioHealth.avgConsistency3M.status },
+                { label: 'Negative Stocks >6M', curr: portfolioHealth.negativeStocksLongTerm.current, prev: portfolioHealth.negativeStocksLongTerm.previous, chg: portfolioHealth.negativeStocksLongTerm.change, status: portfolioHealth.negativeStocksLongTerm.status },
+              ].map((row, idx) => (
+                <tr key={row.label} style={{ background: idx % 2 === 0 ? 'transparent' : 'var(--bg-raised)' }}>
+                  <td className="px-4 py-3 font-semibold text-hi">{row.label}</td>
+                  <td className="px-4 py-3 text-center" style={{ color: 'var(--text-mid)' }}>{row.curr}</td>
+                  <td className="px-4 py-3 text-center" style={{ color: 'var(--text-mid)' }}>{row.prev}</td>
+                  <td className="px-4 py-3 text-center font-semibold" style={{ color: 'var(--gain)' }}>{row.chg}</td>
+                  <td className="px-4 py-3 text-center" style={{ color: 'var(--text-mid)' }}>{row.status}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
