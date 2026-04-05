@@ -122,14 +122,15 @@ export default function MonthlyCharts({
   if (safeMonthlyInvestments.length === 0 && safeMonthlyDividends.length === 0 && safeMonthlyReturns.length === 0) {
     return (
       <div className="mt-6">
-        <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg p-8 text-center border border-gray-100 dark:border-slate-700">
-          <div className="w-16 h-16 bg-gray-100 dark:bg-slate-700 rounded-full flex items-center justify-center mx-auto mb-4">
-            <svg className="w-8 h-8 text-gray-400 dark:text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="card p-8 text-center">
+          <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"
+            style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-md)' }}>
+            <svg className="w-8 h-8 text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
             </svg>
           </div>
-          <p className="text-gray-500 dark:text-gray-400 font-medium">No chart data available</p>
-          <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">Please upload your portfolio data</p>
+          <p className="text-lo font-medium">No chart data available</p>
+          <p className="text-sm text-muted mt-1">Please upload your portfolio data</p>
         </div>
       </div>
     );
@@ -139,45 +140,27 @@ export default function MonthlyCharts({
     <div className="mt-6 space-y-6" style={{ position: 'relative', zIndex: 1 }}>
       {/* Monthly Investments Chart */}
       {safeMonthlyInvestments.length > 0 && (
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg hover:shadow-xl transition-shadow duration-300 p-6 border border-gray-100 dark:border-slate-700">
+      <div className="card p-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-            <div className="w-1 h-6 bg-gradient-to-b from-blue-500 to-indigo-600 rounded-full"></div>
+          <h2 className="section-title text-base flex items-center gap-2">
+            <div className="w-1 h-5 rounded-full" style={{ background: 'var(--brand)' }}></div>
             Month on Month Investments & Withdrawals
           </h2>
-          <div className="flex flex-wrap gap-4 sm:gap-6">
-            <div className="bg-blue-50 dark:bg-blue-900/20 px-4 py-2 rounded-xl border border-blue-200 dark:border-blue-800">
-              <p className="text-xs text-gray-600 dark:text-gray-400 font-medium mb-1">Gross Total Invested</p>
-              <p className="text-lg font-bold text-blue-600 dark:text-blue-400">
-                {formatCurrency(
-                  safeMonthlyInvestments.reduce((sum, item) => sum + (item.investments || 0), 0)
-                )}
-              </p>
-            </div>
-            <div className="bg-red-50 dark:bg-red-900/20 px-4 py-2 rounded-xl border border-red-200 dark:border-red-800">
-              <p className="text-xs text-gray-600 dark:text-gray-400 font-medium mb-1">Total Withdrawal</p>
-              <p className="text-lg font-bold text-red-600 dark:text-red-400">
-                {formatCurrency(
-                  safeMonthlyInvestments.reduce((sum, item) => sum + (item.withdrawals || 0), 0)
-                )}
-              </p>
-            </div>
-            {monthlyInvestmentAverages && (
-              <>
-                <div className="bg-indigo-50 dark:bg-indigo-900/20 px-4 py-2 rounded-xl border border-indigo-200 dark:border-indigo-800">
-                  <p className="text-xs text-gray-600 dark:text-gray-400 font-medium mb-1">Monthly Avg. Investment</p>
-                  <p className="text-lg font-bold text-indigo-600 dark:text-indigo-400">
-                    {formatCurrency(monthlyInvestmentAverages.avgMonthlyInvestment || 0)}
-                  </p>
-                </div>
-                <div className="bg-rose-50 dark:bg-rose-900/20 px-4 py-2 rounded-xl border border-rose-200 dark:border-rose-800">
-                  <p className="text-xs text-gray-600 dark:text-gray-400 font-medium mb-1">Monthly Avg. Withdrawal</p>
-                  <p className="text-lg font-bold text-rose-600 dark:text-rose-400">
-                    {formatCurrency(monthlyInvestmentAverages.avgMonthlyWithdrawal || 0)}
-                  </p>
-                </div>
-              </>
-            )}
+          <div className="flex flex-wrap gap-3">
+            {[
+              { label: 'Gross Total Invested', val: safeMonthlyInvestments.reduce((s, i) => s + (i.investments || 0), 0), color: 'var(--brand)' },
+              { label: 'Total Withdrawal', val: safeMonthlyInvestments.reduce((s, i) => s + (i.withdrawals || 0), 0), color: 'var(--loss)' },
+              ...(monthlyInvestmentAverages ? [
+                { label: 'Avg Monthly Investment', val: monthlyInvestmentAverages.avgMonthlyInvestment || 0, color: 'var(--brand)' },
+                { label: 'Avg Monthly Withdrawal', val: monthlyInvestmentAverages.avgMonthlyWithdrawal || 0, color: 'var(--loss)' },
+              ] : []),
+            ].map(({ label, val, color }) => (
+              <div key={label} className="px-4 py-2 rounded-xl"
+                style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-md)' }}>
+                <p className="text-xs text-lo font-medium mb-0.5">{label}</p>
+                <p className="text-base font-bold metric-value" style={{ color }}>{formatCurrency(val)}</p>
+              </div>
+            ))}
           </div>
         </div>
         <div style={{ position: 'relative', zIndex: 10, width: '100%', height: '300px' }}>
@@ -208,12 +191,12 @@ export default function MonthlyCharts({
                 const withdrawalDetails = currentMonthData?.withdrawalDetails || [];
                 
                 return (
-                  <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3 max-w-md">
-                    <p className="font-semibold text-gray-800 mb-2">Month: {label}</p>
+                  <div className="card p-3 max-w-md text-sm">
+                    <p className="font-semibold text-hi mb-2">Month: {label}</p>
                     {payload.map((entry: any, index: number) => {
                       const value = entry.value;
                       const name = entry.name || entry.dataKey;
-                      
+
                       // Hide trendlines from tooltip
                       if (name === 'Investments Trend' || name === 'Withdrawals Trend') {
                         return null;
@@ -221,23 +204,23 @@ export default function MonthlyCharts({
                       
                       const isInvestment = name === 'Investments (Buy)' || name === 'investments';
                       const details = isInvestment ? investmentDetails : withdrawalDetails;
-                      const colorClass = isInvestment ? 'text-blue-600' : 'text-red-600';
+                      const colorClass = isInvestment ? '' : '';
                       
                       return (
                         <div key={index} className="mb-3 last:mb-0">
-                          <p className={`text-sm font-medium mb-1 ${colorClass}`}>
+                          <p className="text-sm font-medium text-hi mb-1">
                             {name}: <span className="font-semibold">{formatCurrency(value)}</span>
                           </p>
                           {details.length > 0 && (
                             <div className="mt-1 ml-2">
                               <div className="max-h-40 overflow-y-auto">
                                 {details.map((detail: any, idx: number) => (
-                                  <p key={idx} className="text-xs text-gray-700 py-0.5 border-b border-gray-100 last:border-0">
-                                    <span className="font-medium">{detail.stockName}</span>
+                                  <p key={idx} className="text-xs text-mid py-0.5" style={{ borderBottom: '1px solid var(--border-sm)' }}>
+                                    <span className="font-medium text-hi">{detail.stockName}</span>
                                     {' • '}
-                                    <span className="text-gray-600">{detail.qty.toLocaleString()} shares</span>
+                                    <span className="text-lo">{detail.qty.toLocaleString()} shares</span>
                                     {' • '}
-                                    <span className={colorClass}>{formatCurrency(detail.amount)}</span>
+                                    <span className="text-hi">{formatCurrency(detail.amount)}</span>
                                   </p>
                                 ))}
                               </div>
@@ -300,33 +283,33 @@ export default function MonthlyCharts({
 
       {/* Monthly Dividends Chart */}
       {safeMonthlyDividends.length > 0 && (
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg hover:shadow-xl transition-shadow duration-300 p-6 border border-gray-100 dark:border-slate-700">
+      <div className="card p-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
-          <h2 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-            <div className="w-1 h-6 bg-gradient-to-b from-green-500 to-emerald-600 rounded-full"></div>
+          <h2 className="section-title text-base flex items-center gap-2">
+            <div className="w-1 h-5 rounded-full" style={{ background: 'var(--gain)' }}></div>
             Month on Month Dividends Earned
           </h2>
-          <div className="flex flex-wrap gap-4 sm:gap-6">
-            <div className="bg-green-50 dark:bg-green-900/20 px-4 py-2 rounded-xl border border-green-200 dark:border-green-800">
-              <p className="text-xs text-gray-600 dark:text-gray-400 font-medium mb-1">Total Dividend Earned</p>
-              <p className="text-lg font-bold text-green-600 dark:text-green-400">
+          <div className="flex flex-wrap gap-3">
+            <div className="px-4 py-2 rounded-xl" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-md)' }}>
+              <p className="text-xs text-lo font-medium mb-0.5">Total Dividend Earned</p>
+              <p className="text-base font-bold metric-value" style={{ color: 'var(--gain)' }}>
                 {formatCurrency(
                   safeMonthlyDividends.reduce((sum, item) => sum + (item.amount || 0), 0)
                 )}
               </p>
             </div>
             {avgMonthlyDividends !== undefined && (
-              <div className="bg-emerald-50 dark:bg-emerald-900/20 px-4 py-2 rounded-xl border border-emerald-200 dark:border-emerald-800">
-                <p className="text-xs text-gray-600 dark:text-gray-400 font-medium mb-1">Avg. Monthly Dividends</p>
-                <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400">
+              <div className="px-4 py-2 rounded-xl" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-md)' }}>
+                <p className="text-xs text-lo font-medium mb-0.5">Avg. Monthly Dividends</p>
+                <p className="text-base font-bold metric-value" style={{ color: 'var(--gain)' }}>
                   {formatCurrency(avgMonthlyDividends || 0)}
                 </p>
               </div>
             )}
             {medianMonthlyDividendsLast12M !== undefined && (
-              <div className="bg-teal-50 dark:bg-teal-900/20 px-4 py-2 rounded-xl border border-teal-200 dark:border-teal-800">
-                <p className="text-xs text-gray-600 dark:text-gray-400 font-medium mb-1">Median (Last 12M)</p>
-                <p className="text-lg font-bold text-teal-600 dark:text-teal-400">
+              <div className="px-4 py-2 rounded-xl" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-md)' }}>
+                <p className="text-xs text-lo font-medium mb-0.5">Median (Last 12M)</p>
+                <p className="text-base font-bold metric-value" style={{ color: 'var(--gain)' }}>
                   {formatCurrency(medianMonthlyDividendsLast12M || 0)}
                 </p>
               </div>
@@ -360,8 +343,8 @@ export default function MonthlyCharts({
                 const stockDetails = currentMonthData?.stockDetails || [];
                 
                 return (
-                  <div className="bg-white border border-gray-200 rounded-lg shadow-lg p-3">
-                    <p className="font-semibold text-gray-800 mb-2">Month: {label}</p>
+                  <div className="card p-3 text-sm">
+                    <p className="font-semibold text-hi mb-2">Month: {label}</p>
                     {payload.map((entry: any, index: number) => {
                       const value = entry.value;
                       const name = entry.name || entry.dataKey;
@@ -373,17 +356,17 @@ export default function MonthlyCharts({
                       
                       return (
                         <div key={index}>
-                          <p className="text-sm text-gray-700 font-medium mb-2">
-                            {name}: <span className="font-semibold text-green-600">{formatCurrency(value)}</span>
+                          <p className="text-sm text-hi font-medium mb-2">
+                            {name}: <span className="font-semibold" style={{ color: 'var(--gain)' }}>{formatCurrency(value)}</span>
                           </p>
                           {stockDetails.length > 0 && (
-                            <div className="mt-2 pt-2 border-t border-gray-200">
-                              <p className="text-xs font-semibold text-gray-600 mb-1">By Stock:</p>
+                            <div className="mt-2 pt-2" style={{ borderTop: '1px solid var(--border-sm)' }}>
+                              <p className="text-xs font-bold text-lo mb-1">By Stock:</p>
                               <div className="max-h-40 overflow-y-auto">
                                 {stockDetails.map((stock: any, idx: number) => (
-                                  <p key={idx} className="text-xs text-gray-700 py-0.5">
-                                    <span className="font-medium">{stock.stockName}:</span>{' '}
-                                    <span className="text-green-600">{formatCurrency(stock.amount)}</span>
+                                  <p key={idx} className="text-xs text-mid py-0.5">
+                                    <span className="font-medium text-hi">{stock.stockName}:</span>{' '}
+                                    <span style={{ color: 'var(--gain)' }}>{formatCurrency(stock.amount)}</span>
                                   </p>
                                 ))}
                               </div>
@@ -426,109 +409,80 @@ export default function MonthlyCharts({
 
       {/* Monthly Returns Chart */}
       {safeMonthlyReturns.length > 0 && (
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-lg hover:shadow-xl transition-shadow duration-300 p-6 border border-gray-100 dark:border-slate-700">
+      <div className="card p-6">
         <div className="mb-6">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-3 mb-4">
-            <div className="w-1 h-8 bg-gradient-to-b from-purple-500 to-pink-600 rounded-full"></div>
+          <h2 className="section-title text-base flex items-center gap-2 mb-4">
+            <div className="w-1 h-5 rounded-full" style={{ background: 'var(--brand)' }}></div>
             Month on Month Returns
           </h2>
           {returnStatistics && (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-              {/* XIRR Card */}
-              <div className="bg-white dark:bg-slate-800 rounded-xl p-5 shadow-md hover:shadow-lg transition-shadow duration-200 border border-gray-200 dark:border-slate-700">
-                <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">XIRR</p>
-                <p className={`text-2xl font-bold ${
-                  returnStatistics.xirr >= 9 ? 'text-green-600 dark:text-green-400' : 
-                  returnStatistics.xirr >= 5 ? 'text-yellow-600 dark:text-yellow-400' : 
-                  'text-red-600 dark:text-red-400'
-                }`}>
-                  {returnStatistics.xirr >= 0 ? '+' : ''}
-                  {returnStatistics.xirr.toFixed(2)}%
+              {/* XIRR */}
+              <div className="card p-4">
+                <p className="text-[10px] font-bold text-muted uppercase tracking-wider mb-2">XIRR</p>
+                <p className="text-xl font-black metric-value"
+                  style={{ color: returnStatistics.xirr >= 9 ? 'var(--gain)' : returnStatistics.xirr >= 5 ? 'var(--warn)' : 'var(--loss)' }}>
+                  {returnStatistics.xirr >= 0 ? '+' : ''}{returnStatistics.xirr.toFixed(2)}%
                 </p>
               </div>
-
-              {/* CAGR Card */}
-              <div className="bg-white dark:bg-slate-800 rounded-xl p-5 shadow-md hover:shadow-lg transition-shadow duration-200 border border-gray-200 dark:border-slate-700">
-                <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">CAGR</p>
-                <p className={`text-2xl font-bold ${
-                  returnStatistics.cagr >= 9 ? 'text-green-600 dark:text-green-400' : 
-                  returnStatistics.cagr >= 5 ? 'text-yellow-600 dark:text-yellow-400' : 
-                  'text-red-600 dark:text-red-400'
-                }`}>
-                  {returnStatistics.cagr >= 0 ? '+' : ''}
-                  {returnStatistics.cagr.toFixed(2)}%
+              {/* CAGR */}
+              <div className="card p-4">
+                <p className="text-[10px] font-bold text-muted uppercase tracking-wider mb-2">CAGR</p>
+                <p className="text-xl font-black metric-value"
+                  style={{ color: returnStatistics.cagr >= 9 ? 'var(--gain)' : returnStatistics.cagr >= 5 ? 'var(--warn)' : 'var(--loss)' }}>
+                  {returnStatistics.cagr >= 0 ? '+' : ''}{returnStatistics.cagr.toFixed(2)}%
                 </p>
               </div>
-
-              {/* Avg. Monthly Return Card */}
-              <div className="bg-white dark:bg-slate-800 rounded-xl p-5 shadow-md hover:shadow-lg transition-shadow duration-200 border border-gray-200 dark:border-slate-700">
-                <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">Avg. Monthly Return</p>
-                <p className={`text-xl font-bold mb-1 ${
-                  returnStatistics.avgReturnOverall.percent >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
-                }`}>
-                  {returnStatistics.avgReturnOverall.percent >= 0 ? '+' : ''}
-                  {returnStatistics.avgReturnOverall.percent.toFixed(2)}%
+              {/* Avg Monthly Return */}
+              <div className="card p-4">
+                <p className="text-[10px] font-bold text-muted uppercase tracking-wider mb-2">Avg. Monthly Return</p>
+                <p className="text-lg font-black metric-value mb-1"
+                  style={{ color: returnStatistics.avgReturnOverall.percent >= 0 ? 'var(--gain)' : 'var(--loss)' }}>
+                  {returnStatistics.avgReturnOverall.percent >= 0 ? '+' : ''}{returnStatistics.avgReturnOverall.percent.toFixed(2)}%
                 </p>
-                <p className={`text-sm font-medium ${
-                  returnStatistics.avgReturnOverall.amount >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
-                }`}>
-                  {returnStatistics.avgReturnOverall.amount >= 0 ? '+' : ''}
-                  {formatCurrency(returnStatistics.avgReturnOverall.amount)}
+                <p className="text-xs metric-value font-semibold"
+                  style={{ color: returnStatistics.avgReturnOverall.amount >= 0 ? 'var(--gain)' : 'var(--loss)' }}>
+                  {returnStatistics.avgReturnOverall.amount >= 0 ? '+' : ''}{formatCurrency(returnStatistics.avgReturnOverall.amount)}
                 </p>
               </div>
-
-              {/* Current Year Avg. Card */}
-              <div className="bg-white dark:bg-slate-800 rounded-xl p-5 shadow-md hover:shadow-lg transition-shadow duration-200 border border-gray-200 dark:border-slate-700">
-                <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2 uppercase tracking-wide">Current Year Avg.</p>
-                <p className={`text-xl font-bold mb-1 ${
-                  returnStatistics.avgReturnCurrentYear.percent >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
-                }`}>
-                  {returnStatistics.avgReturnCurrentYear.percent >= 0 ? '+' : ''}
-                  {returnStatistics.avgReturnCurrentYear.percent.toFixed(2)}%
+              {/* Current Year Avg */}
+              <div className="card p-4">
+                <p className="text-[10px] font-bold text-muted uppercase tracking-wider mb-2">Current Year Avg.</p>
+                <p className="text-lg font-black metric-value mb-1"
+                  style={{ color: returnStatistics.avgReturnCurrentYear.percent >= 0 ? 'var(--gain)' : 'var(--loss)' }}>
+                  {returnStatistics.avgReturnCurrentYear.percent >= 0 ? '+' : ''}{returnStatistics.avgReturnCurrentYear.percent.toFixed(2)}%
                 </p>
-                <p className={`text-sm font-medium ${
-                  returnStatistics.avgReturnCurrentYear.amount >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
-                }`}>
-                  {returnStatistics.avgReturnCurrentYear.amount >= 0 ? '+' : ''}
-                  {formatCurrency(returnStatistics.avgReturnCurrentYear.amount)}
+                <p className="text-xs metric-value font-semibold"
+                  style={{ color: returnStatistics.avgReturnCurrentYear.amount >= 0 ? 'var(--gain)' : 'var(--loss)' }}>
+                  {returnStatistics.avgReturnCurrentYear.amount >= 0 ? '+' : ''}{formatCurrency(returnStatistics.avgReturnCurrentYear.amount)}
                 </p>
               </div>
-
-              {/* Best Month Card */}
-              <div className="bg-white dark:bg-slate-800 rounded-xl p-5 shadow-md hover:shadow-lg transition-shadow duration-200 border border-gray-200 dark:border-slate-700">
-                <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-3 uppercase tracking-wide">
-                  Best Month: <span className="text-green-600 dark:text-green-400 font-bold normal-case">{returnStatistics.bestMonthCurrentYear.month}</span>
+              {/* Best Month */}
+              <div className="card p-4">
+                <p className="text-[10px] font-bold text-muted uppercase tracking-wider mb-2">
+                  Best Month: <span className="font-bold normal-case" style={{ color: 'var(--gain)' }}>{returnStatistics.bestMonthCurrentYear.month}</span>
                 </p>
-                <p className={`text-xl font-bold mb-1 ${
-                  returnStatistics.bestMonthCurrentYear.percent >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
-                }`}>
-                  {returnStatistics.bestMonthCurrentYear.percent >= 0 ? '+' : ''}
-                  {returnStatistics.bestMonthCurrentYear.percent.toFixed(2)}%
+                <p className="text-lg font-black metric-value mb-1"
+                  style={{ color: returnStatistics.bestMonthCurrentYear.percent >= 0 ? 'var(--gain)' : 'var(--loss)' }}>
+                  {returnStatistics.bestMonthCurrentYear.percent >= 0 ? '+' : ''}{returnStatistics.bestMonthCurrentYear.percent.toFixed(2)}%
                 </p>
-                <p className={`text-sm font-medium ${
-                  returnStatistics.bestMonthCurrentYear.amount >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
-                }`}>
-                  {returnStatistics.bestMonthCurrentYear.amount >= 0 ? '+' : ''}
-                  {formatCurrency(returnStatistics.bestMonthCurrentYear.amount)}
+                <p className="text-xs metric-value font-semibold"
+                  style={{ color: returnStatistics.bestMonthCurrentYear.amount >= 0 ? 'var(--gain)' : 'var(--loss)' }}>
+                  {returnStatistics.bestMonthCurrentYear.amount >= 0 ? '+' : ''}{formatCurrency(returnStatistics.bestMonthCurrentYear.amount)}
                 </p>
               </div>
-
-              {/* Worst Month Card */}
-              <div className="bg-white dark:bg-slate-800 rounded-xl p-5 shadow-md hover:shadow-lg transition-shadow duration-200 border border-gray-200 dark:border-slate-700">
-                <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-3 uppercase tracking-wide">
-                  Worst Month: <span className="text-red-600 dark:text-red-400 font-bold normal-case">{returnStatistics.worstMonthCurrentYear.month}</span>
+              {/* Worst Month */}
+              <div className="card p-4">
+                <p className="text-[10px] font-bold text-muted uppercase tracking-wider mb-2">
+                  Worst Month: <span className="font-bold normal-case" style={{ color: 'var(--loss)' }}>{returnStatistics.worstMonthCurrentYear.month}</span>
                 </p>
-                <p className={`text-xl font-bold mb-1 ${
-                  returnStatistics.worstMonthCurrentYear.percent >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
-                }`}>
-                  {returnStatistics.worstMonthCurrentYear.percent >= 0 ? '+' : ''}
-                  {returnStatistics.worstMonthCurrentYear.percent.toFixed(2)}%
+                <p className="text-lg font-black metric-value mb-1"
+                  style={{ color: returnStatistics.worstMonthCurrentYear.percent >= 0 ? 'var(--gain)' : 'var(--loss)' }}>
+                  {returnStatistics.worstMonthCurrentYear.percent >= 0 ? '+' : ''}{returnStatistics.worstMonthCurrentYear.percent.toFixed(2)}%
                 </p>
-                <p className={`text-sm font-medium ${
-                  returnStatistics.worstMonthCurrentYear.amount >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
-                }`}>
-                  {returnStatistics.worstMonthCurrentYear.amount >= 0 ? '+' : ''}
-                  {formatCurrency(returnStatistics.worstMonthCurrentYear.amount)}
+                <p className="text-xs metric-value font-semibold"
+                  style={{ color: returnStatistics.worstMonthCurrentYear.amount >= 0 ? 'var(--gain)' : 'var(--loss)' }}>
+                  {returnStatistics.worstMonthCurrentYear.amount >= 0 ? '+' : ''}{formatCurrency(returnStatistics.worstMonthCurrentYear.amount)}
                 </p>
               </div>
             </div>
@@ -592,33 +546,31 @@ export default function MonthlyCharts({
                   if (!active || !payload || !payload.length) return null;
                   
                   return (
-                    <div className="bg-white dark:bg-slate-800 border-2 border-gray-300 dark:border-slate-600 rounded-xl shadow-2xl p-4 min-w-[200px]">
-                      <p className="font-bold text-gray-900 dark:text-white mb-3 text-base border-b border-gray-200 dark:border-slate-700 pb-2">
+                    <div className="card p-4 min-w-[200px]">
+                      <p className="font-bold text-hi mb-3 text-base pb-2" style={{ borderBottom: '1px solid var(--border-sm)' }}>
                         {label}
                       </p>
                       {payload.map((entry: any, index: number) => {
                         const value = entry.value;
                         const name = entry.name || entry.dataKey;
                         let displayValue = '';
-                        let color = 'text-gray-700 dark:text-gray-300';
-                        let bgColor = 'bg-gray-50 dark:bg-slate-700';
-                        
+                        let itemColor = 'var(--text-hi)';
+
                         if (name === 'Return %' || name === 'returnPercent') {
                           displayValue = `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
-                          color = value >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400';
-                          bgColor = value >= 0 ? 'bg-green-50 dark:bg-green-900/20' : 'bg-red-50 dark:bg-red-900/20';
+                          itemColor = value >= 0 ? 'var(--gain)' : 'var(--loss)';
                         } else if (name === 'Return Amount' || name === 'returnAmount') {
                           displayValue = formatCurrency(value);
-                          color = value >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400';
-                          bgColor = value >= 0 ? 'bg-green-50 dark:bg-green-900/20' : 'bg-red-50 dark:bg-red-900/20';
+                          itemColor = value >= 0 ? 'var(--gain)' : 'var(--loss)';
                         } else {
                           displayValue = String(value);
                         }
-                        
+
                         return (
-                          <div key={index} className={`${bgColor} rounded-lg p-2 mb-2 last:mb-0`}>
-                            <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">{name}</p>
-                            <p className={`text-base font-bold ${color}`}>
+                          <div key={index} className="rounded-lg p-2 mb-2 last:mb-0"
+                            style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-sm)' }}>
+                            <p className="text-xs font-medium text-lo mb-1">{name}</p>
+                            <p className="text-base font-bold metric-value" style={{ color: itemColor }}>
                               {displayValue}
                             </p>
                           </div>

@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 import { formatCurrency } from '@/lib/utils';
 
@@ -18,39 +17,11 @@ interface IndustryPieChartProps {
 }
 
 const COLORS = [
-  '#3b82f6',
-  '#10b981',
-  '#f59e0b',
-  '#ef4444',
-  '#8b5cf6',
-  '#ec4899',
-  '#06b6d4',
-  '#84cc16',
-  '#f97316',
-  '#6366f1',
+  '#6366f1', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6',
+  '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#3b82f6',
 ];
 
 export default function IndustryPieChart({ data }: IndustryPieChartProps) {
-  // Background animation state
-  const [animationKey, setAnimationKey] = useState(0);
-  const animationRef = useRef<number>();
-
-  // Continuous background animation
-  useEffect(() => {
-    const animate = () => {
-      setAnimationKey(prev => prev + 0.01);
-      animationRef.current = requestAnimationFrame(animate);
-    };
-    
-    animationRef.current = requestAnimationFrame(animate);
-    
-    return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
-    };
-  }, []);
-
   const chartData = data.map((item, index) => ({
     ...item,
     name: item.sector,
@@ -59,176 +30,115 @@ export default function IndustryPieChart({ data }: IndustryPieChartProps) {
 
   const CustomTooltip = ({ active, payload }: any) => {
     if (active && payload && payload.length) {
-      const data = payload[0].payload;
+      const d = payload[0].payload;
       return (
-        <div className="bg-white p-3 border border-gray-200 rounded-lg shadow-lg">
-          <p className="font-semibold text-gray-800">{data.sector}</p>
-          <p className="text-blue-600">
-            Amount: {formatCurrency(data.amount)}
-          </p>
-          <p className="text-gray-600">
-            Percentage: {data.percentage.toFixed(2)}%
-          </p>
+        <div className="card px-3 py-2.5 text-sm" style={{ minWidth: 160 }}>
+          <p className="font-bold text-hi mb-1">{d.sector}</p>
+          <p className="text-brand metric-value">{formatCurrency(d.amount)}</p>
+          <p className="text-lo metric-value">{d.percentage.toFixed(2)}%</p>
         </div>
       );
     }
     return null;
   };
 
-  const CustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent, sector }: any) => {
+  const CustomLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }: any) => {
+    if (percent < 0.03) return null;
     const RADIAN = Math.PI / 180;
     const radius = innerRadius + (outerRadius - innerRadius) * 0.5;
     const x = cx + radius * Math.cos(-midAngle * RADIAN);
     const y = cy + radius * Math.sin(-midAngle * RADIAN);
-
-    // Only show label if percentage is >= 3% to avoid clutter
-    if (percent < 0.03) return null;
-
     return (
-      <text
-        x={x}
-        y={y}
-        fill="white"
-        textAnchor={x > cx ? 'start' : 'end'}
-        dominantBaseline="central"
-        fontSize={12}
-        fontWeight="bold"
-      >
+      <text x={x} y={y} fill="white" textAnchor={x > cx ? 'start' : 'end'}
+        dominantBaseline="central" fontSize={12} fontWeight="700">
         {`${(percent * 100).toFixed(1)}%`}
       </text>
     );
   };
 
-  const renderCustomLegend = (props: any) => {
+  const renderLegend = (props: any) => {
     const { payload } = props;
     return (
-      <div className="flex flex-wrap justify-center gap-3 mt-4">
-        {payload.map((entry: any, index: number) => (
-          <div key={`legend-${index}`} className="flex items-center gap-2">
-            <div
-              className="w-3 h-3 rounded"
-              style={{ backgroundColor: entry.color }}
-            />
-            <span className="text-sm text-gray-700">{entry.payload.sector}</span>
+      <div className="flex flex-wrap justify-center gap-2.5 mt-3">
+        {payload.map((entry: any, i: number) => (
+          <div key={i} className="flex items-center gap-1.5">
+            <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: entry.color }} />
+            <span className="text-xs text-lo">{entry.payload.sector}</span>
           </div>
         ))}
       </div>
     );
   };
 
+  const rateColor = (v: number) =>
+    v >= 9 ? 'var(--gain)' : v >= 5 ? 'var(--warn)' : 'var(--loss)';
+
   return (
-    <div className="bg-white dark:bg-slate-800 rounded-xl shadow-lg p-6" style={{ position: 'relative', zIndex: 1 }}>
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-xl font-bold text-gray-800 dark:text-white">
-          Holdings Across Industries
-        </h2>
-        <h3 className="text-lg font-semibold text-gray-700 dark:text-gray-300">Industry Breakdown</h3>
+    <div className="card p-6">
+      <div className="flex justify-between items-center mb-5">
+        <h2 className="section-title text-lg">Holdings Across Industries</h2>
+        <p className="text-sm text-lo font-medium">Industry Breakdown</p>
       </div>
+
       {data.length === 0 ? (
-        <p className="text-gray-500 dark:text-gray-400 text-center py-8">No data available</p>
+        <p className="text-muted text-center py-8">No data available</p>
       ) : (
         <div className="flex flex-col lg:flex-row gap-6">
-          {/* Left side - Pie Chart */}
-          <div className="flex-1 lg:w-1/2" style={{ position: 'relative', zIndex: 10, backgroundColor: '#f9fafb', borderRadius: '8px', padding: '10px' }}>
-            <ResponsiveContainer width="100%" height={400}>
+          {/* Pie chart */}
+          <div className="flex-1 lg:w-1/2 rounded-xl p-2" style={{ background: 'var(--bg-raised)' }}>
+            <ResponsiveContainer width="100%" height={380}>
               <PieChart>
-                <Pie
-                  data={chartData}
-                  cx="50%"
-                  cy="50%"
-                  labelLine={false}
-                  label={CustomLabel}
-                  outerRadius={120}
-                  fill="#8884d8"
-                  dataKey="amount"
-                  nameKey="sector"
-                  isAnimationActive={false}
-                >
+                <Pie data={chartData} cx="50%" cy="50%" labelLine={false}
+                  label={CustomLabel} outerRadius={120} dataKey="amount" nameKey="sector"
+                  isAnimationActive={true}>
                   {chartData.map((entry, index) => (
-                    <Cell 
-                      key={`cell-${index}-${animationKey}`} 
-                      fill={entry.fill}
-                      stroke="#ffffff"
-                      strokeWidth={2}
-                    />
+                    <Cell key={`cell-${index}`} fill={entry.fill} stroke="var(--bg-surface)" strokeWidth={2} />
                   ))}
                 </Pie>
                 <Tooltip content={<CustomTooltip />} />
-                <Legend content={renderCustomLegend} />
+                <Legend content={renderLegend} />
               </PieChart>
             </ResponsiveContainer>
           </div>
 
-          {/* Right side - Scrollable Table */}
+          {/* Sector list */}
           <div className="flex-1 lg:w-1/2">
-            <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2">
+            <div className="space-y-2.5 max-h-[400px] overflow-y-auto pr-1">
               {data.map((item, index) => (
-                <div
-                  key={item.sector}
-                  className="p-4 bg-gray-50 dark:bg-slate-700 rounded-lg hover:bg-gray-100 dark:hover:bg-slate-600 transition-colors border border-gray-200 dark:border-slate-600"
-                >
-                  {/* Header */}
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className="w-4 h-4 rounded flex-shrink-0"
-                        style={{ backgroundColor: COLORS[index % COLORS.length] }}
-                      />
-                      <span className="text-sm font-semibold text-gray-800 dark:text-white">{item.sector}</span>
+                <div key={item.sector} className="p-4 rounded-xl transition-all duration-150"
+                  style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-sm)' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = 'var(--bg-sunken)'; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = 'var(--bg-raised)'; }}>
+
+                  <div className="flex items-center justify-between mb-2.5">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-3 h-3 rounded shrink-0" style={{ background: COLORS[index % COLORS.length] }} />
+                      <span className="text-sm font-semibold text-hi">{item.sector}</span>
                     </div>
                     <div className="text-right">
-                      <span className="text-sm font-semibold text-gray-800 dark:text-white block">
-                        {formatCurrency(item.amount)}
-                      </span>
-                      <span className="text-xs text-gray-500 dark:text-gray-400">
-                        {item.percentage.toFixed(1)}%
-                      </span>
+                      <p className="text-sm font-bold text-hi metric-value">{formatCurrency(item.amount)}</p>
+                      <p className="text-xs text-lo metric-value">{item.percentage.toFixed(1)}%</p>
                     </div>
                   </div>
-                  
-                  {/* Metrics */}
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div>
-                      <span className="text-gray-600 dark:text-gray-400">XIRR:</span>
-                      <span className={`ml-1 font-medium ${
-                        item.xirr >= 9 ? 'text-green-600 dark:text-green-400' : 
-                        item.xirr >= 5 ? 'text-yellow-600 dark:text-yellow-400' : 
-                        'text-red-600 dark:text-red-400'
-                      }`}>
-                        {item.xirr >= 0 ? '+' : ''}{item.xirr.toFixed(2)}%
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-gray-600 dark:text-gray-400">CAGR:</span>
-                      <span className={`ml-1 font-medium ${
-                        item.cagr >= 9 ? 'text-green-600 dark:text-green-400' : 
-                        item.cagr >= 5 ? 'text-yellow-600 dark:text-yellow-400' : 
-                        'text-red-600 dark:text-red-400'
-                      }`}>
-                        {item.cagr >= 0 ? '+' : ''}{item.cagr.toFixed(2)}%
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-gray-600 dark:text-gray-400">Overall Return %:</span>
-                      <span className={`ml-1 font-medium ${
-                        item.overallReturnPercent >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
-                      }`}>
-                        {item.overallReturnPercent >= 0 ? '+' : ''}{item.overallReturnPercent.toFixed(2)}%
-                      </span>
-                    </div>
-                    <div>
-                      <span className="text-gray-600 dark:text-gray-400">P/L %:</span>
-                      <span className={`ml-1 font-medium ${
-                        item.profitLossPercent >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
-                      }`}>
-                        {item.profitLossPercent >= 0 ? '+' : ''}{item.profitLossPercent.toFixed(2)}%
-                      </span>
-                    </div>
+
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+                    {[
+                      { label: 'XIRR', val: item.xirr },
+                      { label: 'CAGR', val: item.cagr },
+                      { label: 'Overall Return', val: item.overallReturnPercent },
+                      { label: 'P/L %', val: item.profitLossPercent },
+                    ].map(({ label, val }) => (
+                      <div key={label}>
+                        <span className="text-lo">{label}: </span>
+                        <span className="font-semibold metric-value" style={{ color: rateColor(val) }}>
+                          {val >= 0 ? '+' : ''}{val.toFixed(2)}%
+                        </span>
+                      </div>
+                    ))}
                     <div className="col-span-2">
-                      <span className="text-gray-600 dark:text-gray-400">P/L Amount:</span>
-                      <span className={`ml-1 font-medium ${
-                        item.profitLossAmount >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'
-                      }`}>
+                      <span className="text-lo">P/L Amount: </span>
+                      <span className="font-semibold metric-value"
+                        style={{ color: item.profitLossAmount >= 0 ? 'var(--gain)' : 'var(--loss)' }}>
                         {item.profitLossAmount >= 0 ? '+' : ''}{formatCurrency(item.profitLossAmount)}
                       </span>
                     </div>
@@ -242,4 +152,3 @@ export default function IndustryPieChart({ data }: IndustryPieChartProps) {
     </div>
   );
 }
-

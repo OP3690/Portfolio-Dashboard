@@ -217,76 +217,65 @@ export default function RealizedStocksTable({ realizedStocks, onRefresh }: Reali
   };
 
   if (realizedStocks.length === 0) {
-    return null; // Don't show the section if there are no realized stocks
+    return null;
   }
 
   const stocksWithoutPrices = realizedStocks.filter(s => s.currentPrice === 0).length;
 
   return (
-    <div className="bg-white rounded-xl shadow-lg p-4 mt-6">
-      <div className="mb-3">
+    <div className="card p-5 mt-6">
+      <div className="mb-4">
         <div className="flex items-center justify-between mb-3 flex-wrap gap-3">
           <div className="flex items-center gap-3 flex-wrap">
-            <h2 className="text-lg font-bold text-gray-800">Realized Stocks (What They'd Be Worth Today)</h2>
+            <h2 className="section-title text-base">Realized Stocks (What They'd Be Worth Today)</h2>
             {stocksWithoutPrices > 0 && (
               <div className="flex items-center gap-2">
-                <span className="text-sm text-gray-600">
-                  {stocksWithoutPrices} stock(s) missing prices
-                </span>
-                <button
-                  onClick={handleFetchPrices}
-                  disabled={fetchingPrices}
-                  className="px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors text-sm font-medium"
-                >
+                <span className="text-sm text-lo">{stocksWithoutPrices} stock(s) missing prices</span>
+                <button onClick={handleFetchPrices} disabled={fetchingPrices} className="btn btn-ghost text-xs px-3 py-1.5">
                   {fetchingPrices ? 'Fetching...' : 'Fetch Current Prices'}
                 </button>
               </div>
             )}
           </div>
           <div className="flex items-center gap-4 text-sm flex-wrap">
-            <div className="text-gray-700">
-              <span className="font-semibold">Invested Value:</span>{' '}
-              <span className="text-gray-800">{formatCurrency(totalInvested)}</span>
+            <div className="text-mid">
+              <span className="font-semibold">Invested:</span>{' '}
+              <span className="text-hi metric-value">{formatCurrency(totalInvested)}</span>
             </div>
-            <div className={totalRealizedPL >= 0 ? 'text-green-600' : 'text-red-600'}>
+            <div style={{ color: totalRealizedPL >= 0 ? 'var(--gain)' : 'var(--loss)' }}>
               <span className="font-semibold">Realized P/L:</span>{' '}
-              <span>{formatCurrency(totalRealizedPL)}</span>
-              <span className="ml-1">
-                ({totalRealizedPL >= 0 ? '+' : ''}{totalRealizedPLPercent.toFixed(2)}%)
-              </span>
+              <span className="metric-value">{formatCurrency(totalRealizedPL)}</span>
+              <span className="ml-1 metric-value">({totalRealizedPL >= 0 ? '+' : ''}{totalRealizedPLPercent.toFixed(2)}%)</span>
             </div>
-            <div className={totalUnrealizedPL >= 0 ? 'text-green-600' : 'text-red-600'}>
+            <div style={{ color: totalUnrealizedPL >= 0 ? 'var(--gain)' : 'var(--loss)' }}>
               <span className="font-semibold">Unrealized P/L (If Held):</span>{' '}
-              <span>{formatCurrency(totalUnrealizedPL)}</span>
-              <span className="ml-1">
-                ({totalUnrealizedPL >= 0 ? '+' : ''}{totalUnrealizedPLPercent.toFixed(2)}%)
-              </span>
+              <span className="metric-value">{formatCurrency(totalUnrealizedPL)}</span>
+              <span className="ml-1 metric-value">({totalUnrealizedPL >= 0 ? '+' : ''}{totalUnrealizedPLPercent.toFixed(2)}%)</span>
             </div>
           </div>
         </div>
       </div>
-      
+
       {fetchMessage && (
-        <div className={`mb-3 p-2.5 rounded-md text-sm ${
-          fetchMessage.type === 'success' 
-            ? 'bg-green-100 text-green-800 border border-green-200' 
-            : 'bg-red-100 text-red-800 border border-red-200'
-        }`}>
+        <div className="mb-3 p-2.5 rounded-xl text-sm font-medium"
+          style={{
+            background: fetchMessage.type === 'success' ? 'var(--gain-bg)' : 'var(--loss-bg)',
+            border: `1px solid ${fetchMessage.type === 'success' ? 'var(--gain-border)' : 'var(--loss-border)'}`,
+            color: fetchMessage.type === 'success' ? 'var(--gain)' : 'var(--loss)',
+          }}>
           {fetchMessage.text}
         </div>
       )}
-      
+
       {/* Filters */}
-      <div className="mb-3 flex items-center gap-3 flex-wrap">
+      <div className="mb-4 flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-2">
-          <label htmlFor="realized-sector-filter" className="text-sm font-medium text-gray-700">
-            Filter by Sector:
-          </label>
+          <label htmlFor="realized-sector-filter" className="text-sm font-medium text-lo">Filter by Sector:</label>
           <select
             id="realized-sector-filter"
             value={selectedSector}
             onChange={(e) => setSelectedSector(e.target.value)}
-            className="px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+            className="form-input py-1.5 w-auto"
           >
             <option value="all">All Sectors ({realizedStocks.length})</option>
             {uniqueSectors.map((sector) => {
@@ -300,14 +289,12 @@ export default function RealizedStocksTable({ realizedStocks, onRefresh }: Reali
           </select>
         </div>
         <div className="flex items-center gap-2">
-          <label htmlFor="realized-stock-filter" className="text-sm font-medium text-gray-700">
-            Filter by Stock:
-          </label>
+          <label htmlFor="realized-stock-filter" className="text-sm font-medium text-lo">Filter by Stock:</label>
           <select
             id="realized-stock-filter"
             value={selectedStock}
             onChange={(e) => setSelectedStock(e.target.value)}
-            className="px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white min-w-[200px]"
+            className="form-input py-1.5 w-auto min-w-[200px]"
           >
             <option value="all">All Stocks ({realizedStocks.length})</option>
             {uniqueStocks.map((stock) => {
@@ -321,14 +308,12 @@ export default function RealizedStocksTable({ realizedStocks, onRefresh }: Reali
           </select>
         </div>
         <div className="flex items-center gap-2">
-          <label htmlFor="realized-holding-period-filter" className="text-sm font-medium text-gray-700">
-            Filter by Holding Period:
-          </label>
+          <label htmlFor="realized-holding-period-filter" className="text-sm font-medium text-lo">Filter by Holding Period:</label>
           <select
             id="realized-holding-period-filter"
             value={selectedHoldingPeriod}
             onChange={(e) => setSelectedHoldingPeriod(e.target.value)}
-            className="px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white min-w-[180px]"
+            className="form-input py-1.5 w-auto min-w-[180px]"
           >
             <option value="all">All Periods ({realizedStocks.length})</option>
             <option value="lessThan6M">
@@ -356,26 +341,10 @@ export default function RealizedStocksTable({ realizedStocks, onRefresh }: Reali
         </div>
         {hasActiveFilters && (
           <>
-            <span className="text-sm text-gray-600">
-              Showing {filteredStocks.length} of {realizedStocks.length} stocks
-            </span>
-            <button
-              onClick={handleClearFilters}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-600 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 hover:border-red-300 transition-colors"
-              title="Clear all filters"
-            >
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M6 18L18 6M6 6l12 12"
-                />
+            <span className="text-sm text-lo">Showing {filteredStocks.length} of {realizedStocks.length} stocks</span>
+            <button onClick={handleClearFilters} className="btn btn-danger text-xs px-3 py-1.5 gap-1.5" title="Clear all filters">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
               Clear Filters
             </button>
@@ -383,107 +352,62 @@ export default function RealizedStocksTable({ realizedStocks, onRefresh }: Reali
         )}
       </div>
       
-      <div className="overflow-x-auto">
-        <table className="w-full">
+      <div className="tbl-wrap">
+        <table className="tbl">
           <thead>
-            <tr className="border-b border-gray-200">
-              <th
-                onClick={() => handleSort('stockName')}
-                className="text-left py-2.5 px-3 text-sm font-semibold text-gray-700 cursor-pointer hover:bg-gray-50"
-              >
-                Stock Name
-              </th>
-              <th className="text-left py-2.5 px-3 text-sm font-semibold text-gray-700">Sector</th>
-              <th className="text-right py-2.5 px-3 text-sm font-semibold text-gray-700">Qty Sold</th>
-              <th className="text-right py-2.5 px-3 text-sm font-semibold text-gray-700">Avg Cost</th>
-              <th className="text-right py-2.5 px-3 text-sm font-semibold text-gray-700">Avg Sold Price</th>
-              <th className="text-right py-2.5 px-3 text-sm font-semibold text-gray-700">Current Price</th>
-              <th className="text-right py-2.5 px-3 text-sm font-semibold text-gray-700">Current Value</th>
-              <th className="text-right py-2.5 px-3 text-sm font-semibold text-gray-700">Invested</th>
-              <th
-                onClick={() => handleSort('realizedPL')}
-                className="text-right py-2.5 px-3 text-sm font-semibold text-gray-700 cursor-pointer hover:bg-gray-50"
-              >
-                Realized P/L
-              </th>
-              <th
-                onClick={() => handleSort('unrealizedPL')}
-                className="text-right py-2.5 px-3 text-sm font-semibold text-gray-700 cursor-pointer hover:bg-gray-50"
-              >
-                Unrealized P/L (If Held)
-              </th>
-              <th
-                onClick={() => handleSort('totalPLPercent')}
-                className="text-right py-2.5 px-3 text-sm font-semibold text-gray-700 cursor-pointer hover:bg-gray-50"
-              >
-                Realized P/L %
-              </th>
-              <th className="text-right py-2.5 px-3 text-sm font-semibold text-gray-700">Last Sold Date</th>
-              <th className="text-right py-2.5 px-3 text-sm font-semibold text-gray-700">Holding Period</th>
+            <tr>
+              <th className="text-left cursor-pointer hover:text-hi" onClick={() => handleSort('stockName')}>Stock Name</th>
+              <th className="text-left">Sector</th>
+              <th>Qty Sold</th>
+              <th>Avg Cost</th>
+              <th>Avg Sold Price</th>
+              <th>Current Price</th>
+              <th>Current Value</th>
+              <th>Invested</th>
+              <th className="cursor-pointer hover:text-hi" onClick={() => handleSort('realizedPL')}>Realized P/L</th>
+              <th className="cursor-pointer hover:text-hi" onClick={() => handleSort('unrealizedPL')}>Unrealized P/L</th>
+              <th className="cursor-pointer hover:text-hi" onClick={() => handleSort('totalPLPercent')}>Realized P/L %</th>
+              <th>Last Sold</th>
+              <th>Holding</th>
             </tr>
           </thead>
           <tbody>
             {paginatedStocks.map((stock) => (
-              <tr key={stock.isin} className="border-b border-gray-100 hover:bg-gray-50">
-                <td className="py-2 px-3">
-                  <div className="font-medium text-gray-800 text-sm">{stock.stockName}</div>
-                  <div className="text-xs text-gray-500">{stock.isin}</div>
+              <tr key={stock.isin}>
+                <td className="text-left">
+                  <div className="font-semibold text-hi text-sm">{stock.stockName}</div>
+                  <div className="text-xs text-muted">{stock.isin}</div>
                 </td>
-                <td className="py-2 px-3 text-gray-600 text-sm">{stock.sectorName}</td>
-                <td className="py-2 px-3 text-right text-gray-700 text-sm">{stock.qtySold}</td>
-                <td className="py-2 px-3 text-right text-gray-700 text-sm">
-                  {formatCurrency(stock.avgCost)}
-                </td>
-                <td className="py-2 px-3 text-right text-gray-700 font-medium text-sm">
-                  {formatCurrency(stock.avgSoldPrice || 0)}
-                </td>
-                <td className="py-2 px-3 text-right text-gray-700 text-sm">
-                  {stock.currentPrice > 0 ? formatCurrency(stock.currentPrice) : 'N/A'}
-                </td>
-                <td className="py-2 px-3 text-right font-medium text-gray-800 text-sm">
-                  {stock.currentValue > 0 ? formatCurrency(stock.currentValue) : 'N/A'}
-                </td>
-                <td className="py-2 px-3 text-right text-gray-700 text-sm">
-                  {formatCurrency(stock.totalInvested)}
-                </td>
-                <td
-                  className={`py-2 px-3 text-right font-semibold text-sm ${
-                    stock.realizedPL >= 0 ? 'text-green-600' : 'text-red-600'
-                  }`}
-                >
+                <td className="text-left text-lo text-sm">{stock.sectorName}</td>
+                <td className="metric-value">{stock.qtySold}</td>
+                <td className="metric-value">{formatCurrency(stock.avgCost)}</td>
+                <td className="metric-value font-semibold">{formatCurrency(stock.avgSoldPrice || 0)}</td>
+                <td className="metric-value">{stock.currentPrice > 0 ? formatCurrency(stock.currentPrice) : 'N/A'}</td>
+                <td className="metric-value font-semibold text-hi">{stock.currentValue > 0 ? formatCurrency(stock.currentValue) : 'N/A'}</td>
+                <td className="metric-value">{formatCurrency(stock.totalInvested)}</td>
+                <td className="metric-value font-semibold"
+                  style={{ color: stock.realizedPL >= 0 ? 'var(--gain)' : 'var(--loss)' }}>
                   {formatCurrency(stock.realizedPL)}
                 </td>
-                <td
-                  className={`py-2 px-3 text-right font-semibold text-sm ${
-                    stock.currentPrice > 0 
-                      ? (stock.unrealizedPL >= 0 ? 'text-green-600' : 'text-red-600')
-                      : 'text-gray-400'
-                  }`}
-                >
+                <td className="metric-value font-semibold"
+                  style={{ color: stock.currentPrice > 0 ? (stock.unrealizedPL >= 0 ? 'var(--gain)' : 'var(--loss)') : 'var(--text-muted)' }}>
                   {stock.currentPrice > 0 ? (
                     <div className="flex flex-col items-end">
                       <div>{formatCurrency(stock.unrealizedPL)}</div>
                       {stock.totalInvested > 0 && (
                         <div className="text-xs font-normal">
-                          ({stock.unrealizedPL >= 0 ? '+' : ''}
-                          {((stock.unrealizedPL / stock.totalInvested) * 100).toFixed(2)}%)
+                          ({stock.unrealizedPL >= 0 ? '+' : ''}{((stock.unrealizedPL / stock.totalInvested) * 100).toFixed(2)}%)
                         </div>
                       )}
                     </div>
                   ) : 'N/A'}
                 </td>
-                <td
-                  className={`py-2 px-3 text-right font-semibold text-sm ${
-                    stock.totalPLPercent >= 0 ? 'text-green-600' : 'text-red-600'
-                  }`}
-                >
-                  {stock.totalPLPercent >= 0 ? '+' : ''}
-                  {stock.totalPLPercent.toFixed(2)}%
+                <td className="metric-value font-semibold"
+                  style={{ color: stock.totalPLPercent >= 0 ? 'var(--gain)' : 'var(--loss)' }}>
+                  {stock.totalPLPercent >= 0 ? '+' : ''}{stock.totalPLPercent.toFixed(2)}%
                 </td>
-                <td className="py-2 px-3 text-right text-gray-700 text-sm">
-                  {formatDate(stock.lastSoldDate)}
-                </td>
-                <td className="py-2 px-3 text-right text-gray-700 text-sm">
+                <td className="metric-value">{formatDate(stock.lastSoldDate)}</td>
+                <td className="metric-value">
                   {stock.holdingPeriodYears === 0 && stock.holdingPeriodMonths === 0
                     ? `${stock.holdingPeriodDays}D`
                     : `${stock.holdingPeriodYears}Y ${stock.holdingPeriodMonths}M`}
@@ -493,62 +417,37 @@ export default function RealizedStocksTable({ realizedStocks, onRefresh }: Reali
           </tbody>
         </table>
       </div>
-      
+
       {/* Pagination */}
       {filteredStocks.length > 0 && (
-        <div className="flex items-center justify-between mt-4 px-4 py-3 border-t border-gray-200">
-          <div className="text-sm text-gray-600">
-            Showing {startIndex + 1} to {Math.min(endIndex, filteredStocks.length)} of {filteredStocks.length} stocks
-            {hasActiveFilters && ` (filtered from ${realizedStocks.length} total)`}
+        <div className="flex items-center justify-between mt-4 px-1 py-3" style={{ borderTop: '1px solid var(--border-sm)' }}>
+          <div className="text-sm text-lo">
+            Showing {startIndex + 1}–{Math.min(endIndex, filteredStocks.length)} of {filteredStocks.length}
+            {hasActiveFilters && ` (of ${realizedStocks.length} total)`}
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-              disabled={currentPage === 1}
-              className="px-3 py-1 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              Previous
-            </button>
-            <div className="flex items-center gap-1">
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
-                if (
-                  page === 1 ||
-                  page === totalPages ||
-                  (page >= currentPage - 1 && page <= currentPage + 1)
-                ) {
-                  return (
-                    <button
-                      key={page}
-                      onClick={() => setCurrentPage(page)}
-                      className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${
-                        currentPage === page
-                          ? 'bg-blue-600 text-white'
-                          : 'text-gray-700 bg-white border border-gray-300 hover:bg-gray-50'
-                      }`}
-                    >
-                      {page}
-                    </button>
-                  );
-                } else if (
-                  page === currentPage - 2 ||
-                  page === currentPage + 2
-                ) {
-                  return (
-                    <span key={page} className="px-2 text-gray-400">
-                      ...
-                    </span>
-                  );
-                }
-                return null;
-              })}
-            </div>
-            <button
-              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-              disabled={currentPage === totalPages}
-              className="px-3 py-1 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              Next
-            </button>
+          <div className="flex items-center gap-1.5">
+            <button onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))} disabled={currentPage === 1}
+              className="btn btn-ghost text-xs px-3 py-1.5">Prev</button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
+              if (page === 1 || page === totalPages || (page >= currentPage - 1 && page <= currentPage + 1)) {
+                return (
+                  <button key={page} onClick={() => setCurrentPage(page)}
+                    className="btn text-xs px-3 py-1.5"
+                    style={{
+                      background: currentPage === page ? 'var(--brand)' : 'var(--bg-raised)',
+                      color: currentPage === page ? '#fff' : 'var(--text-mid)',
+                      border: `1px solid ${currentPage === page ? 'var(--brand)' : 'var(--border-md)'}`,
+                    }}>
+                    {page}
+                  </button>
+                );
+              } else if (page === currentPage - 2 || page === currentPage + 2) {
+                return <span key={page} className="text-muted px-1">…</span>;
+              }
+              return null;
+            })}
+            <button onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))} disabled={currentPage === totalPages}
+              className="btn btn-ghost text-xs px-3 py-1.5">Next</button>
           </div>
         </div>
       )}

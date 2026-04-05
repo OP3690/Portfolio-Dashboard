@@ -26,8 +26,7 @@ function DashboardSkeleton() {
       {/* Summary cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="rounded-2xl p-5"
-            style={{ background: '#1a2240', border: '1px solid rgba(255,255,255,0.06)' }}>
+          <div key={i} className="card p-5">
             <div className="flex items-start justify-between mb-4">
               <Skeleton style={{ width: 80, height: 10, borderRadius: 6 }} />
               <Skeleton style={{ width: 32, height: 32, borderRadius: 10 }} />
@@ -41,8 +40,7 @@ function DashboardSkeleton() {
       {/* Performers row */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {[0, 1].map(i => (
-          <div key={i} className="rounded-2xl p-5"
-            style={{ background: '#1a2240', border: '1px solid rgba(255,255,255,0.06)' }}>
+          <div key={i} className="card p-5">
             <Skeleton style={{ width: 180, height: 14, borderRadius: 6, marginBottom: 20 }} />
             {[0, 1, 2].map(j => (
               <div key={j} className="flex items-center gap-3 mb-3">
@@ -59,8 +57,7 @@ function DashboardSkeleton() {
       </div>
 
       {/* Chart placeholder */}
-      <div className="rounded-2xl p-5"
-        style={{ background: '#1a2240', border: '1px solid rgba(255,255,255,0.06)', height: 260 }}>
+      <div className="card p-5" style={{ height: 260 }}>
         <Skeleton style={{ width: 140, height: 14, borderRadius: 6, marginBottom: 20 }} />
         <div className="flex items-end gap-2 h-36">
           {Array.from({ length: 12 }).map((_, i) => (
@@ -75,14 +72,15 @@ function DashboardSkeleton() {
 /* Full-page spinner */
 function FullPageSpinner({ message = 'Loading…', sub = '' }: { message?: string; sub?: string }) {
   return (
-    <div className="min-h-screen flex items-center justify-center" style={{ background: '#0a0f1e' }}>
+    <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg-page)' }}>
       <div className="text-center space-y-4">
         <div className="relative w-14 h-14 mx-auto">
-          <div className="absolute inset-0 rounded-full border-2 border-t-emerald-400 border-r-transparent border-b-transparent border-l-transparent animate-spin" />
-          <div className="absolute inset-2 rounded-full" style={{ background: 'rgba(16,185,129,0.12)' }} />
+          <div className="absolute inset-0 rounded-full border-2 animate-spin"
+            style={{ borderColor: 'var(--brand) transparent transparent transparent' }} />
+          <div className="absolute inset-2 rounded-full" style={{ background: 'var(--brand-bg)' }} />
         </div>
-        <p className="text-sm font-semibold" style={{ color: '#f0f4ff' }}>{message}</p>
-        {sub && <p className="text-xs" style={{ color: '#4b5d78' }}>{sub}</p>}
+        <p className="text-sm font-semibold text-hi">{message}</p>
+        {sub && <p className="text-xs text-lo">{sub}</p>}
       </div>
     </div>
   );
@@ -222,7 +220,7 @@ export default function Dashboard() {
   /* Data loading — show skeleton with nav */
   if (loading) {
     return (
-      <div className="min-h-screen" style={{ background: '#0a0f1e' }}>
+      <div className="min-h-screen" style={{ background: 'var(--bg-page)' }}>
         <Navigation onUploadSuccess={fetchDashboardData} activeTab={activeTab} onTabChange={setActiveTab} />
         <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <DashboardSkeleton />
@@ -234,22 +232,19 @@ export default function Dashboard() {
   /* Error */
   if (error) {
     return (
-      <div className="min-h-screen" style={{ background: '#0a0f1e' }}>
+      <div className="min-h-screen" style={{ background: 'var(--bg-page)' }}>
         <Navigation onUploadSuccess={fetchDashboardData} activeTab={activeTab} onTabChange={setActiveTab} />
         <div className="flex items-center justify-center min-h-[calc(100vh-64px)] p-4">
-          <div className="rounded-2xl p-8 max-w-md w-full text-center"
-            style={{ background: '#1a2240', border: '1px solid rgba(244,63,94,0.2)' }}>
+          <div className="card p-8 max-w-md w-full text-center">
             <div className="w-14 h-14 rounded-2xl mx-auto mb-4 flex items-center justify-center"
-              style={{ background: 'rgba(244,63,94,0.12)' }}>
-              <svg className="w-7 h-7" style={{ color: '#f43f5e' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              style={{ background: 'var(--loss-bg)', border: '1px solid var(--loss-border)' }}>
+              <svg className="w-7 h-7" style={{ color: 'var(--loss)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
-            <h3 className="text-lg font-bold text-white mb-2">Something went wrong</h3>
-            <p className="text-sm mb-6" style={{ color: '#f43f5e' }}>{error}</p>
-            <button onClick={() => fetchDashboardData()}
-              className="px-6 py-2.5 rounded-xl text-sm font-semibold text-white transition-all"
-              style={{ background: 'linear-gradient(135deg,#10b981,#059669)', boxShadow: '0 4px 16px rgba(16,185,129,0.35)' }}>
+            <h3 className="text-lg font-bold text-hi mb-2">Something went wrong</h3>
+            <p className="text-sm mb-6" style={{ color: 'var(--loss)' }}>{error}</p>
+            <button onClick={() => fetchDashboardData()} className="btn btn-primary px-6 py-2.5">
               Retry
             </button>
           </div>
@@ -261,20 +256,19 @@ export default function Dashboard() {
   /* No data */
   if (!dashboardData) {
     return (
-      <div className="min-h-screen" style={{ background: '#0a0f1e' }}>
+      <div className="min-h-screen" style={{ background: 'var(--bg-page)' }}>
         <Navigation onUploadSuccess={fetchDashboardData} activeTab={activeTab} onTabChange={setActiveTab} />
         <div className="flex items-center justify-center min-h-[calc(100vh-64px)] p-4">
-          <div className="rounded-2xl p-8 max-w-md w-full text-center"
-            style={{ background: '#1a2240', border: '1px solid rgba(255,255,255,0.07)' }}>
+          <div className="card p-8 max-w-md w-full text-center">
             <div className="w-14 h-14 rounded-2xl mx-auto mb-4 flex items-center justify-center"
-              style={{ background: 'rgba(59,130,246,0.12)' }}>
-              <svg className="w-7 h-7" style={{ color: '#60a5fa' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              style={{ background: 'var(--brand-bg)', border: '1px solid var(--brand-glow)' }}>
+              <svg className="w-7 h-7" style={{ color: 'var(--brand)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                   d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
               </svg>
             </div>
-            <h3 className="text-lg font-bold text-white mb-2">No Portfolio Data</h3>
-            <p className="text-sm mb-6" style={{ color: '#4b5d78' }}>Upload your portfolio Excel file to get started.</p>
+            <h3 className="text-lg font-bold text-hi mb-2">No Portfolio Data</h3>
+            <p className="text-sm mb-2 text-lo">Upload your portfolio Excel file to get started.</p>
           </div>
         </div>
       </div>
@@ -283,7 +277,7 @@ export default function Dashboard() {
 
   /* Main dashboard */
   return (
-    <div className="min-h-screen" style={{ background: '#0a0f1e' }}>
+    <div className="min-h-screen" style={{ background: 'var(--bg-page)' }}>
       <Navigation onUploadSuccess={fetchDashboardData} activeTab={activeTab} onTabChange={setActiveTab} />
       <div className="max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {renderContent()}
