@@ -827,13 +827,16 @@ export async function GET(request: NextRequest) {
     
     console.log(`✅ Fetched latest prices for ${latestPricesMap.size} stocks`);
 
-    // Fetch all 365-day data - use parallel queries with larger batches
-    const oneYearAgoDate = subDays(today, 365);
+    // Fetch historical price data - window depends on signal type
+    // Simple signals only need 60 days; pullback/quant need 365 days
+    const needsFullHistory = !signalType || signalType === 'deepPullbacks' || signalType === 'capitulated' || signalType === 'quantPredictions';
+    const dataFetchDays = needsFullHistory ? 365 : 60;
+    const oneYearAgoDate = subDays(today, dataFetchDays);
     const priceDataMap = new Map<string, any[]>();
-    
+
     // Process ISINs in larger batches with parallel queries for better performance
     const BATCH_SIZE = 200; // Increased batch size for better parallelization
-    console.log(`📊 Fetching 365-day data for ${isins.length} stocks in batches of ${BATCH_SIZE}...`);
+    console.log(`📊 Fetching ${dataFetchDays}-day data for ${isins.length} stocks in batches of ${BATCH_SIZE} (signalType=${signalType || 'all'})...`);
     
     // Only fetch data for stocks that have valid latest prices
     const validIsins = Array.from(latestPricesMap.keys());
@@ -1067,9 +1070,10 @@ export async function GET(request: NextRequest) {
         // ============================================
         // ADVANCED QUANTITATIVE PREDICTION (Institutional-Grade)
         // ============================================
-        // Calculate if we have at least 1 year of data
+        // Only run expensive quant calculations when this signal type is requested
+        const runQuant = !signalType || signalType === 'quantPredictions';
         const minDataPoints = 252; // ~1 year of trading days
-        if (closes3Years.length >= minDataPoints && volumes3Years.length >= minDataPoints) {
+        if (runQuant && closes3Years.length >= minDataPoints && volumes3Years.length >= minDataPoints) {
           // Process quant predictions for ALL stocks (not just holdings)
           // Holdings are already prioritized in the stocksToProcess array
           if (true) {
@@ -1343,7 +1347,7 @@ export async function GET(request: NextRequest) {
         };
 
         // A. Volume Spikes - use dynamic filters
-        if (volSpike > volSpikeMinVolSpike && absPriceMove > volSpikeMinPriceMove && currentPrice > volSpikeMinPrice) {
+        if ((!signalType || signalType === 'volumeSpikes') && volSpike > volSpikeMinVolSpike && absPriceMove > volSpikeMinPriceMove && currentPrice > volSpikeMinPrice) {
           const maxVolSpike = 500; // Normalize
           const normVolSpike = Math.min(volSpike / maxVolSpike, 1);
           const normAbsPriceMove = Math.min(absPriceMove / 10, 1); // Normalize to 10% max
@@ -1359,7 +1363,7 @@ export async function GET(request: NextRequest) {
         }
 
         // B. Deep Pullbacks - use dynamic filters
-        if (percentFrom52WHigh <= pullbackMaxFromHigh && (avgVol30 > pullbackMinVol || avgVol15 > pullbackMinVol) && currentPrice > pullbackMinPrice) {
+        if ((!signalType || signalType === 'deepPullbacks') && percentFrom52WHigh <= pullbackMaxFromHigh && (avgVol30 > pullbackMinVol || avgVol15 > pullbackMinVol) && currentPrice > pullbackMinPrice) {
           results.deepPullbacks.push({
             ...stockData,
             score: shortTermOversold, // Lower = more oversold = higher score
@@ -1370,7 +1374,7 @@ export async function GET(request: NextRequest) {
         }
 
         // C. Capitulated - use dynamic filters
-        if (percentFrom52WHigh <= capMaxFromHigh && volSpike > capMinVolSpike && currentPrice > capMinPrice) {
+        if ((!signalType || signalType === 'capitulated') && percentFrom52WHigh <= capMaxFromHigh && volSpike > capMinVolSpike && currentPrice > capMinPrice) {
           const normVolSpike = Math.min(volSpike / 500, 1);
           const normReturn5D = Math.min(Math.abs(return5D) / 20, 1);
           const distressScore = 0.6 * normVolSpike + 0.4 * normReturn5D;
@@ -1385,7 +1389,7 @@ export async function GET(request: NextRequest) {
         }
 
         // D. 5-Day Decliners - use dynamic filters
-        if (available5Days.length >= 4 && (isStrictlyDescending || downDays >= declinerMinDownDays) && return5D < declinerMaxReturn && currentPrice > declinerMinPrice) {
+        if ((!signalType || signalType === 'fiveDayDecliners') && available5Days.length >= 4 && (isStrictlyDescending || downDays >= declinerMinDownDays) && return5D < declinerMaxReturn && currentPrice > declinerMinPrice) {
           const avgVolFactor = vol15DAvgRatio;
           const scoreDecline = 0.6 * Math.abs(return5D) / 10 + 0.4 * Math.min(avgVolFactor, 2);
           
@@ -1400,7 +1404,7 @@ export async function GET(request: NextRequest) {
         }
 
         // E. 5-Day Climbers - use dynamic filters
-        if (available5Days.length >= 4 && (isStrictlyAscending || upDays >= climberMinUpDays) && return5D > climberMinReturn && currentPrice > climberMinPrice) {
+        if ((!signalType || signalType === 'fiveDayClimbers') && available5Days.length >= 4 && (isStrictlyAscending || upDays >= climberMinUpDays) && return5D > climberMinReturn && currentPrice > climberMinPrice) {
           const normVolSpike = Math.min(volSpike / 300, 1);
           const normReturn5D = Math.min(return5D / 15, 1);
           const avgBullBody = bullBody > 0 ? bullBody : 0.5;
@@ -1420,7 +1424,7 @@ export async function GET(request: NextRequest) {
         const range20D = max20DHigh - min20DLow;
         const rangePercent = currentPrice > 0 ? (range20D / currentPrice) * 100 : 100;
         
-        if (rangePercent < breakoutMaxRange && bo20Score > breakoutMinBoScore && volSpike > breakoutMinVolSpike && currentPrice > breakoutMinPrice) {
+        if ((!signalType || signalType === 'tightRangeBreakouts') && rangePercent < breakoutMaxRange && bo20Score > breakoutMinBoScore && volSpike > breakoutMinVolSpike && currentPrice > breakoutMinPrice) {
           const tightRangeScore = (15 - rangePercent) / 15 * 0.5 + (bo20Score / 5) * 0.3 + (volSpike / 200) * 0.2;
           
           results.tightRangeBreakouts.push({
