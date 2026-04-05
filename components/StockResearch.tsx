@@ -304,7 +304,8 @@ function FilterPanel({
   filters: FilterState[SignalKey];
   activeFilters: FilterState[SignalKey];
   onChange: (field: string, val: number) => void;
-  onApplyWithFilters: (vals: FilterState[SignalKey]) => void;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  onApplyWithFilters: (vals: any) => void;
   onReset: () => void;
   isLoading: boolean;
 }) {
