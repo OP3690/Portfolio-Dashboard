@@ -40,33 +40,22 @@ function findSheetRange(sheet: XLSX.WorkSheet, maxRows: number = 500): { startRo
   let startRow = 10;
   let endRow: number | null = null;
   
-  // Find header row (row with "Stock Name")
-  // Check column B (index 1) for "Stock Name"
+  // Find header row by scanning columns A-E for any known header keyword
+  // Supports both "Stock Name" (Holdings) and "Scheme Name" (Transaction Details / Realized P&L)
+  const HEADER_KEYWORDS = [
+    'stock name', 'scheme name', 'isin', 'transaction date',
+    'sell date', 'buy date', 'open qty', 'closed qty', 'sold qty',
+  ];
+  outer:
   for (let i = 0; i < 20; i++) {
-    const cell = sheet[XLSX.utils.encode_cell({ r: i, c: 1 })];
-    if (cell && cell.v) {
-      const cellValue = String(cell.v).trim();
-      // Check for exact match or contains "Stock Name"
-      if (cellValue === 'Stock Name' || cellValue === 'stockName' || 
-          cellValue.toLowerCase() === 'stock name' || 
-          (cellValue.toLowerCase().includes('stock') && cellValue.toLowerCase().includes('name'))) {
-        startRow = i;
-        console.log(`   Found header row at Excel row ${i + 1} (0-indexed: ${i}), cell value: "${cellValue}"`);
-        break;
-      }
-    }
-  }
-  
-  // If not found in column B, try column C (index 2) as fallback
-  if (startRow === 10) {
-    for (let i = 0; i < 20; i++) {
-      const cell = sheet[XLSX.utils.encode_cell({ r: i, c: 2 })];
+    for (let col = 0; col < 5; col++) {  // Check columns A–E
+      const cell = sheet[XLSX.utils.encode_cell({ r: i, c: col })];
       if (cell && cell.v) {
-        const cellValue = String(cell.v).trim();
-        if (cellValue === 'Stock Name' || cellValue.toLowerCase() === 'stock name') {
+        const cellValue = String(cell.v).trim().toLowerCase();
+        if (HEADER_KEYWORDS.some(kw => cellValue === kw)) {
           startRow = i;
-          console.log(`   Found header row in column C at Excel row ${i + 1} (0-indexed: ${i})`);
-          break;
+          console.log(`   Found header row at Excel row ${i + 1} (0-indexed: ${i}), column ${col + 1}: "${cell.v}"`);
+          break outer;
         }
       }
     }
@@ -628,7 +617,7 @@ export function parseExcelFile(buffer: ArrayBuffer): ExcelData {
   let transactionsWithoutIsin = 0;
   
   transactionsData.forEach((t: any) => {
-    const stockName = String(t['Stock Name'] || t['stockName'] || '').trim();
+    const stockName = String(t['Scheme Name'] || t['Stock Name'] || t['schemeName'] || t['stockName'] || '').trim();
     if (!stockName) return;
     
     // Try to find ISIN in the transaction row
@@ -685,9 +674,9 @@ export function parseExcelFile(buffer: ArrayBuffer): ExcelData {
       // Check which format we're dealing with
       const isAggregatedData = row.stockName !== undefined;
       
-      const stockName = isAggregatedData 
+      const stockName = isAggregatedData
         ? String(row.stockName || '').trim()
-        : String(row['Stock Name'] || row['stockName'] || '').trim();
+        : String(row['Scheme Name'] || row['Stock Name'] || row['schemeName'] || row['stockName'] || '').trim();
       
       // For new format: ISIN might not be in P&L sheet, extract from Transaction Details
       // IMPORTANT: In the new format, there's NO ISIN column in P&L_Equity_Statement sheet
@@ -729,7 +718,7 @@ export function parseExcelFile(buffer: ArrayBuffer): ExcelData {
       
       const closedQty = isAggregatedData
         ? parseFloat(row.closedQty || 0)
-        : parseFloat(row['Closed Qty'] || row['closedQty'] || 0);
+        : parseFloat(row['Sold Qty'] || row['Closed Qty'] || row['soldQty'] || row['closedQty'] || 0);
       
       const marketValue = isAggregatedData
         ? parseFloat(row.currentValue || 0)
@@ -744,11 +733,11 @@ export function parseExcelFile(buffer: ArrayBuffer): ExcelData {
       
       const profitLossTillDate = isAggregatedData
         ? parseFloat(row.unrealizedProfitLoss || 0)
-        : parseFloat(row['Profit/Loss Till date'] || row['profitLossTillDate'] || row['Unrealized Profit/Loss'] || row['unrealizedProfitLoss'] || 0);
-      
+        : parseFloat(row['UnRealized Gain/Loss'] || row['Unrealized Gain/Loss'] || row['Profit/Loss Till date'] || row['profitLossTillDate'] || row['Unrealized Profit/Loss'] || row['unrealizedProfitLoss'] || 0);
+
       const profitLossTillDatePercent = isAggregatedData
         ? parseFloat(row.unrealizedProfitLossPercent || 0)
-        : parseFloat(row['Profit/Loss Till date %'] || row['profitLossTillDatePercent'] || row['% Unrealized Profit/Loss'] || row['unrealizedProfitLossPercent'] || 0);
+        : parseFloat(row['UnRealized Gain/Loss %'] || row['Unrealized Gain/Loss %'] || row['Profit/Loss Till date %'] || row['profitLossTillDatePercent'] || row['% Unrealized Profit/Loss'] || row['unrealizedProfitLossPercent'] || 0);
       
       // Extract dividend (available in aggregated data from new format, or from raw Excel)
       const dividend = isAggregatedData
@@ -946,7 +935,7 @@ export function parseExcelFile(buffer: ArrayBuffer): ExcelData {
   
   const normalizeTransactions = transactionsData
     .map((row: any) => {
-      const stockName = row['Stock Name'] || row['stockName'] || '';
+      const stockName = row['Scheme Name'] || row['Stock Name'] || row['schemeName'] || row['stockName'] || '';
       const isin = row['ISIN'] || row['isin'] || '';
       const buySell = row['Buy/Sell'] || row['buySell'] || '';
       const isDividend = String(buySell || '').toUpperCase().includes('DIVIDEND');
@@ -1070,8 +1059,10 @@ export function parseExcelFile(buffer: ArrayBuffer): ExcelData {
     // Try multiple column name variations to handle different Excel formats
     // Also try by index for formats where headers aren't recognized
     const stockName = String(
-      row['Stock Name'] || 
-      row['stockName'] || 
+      row['Scheme Name'] ||   // Groww/Axisdirect "Holding_equity_all" format
+      row['Stock Name'] ||
+      row['schemeName'] ||
+      row['stockName'] ||
       row['Company'] ||
       row['company'] ||
       row[1] || // Column B (index 1)
