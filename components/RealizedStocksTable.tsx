@@ -44,6 +44,7 @@ export default function RealizedStocksTable({ realizedStocks, onRefresh }: Reali
   const [selectedHoldingPeriod, setSelectedHoldingPeriod] = useState<string>('all');
   const [fetchingPrices, setFetchingPrices] = useState(false);
   const [fetchMessage, setFetchMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [autoFetched, setAutoFetched] = useState(false);
   const rowsPerPage = 10;
 
   // Get unique sectors from realized stocks
@@ -129,6 +130,46 @@ export default function RealizedStocksTable({ realizedStocks, onRefresh }: Reali
       setCurrentPage(1);
     }
   }, [totalPages, currentPage]);
+
+  // Auto-fetch prices for realized stocks missing data (runs once on mount)
+  useEffect(() => {
+    if (autoFetched) return;
+    const missingIsins = realizedStocks.filter(s => s.currentPrice === 0).map(s => s.isin);
+    if (missingIsins.length === 0) return;
+
+    setAutoFetched(true);
+    setFetchingPrices(true);
+    setFetchMessage({ type: 'success', text: `Auto-fetching prices for ${missingIsins.length} stocks…` });
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10 * 60 * 1000);
+
+    fetch('/api/fetch-historical-data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ isins: missingIsins }),
+      signal: controller.signal,
+    })
+      .then(async res => {
+        clearTimeout(timeout);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        const fetched = data.stocksProcessed ?? data.fetchedCount ?? missingIsins.length;
+        setFetchMessage({ type: 'success', text: `Fetched prices for ${fetched} stock(s). Refreshing…` });
+        setTimeout(() => {
+          if (onRefresh) onRefresh(); else window.location.reload();
+        }, 1500);
+      })
+      .catch(err => {
+        clearTimeout(timeout);
+        if (err.name !== 'AbortError') {
+          // Silent — prices remain N/A for truly delisted/unavailable stocks
+          setFetchMessage(null);
+        }
+        setFetchingPrices(false);
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Format last sold date
   const formatDate = (date: Date | string): string => {
@@ -230,10 +271,21 @@ export default function RealizedStocksTable({ realizedStocks, onRefresh }: Reali
             <h2 className="section-title text-base">Realized Stocks (What They'd Be Worth Today)</h2>
             {stocksWithoutPrices > 0 && (
               <div className="flex items-center gap-2">
-                <span className="text-sm text-lo">{stocksWithoutPrices} stock(s) missing prices</span>
-                <button onClick={handleFetchPrices} disabled={fetchingPrices} className="btn btn-ghost text-xs px-3 py-1.5">
-                  {fetchingPrices ? 'Fetching...' : 'Fetch Current Prices'}
-                </button>
+                <span className="flex items-center gap-1.5 text-xs font-medium"
+                  style={{ color: fetchingPrices ? 'var(--warn)' : 'var(--text-lo)' }}>
+                  {fetchingPrices && (
+                    <svg className="w-3 h-3 animate-spin" viewBox="0 0 20 20" fill="currentColor">
+                      <path fillRule="evenodd" clipRule="evenodd"
+                        d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" />
+                    </svg>
+                  )}
+                  {fetchingPrices ? `Fetching ${stocksWithoutPrices} prices…` : `${stocksWithoutPrices} missing prices`}
+                </span>
+                {!fetchingPrices && (
+                  <button onClick={handleFetchPrices} className="btn btn-ghost text-xs px-3 py-1.5">
+                    Retry Fetch
+                  </button>
+                )}
               </div>
             )}
           </div>
