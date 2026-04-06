@@ -53,13 +53,33 @@ export default function MonthlyCharts({
   monthlyReturns,
   returnStatistics,
 }: MonthlyChartsProps) {
-  // Parse "MMM YYYY" (e.g. "Jan 2022") into a timestamp for chronological sorting
+  // Parse month strings into timestamps for chronological sorting.
+  // Handles multiple formats:
+  //   "Nov-25"   → MMM-YY  (2-digit year, e.g. 25 → 2025)
+  //   "Nov 2025" → MMM YYYY
+  //   "2025-11"  → YYYY-MM  (ISO-style)
   const parseMonthStr = (m: string): number => {
     if (!m) return 0;
-    const parts = m.trim().split(' ');
-    if (parts.length === 2) return new Date(`${parts[0]} 1, ${parts[1]}`).getTime();
-    // Fallback: try direct parse
-    const d = new Date(m);
+    const s = m.trim();
+
+    // "MMM-YY"  e.g. "Jan-21", "Nov-25"
+    const dashShort = s.match(/^([A-Za-z]{3})-(\d{2})$/);
+    if (dashShort) {
+      const yr = parseInt(dashShort[2], 10);
+      const fullYear = yr >= 0 && yr <= 99 ? 2000 + yr : yr;
+      return new Date(`${dashShort[1]} 1, ${fullYear}`).getTime();
+    }
+
+    // "MMM YYYY" e.g. "Jan 2021"
+    const spaceYY = s.match(/^([A-Za-z]{3})\s+(\d{4})$/);
+    if (spaceYY) return new Date(`${spaceYY[1]} 1, ${spaceYY[2]}`).getTime();
+
+    // "YYYY-MM" e.g. "2021-01"
+    const isoStyle = s.match(/^(\d{4})-(\d{2})$/);
+    if (isoStyle) return new Date(`${isoStyle[1]}-${isoStyle[2]}-01`).getTime();
+
+    // Generic fallback
+    const d = new Date(s);
     return isNaN(d.getTime()) ? 0 : d.getTime();
   };
 
