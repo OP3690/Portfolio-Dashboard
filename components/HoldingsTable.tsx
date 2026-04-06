@@ -196,63 +196,89 @@ export default function HoldingsTable({ holdings }: HoldingsTableProps) {
       </div>
 
       {/* Filters */}
-      <div className="px-5 py-3 flex flex-wrap gap-2 items-center"
-        style={{ borderBottom: '1px solid var(--border-sm)' }}>
-        <select value={selectedSector} onChange={e => setSelectedSector(e.target.value)} className="form-input text-sm py-1.5">
-          <option value="all">All Sectors ({baseHoldings.length})</option>
-          {uniqueSectors.map(s => (
-            <option key={s} value={s}>{s} ({baseHoldings.filter(h => h.sectorName === s).length})</option>
-          ))}
-        </select>
-        <select value={selectedStock} onChange={e => setSelectedStock(e.target.value)} className="form-input text-sm py-1.5" style={{ minWidth: 160 }}>
-          <option value="all">All Stocks ({baseHoldings.length})</option>
-          {uniqueStocks.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
-        <select value={selectedHoldingPeriod} onChange={e => setSelectedHoldingPeriod(e.target.value)} className="form-input text-sm py-1.5" style={{ minWidth: 150 }}>
-          <option value="all">All Periods</option>
-          <option value="lessThan6M">{'< 6 Months'} ({baseHoldings.filter(h => getPeriodCategory(h) === 'lessThan6M').length})</option>
-          <option value="6Mto1Year">6M – 1Y ({baseHoldings.filter(h => getPeriodCategory(h) === '6Mto1Year').length})</option>
-          <option value="1YearTo1_5Year">1 – 1.5Y ({baseHoldings.filter(h => getPeriodCategory(h) === '1YearTo1_5Year').length})</option>
-          <option value="1_5YearTo2Year">1.5 – 2Y ({baseHoldings.filter(h => getPeriodCategory(h) === '1_5YearTo2Year').length})</option>
-          <option value="2YearTo3Year">2 – 3Y ({baseHoldings.filter(h => getPeriodCategory(h) === '2YearTo3Year').length})</option>
-          <option value="3YearTo5Year">3 – 5Y ({baseHoldings.filter(h => getPeriodCategory(h) === '3YearTo5Year').length})</option>
-          <option value="moreThan5Years">{'> 5 Years'} ({baseHoldings.filter(h => getPeriodCategory(h) === 'moreThan5Years').length})</option>
-        </select>
-        {/* Show closed positions toggle */}
-        {closedCount > 0 && (
-          <button
-            onClick={() => setShowClosed(v => !v)}
-            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold ml-auto"
-            style={{
-              background: showClosed
-                ? 'color-mix(in srgb, var(--warn) 12%, transparent)'
-                : 'var(--bg-raised)',
-              border: `1px solid ${showClosed ? 'color-mix(in srgb, var(--warn) 30%, transparent)' : 'var(--border-sm)'}`,
-              color: showClosed ? 'var(--warn)' : 'var(--text-mid)',
-            }}>
-            <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
-              <path d={showClosed
-                ? 'M10 12a2 2 0 100-4 2 2 0 000 4z M2.458 10C3.732 5.943 6.523 3 10 3s6.268 2.943 7.542 7c-1.274 4.057-4.065 7-7.542 7S3.732 14.057 2.458 10z'
-                : 'M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 15.477 3 12 3a9.958 9.958 0 00-4.512 1.074l-1.78-1.781zm4.261 4.26l1.514 1.515a2.003 2.003 0 012.45 2.45l1.514 1.515a4 4 0 00-5.478-5.478z M12.454 16.697L9.75 13.992a4 4 0 01-3.742-3.741L2.335 6.578A9.98 9.98 0 00.458 10c1.274 4.057 4.065 7 7.542 7a9.958 9.958 0 004.454-1.303z'
-              }/>
-            </svg>
-            {showClosed ? `Hide closed (${closedCount})` : `Show closed (${closedCount})`}
-          </button>
-        )}
-        {hasActiveFilters && (
-          <button
-            onClick={() => { setSelectedSector('all'); setSelectedStock('all'); setSelectedHoldingPeriod('all'); }}
-            className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-semibold"
-            style={{
-              background: 'color-mix(in srgb, var(--loss) 10%, transparent)',
-              border: '1px solid color-mix(in srgb, var(--loss) 25%, transparent)',
-              color: 'var(--loss)',
-            }}>
-            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-            Clear
-          </button>
+      <div className="px-5 pt-4 pb-3" style={{ borderBottom: '1px solid var(--border-sm)' }}>
+        {/* Three equal-width selects */}
+        <div className="grid grid-cols-3 gap-3">
+          {/* Sector */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--text-lo)' }}>
+              Sector
+            </label>
+            <select value={selectedSector} onChange={e => setSelectedSector(e.target.value)} className="form-input text-xs py-1.5 w-full">
+              <option value="all">All ({baseHoldings.length})</option>
+              {uniqueSectors.map(s => (
+                <option key={s} value={s}>{s} ({baseHoldings.filter(h => h.sectorName === s).length})</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Stock */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--text-lo)' }}>
+              Stock
+            </label>
+            <select value={selectedStock} onChange={e => setSelectedStock(e.target.value)} className="form-input text-xs py-1.5 w-full">
+              <option value="all">All ({baseHoldings.length})</option>
+              {uniqueStocks.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+
+          {/* Holding Period */}
+          <div className="flex flex-col gap-1">
+            <label className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: 'var(--text-lo)' }}>
+              Holding Period
+            </label>
+            <select value={selectedHoldingPeriod} onChange={e => setSelectedHoldingPeriod(e.target.value)} className="form-input text-xs py-1.5 w-full">
+              <option value="all">All Periods</option>
+              <option value="lessThan6M">{'< 6 Months'} ({baseHoldings.filter(h => getPeriodCategory(h) === 'lessThan6M').length})</option>
+              <option value="6Mto1Year">6M – 1Y ({baseHoldings.filter(h => getPeriodCategory(h) === '6Mto1Year').length})</option>
+              <option value="1YearTo1_5Year">1Y – 1.5Y ({baseHoldings.filter(h => getPeriodCategory(h) === '1YearTo1_5Year').length})</option>
+              <option value="1_5YearTo2Year">1.5Y – 2Y ({baseHoldings.filter(h => getPeriodCategory(h) === '1_5YearTo2Year').length})</option>
+              <option value="2YearTo3Year">2Y – 3Y ({baseHoldings.filter(h => getPeriodCategory(h) === '2YearTo3Year').length})</option>
+              <option value="3YearTo5Year">3Y – 5Y ({baseHoldings.filter(h => getPeriodCategory(h) === '3YearTo5Year').length})</option>
+              <option value="moreThan5Years">{'> 5 Years'} ({baseHoldings.filter(h => getPeriodCategory(h) === 'moreThan5Years').length})</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Action pills row */}
+        {(closedCount > 0 || hasActiveFilters) && (
+          <div className="flex items-center gap-2 mt-3">
+            {closedCount > 0 && (
+              <button
+                onClick={() => setShowClosed(v => !v)}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold transition-all"
+                style={{
+                  background: showClosed ? 'color-mix(in srgb, var(--warn) 12%, transparent)' : 'var(--bg-raised)',
+                  border: `1px solid ${showClosed ? 'color-mix(in srgb, var(--warn) 30%, transparent)' : 'var(--border-sm)'}`,
+                  color: showClosed ? 'var(--warn)' : 'var(--text-mid)',
+                }}>
+                <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+                  <path d={showClosed
+                    ? 'M10 12a2 2 0 100-4 2 2 0 000 4zM.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10z'
+                    : 'M13.477 14.89A6 6 0 015.11 6.524L13.477 14.89zm1.414 1.414L5.11 6.524a8 8 0 1010.664 10.664zM12.89 5.11A6 6 0 016.524 13.477L12.89 5.11zm1.414-1.414L5.11 6.524'
+                  }/>
+                </svg>
+                {showClosed ? `Hide closed (${closedCount})` : `Show closed (${closedCount})`}
+              </button>
+            )}
+            {hasActiveFilters && (
+              <button
+                onClick={() => { setSelectedSector('all'); setSelectedStock('all'); setSelectedHoldingPeriod('all'); }}
+                className="flex items-center gap-1 px-3 py-1 rounded-full text-[11px] font-semibold transition-all"
+                style={{
+                  background: 'color-mix(in srgb, var(--loss) 10%, transparent)',
+                  border: '1px solid color-mix(in srgb, var(--loss) 25%, transparent)',
+                  color: 'var(--loss)',
+                }}>
+                <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" clipRule="evenodd"
+                    d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" />
+                </svg>
+                Clear filters
+              </button>
+            )}
+          </div>
         )}
       </div>
 
