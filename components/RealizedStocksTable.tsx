@@ -44,7 +44,6 @@ export default function RealizedStocksTable({ realizedStocks, onRefresh }: Reali
   const [selectedHoldingPeriod, setSelectedHoldingPeriod] = useState<string>('all');
   const [fetchingPrices, setFetchingPrices] = useState(false);
   const [fetchMessage, setFetchMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [autoFetched, setAutoFetched] = useState(false);
   const rowsPerPage = 10;
 
   // Get unique sectors from realized stocks
@@ -131,15 +130,16 @@ export default function RealizedStocksTable({ realizedStocks, onRefresh }: Reali
     }
   }, [totalPages, currentPage]);
 
-  // Auto-fetch prices for realized stocks missing data (runs once on mount)
+  // Auto-fetch prices for realized stocks missing data — runs ONCE per session
   useEffect(() => {
-    if (autoFetched) return;
+    const SESSION_KEY = 'realizedPricesFetched';
+    if (sessionStorage.getItem(SESSION_KEY)) return;          // already fetched this session
     const missingIsins = realizedStocks.filter(s => s.currentPrice === 0).map(s => s.isin);
     if (missingIsins.length === 0) return;
 
-    setAutoFetched(true);
+    sessionStorage.setItem(SESSION_KEY, '1');                 // mark done before fetch starts
     setFetchingPrices(true);
-    setFetchMessage({ type: 'success', text: `Auto-fetching prices for ${missingIsins.length} stocks…` });
+    setFetchMessage({ type: 'success', text: `Fetching prices for ${missingIsins.length} stock(s)…` });
 
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 10 * 60 * 1000);
@@ -154,19 +154,18 @@ export default function RealizedStocksTable({ realizedStocks, onRefresh }: Reali
         clearTimeout(timeout);
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
-        const fetched = data.stocksProcessed ?? data.fetchedCount ?? missingIsins.length;
-        setFetchMessage({ type: 'success', text: `Fetched prices for ${fetched} stock(s). Refreshing…` });
-        setTimeout(() => {
-          if (onRefresh) onRefresh(); else window.location.reload();
-        }, 1500);
+        const fetched = data.stocksProcessed ?? data.fetchedCount ?? 0;
+        setFetchingPrices(false);
+        if (fetched > 0) {
+          setFetchMessage({ type: 'success', text: `Prices fetched for ${fetched} stock(s). Click Refresh to update.` });
+        } else {
+          setFetchMessage(null);   // nothing new — all unavailable (delisted/suspended)
+        }
       })
       .catch(err => {
         clearTimeout(timeout);
-        if (err.name !== 'AbortError') {
-          // Silent — prices remain N/A for truly delisted/unavailable stocks
-          setFetchMessage(null);
-        }
         setFetchingPrices(false);
+        setFetchMessage(null);     // silent failure — don't alarm the user
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -182,75 +181,47 @@ export default function RealizedStocksTable({ realizedStocks, onRefresh }: Reali
   };
 
   const handleFetchPrices = async () => {
+    sessionStorage.removeItem('realizedPricesFetched'); // allow re-fetch
     setFetchingPrices(true);
     setFetchMessage(null);
-    
+
+    const isinsToFetch = realizedStocks.filter(s => s.currentPrice === 0).map(s => s.isin);
+    if (isinsToFetch.length === 0) {
+      setFetchMessage({ type: 'success', text: 'All stocks already have current prices!' });
+      setFetchingPrices(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5 * 60 * 1000);
+
     try {
-      // Get ISINs of realized stocks that don't have current prices
-      const isinsToFetch = realizedStocks
-        .filter(s => s.currentPrice === 0)
-        .map(s => s.isin);
-      
-      if (isinsToFetch.length === 0) {
-        setFetchMessage({ type: 'success', text: 'All stocks already have current prices!' });
-        setFetchingPrices(false);
-        return;
-      }
-      
-      setFetchMessage({ 
-        type: 'success', 
-        text: `Fetching prices for ${isinsToFetch.length} stocks... This may take a few minutes.` 
+      const res = await fetch('/api/fetch-historical-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isins: isinsToFetch }),
+        signal: controller.signal,
       });
-      
-      // Use AbortController with timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 300000); // 5 minute timeout
-      
-      try {
-        const response = await fetch('/api/fetch-historical-data', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            isins: isinsToFetch,
-          }),
-          signal: controller.signal,
-        });
-        
-        clearTimeout(timeoutId);
-        
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.error || 'Failed to fetch prices');
-        }
-        
-        const data = await response.json();
-        setFetchMessage({ 
-          type: 'success', 
-          text: `Successfully fetched prices for ${data.stocksProcessed || isinsToFetch.length} stocks! Refreshing...` 
-        });
-        
-        // Reload the page after a short delay to show updated prices
-        setTimeout(() => {
-          if (onRefresh) {
-            onRefresh();
-          } else {
-            window.location.reload();
-          }
-        }, 2000);
-      } catch (fetchError: any) {
-        clearTimeout(timeoutId);
-        if (fetchError.name === 'AbortError') {
-          throw new Error('Request timed out. Please try fetching fewer stocks at a time.');
-        }
-        throw fetchError;
+      clearTimeout(timeoutId);
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `HTTP ${res.status}`);
       }
-    } catch (error: any) {
-      console.error('Error fetching prices:', error);
-      setFetchMessage({ 
-        type: 'error', 
-        text: error.message || 'Failed to fetch stock prices. Please try again.' 
+
+      const data = await res.json();
+      const fetched = data.stocksProcessed ?? data.fetchedCount ?? 0;
+      setFetchMessage({
+        type: 'success',
+        text: fetched > 0
+          ? `Prices fetched for ${fetched} stock(s). Click the Holdings Refresh button to reload data.`
+          : 'No new prices found — some stocks may be delisted or unavailable.',
+      });
+    } catch (err: any) {
+      clearTimeout(timeoutId);
+      setFetchMessage({
+        type: 'error',
+        text: err.name === 'AbortError' ? 'Timed out. Try again.' : (err.message || 'Fetch failed.'),
       });
     } finally {
       setFetchingPrices(false);
