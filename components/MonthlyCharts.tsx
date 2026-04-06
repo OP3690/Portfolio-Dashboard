@@ -53,21 +53,39 @@ export default function MonthlyCharts({
   monthlyReturns,
   returnStatistics,
 }: MonthlyChartsProps) {
-  // Guard against undefined/null data and ensure proper data structure
-  const safeMonthlyInvestments = (monthlyInvestments || []).map(item => ({
-    ...item,
-    investments: Number(item.investments || 0),
-    withdrawals: Number(item.withdrawals || 0),
-  }));
-  const safeMonthlyDividends = (monthlyDividends || []).map(item => ({
-    ...item,
-    amount: Number(item.amount || 0),
-  }));
-  const safeMonthlyReturns = (monthlyReturns || []).map(item => ({
-    ...item,
-    returnPercent: Number(item.returnPercent || 0),
-    returnAmount: Number(item.returnAmount || 0),
-  }));
+  // Parse "MMM YYYY" (e.g. "Jan 2022") into a timestamp for chronological sorting
+  const parseMonthStr = (m: string): number => {
+    if (!m) return 0;
+    const parts = m.trim().split(' ');
+    if (parts.length === 2) return new Date(`${parts[0]} 1, ${parts[1]}`).getTime();
+    // Fallback: try direct parse
+    const d = new Date(m);
+    return isNaN(d.getTime()) ? 0 : d.getTime();
+  };
+
+  // Guard against undefined/null data, ensure proper data structure, sort oldest → latest
+  const safeMonthlyInvestments = (monthlyInvestments || [])
+    .map(item => ({
+      ...item,
+      investments: Number(item.investments || 0),
+      withdrawals: Number(item.withdrawals || 0),
+    }))
+    .sort((a, b) => parseMonthStr(a.month) - parseMonthStr(b.month));
+
+  const safeMonthlyDividends = (monthlyDividends || [])
+    .map(item => ({
+      ...item,
+      amount: Number(item.amount || 0),
+    }))
+    .sort((a, b) => parseMonthStr(a.month) - parseMonthStr(b.month));
+
+  const safeMonthlyReturns = (monthlyReturns || [])
+    .map(item => ({
+      ...item,
+      returnPercent: Number(item.returnPercent || 0),
+      returnAmount: Number(item.returnAmount || 0),
+    }))
+    .sort((a, b) => parseMonthStr(a.month) - parseMonthStr(b.month));
   
   // Background animation state
   const [animationFrame, setAnimationFrame] = useState(0);
@@ -171,10 +189,14 @@ export default function MonthlyCharts({
               margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
             >
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-            <XAxis 
-              dataKey="month" 
-              tick={{ fill: '#6b7280', fontSize: 12 }}
+            <XAxis
+              dataKey="month"
+              tick={{ fill: '#6b7280', fontSize: 11 }}
               stroke="#9ca3af"
+              angle={-35}
+              textAnchor="end"
+              height={55}
+              interval={0}
             />
             <YAxis 
               tickFormatter={(value) => `₹${(value / 1000).toFixed(0)}k`}
@@ -337,8 +359,12 @@ export default function MonthlyCharts({
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
             <XAxis
               dataKey="month"
-              tick={{ fill: '#6b7280', fontSize: 12 }}
+              tick={{ fill: '#6b7280', fontSize: 11 }}
               stroke="#9ca3af"
+              angle={-35}
+              textAnchor="end"
+              height={55}
+              interval={0}
             />
             <YAxis
               tickFormatter={(value) => `₹${(value / 1000).toFixed(0)}k`}
