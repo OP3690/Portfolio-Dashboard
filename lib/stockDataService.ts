@@ -554,12 +554,47 @@ export async function getSymbolFromISIN(isin: string): Promise<{ symbol: string;
     if (symbol) {
       symbol = symbol.replace(/\./g, '').replace(/\s+/g, '').toUpperCase();
     }
-    
+
+    if (!symbol) {
+      // ── Fallback: resolve ISIN → ticker via Yahoo Finance search ──
+      try {
+        const searchUrl = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(isin)}&lang=en-US&region=IN&quotesCount=10&enableFuzzyQuery=false&newsCount=0`;
+        const searchRes = await axios.get(searchUrl, {
+          timeout: 6000,
+          headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/json',
+          },
+        });
+        const quotes: any[] = searchRes.data?.quotes || [];
+        // Prefer Indian exchanges (.NS = NSE, .BO = BSE)
+        const indiaQ = quotes.find(q => q.symbol?.endsWith('.NS') || q.symbol?.endsWith('.BO'))
+                    || quotes.find(q => q.quoteType === 'EQUITY');
+        if (indiaQ?.symbol) {
+          const parts = indiaQ.symbol.split('.');
+          symbol   = parts[0];
+          exchange = parts[1] === 'BO' ? 'BSE' : 'NSE';
+          console.log(`🔍 Yahoo ISIN search resolved ${isin} → ${symbol} (${exchange})`);
+
+          // Persist to StockMaster so we don't need to search again
+          try {
+            await StockMaster.findOneAndUpdate(
+              { isin },
+              { $setOnInsert: { isin, symbol, exchange, stockName: indiaQ.longname || indiaQ.shortname || symbol } },
+              { upsert: true, setDefaultsOnInsert: true }
+            );
+          } catch (_) { /* non-critical */ }
+        }
+      } catch (searchErr: any) {
+        console.debug(`⚠️  Yahoo ISIN search failed for ${isin}: ${searchErr.message}`);
+      }
+    }
+
     if (!symbol) {
       console.warn(`⚠️  No symbol found for ISIN: ${isin}, Stock: ${stock?.stockName || 'Unknown'}`);
       return null;
     }
-    
+
     console.log(`📌 Symbol mapping for ${isin}: ${symbol} (${exchange === 'BSE' ? 'BO' : 'NS'})`);
     return { symbol, exchange };
   } catch (error) {

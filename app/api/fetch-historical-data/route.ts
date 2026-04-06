@@ -532,28 +532,19 @@ export async function POST(request: NextRequest) {
       const StockData = (await import('@/models/StockData')).default;
       const StockMaster = (await import('@/models/StockMaster')).default;
       
-      // Check database first for current prices (last 7 days)
+      // Batch-check database for recent prices (last 7 days) — ONE query for all ISINs
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
-      
-      const isinsNeedingFetch: string[] = [];
-      let foundInDB = 0;
-      
-      for (const isin of isins) {
-        const latestData: any = await StockData.findOne({ 
-          isin,
-          date: { $gte: sevenDaysAgo }
-        })
-          .sort({ date: -1 })
-          .lean();
-        
-        if (!latestData || !latestData.close || latestData.close <= 0) {
-          isinsNeedingFetch.push(isin);
-        } else {
-          foundInDB++;
-        }
-      }
-      
+
+      const recentDocs = await StockData.aggregate([
+        { $match: { isin: { $in: isins }, date: { $gte: sevenDaysAgo }, close: { $gt: 0 } } },
+        { $group: { _id: '$isin' } },
+      ]).exec();
+      const isinsInDB = new Set(recentDocs.map((d: any) => d._id));
+
+      const isinsNeedingFetch = isins.filter(i => !isinsInDB.has(i));
+      let foundInDB = isins.length - isinsNeedingFetch.length;
+
       console.log(`✅ Found ${foundInDB} stocks with recent prices in database, ${isinsNeedingFetch.length} need fetching`);
       
       // PRIORITY: Use NSE API first for current prices (faster for NSE stocks)
