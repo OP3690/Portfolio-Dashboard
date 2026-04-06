@@ -282,7 +282,6 @@ export default function MonthlyCharts({
       )}
 
       {/* Monthly Dividends Chart */}
-      {safeMonthlyDividends.length > 0 && (
       <div className="card p-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
           <h2 className="section-title text-base flex items-center gap-2">
@@ -316,44 +315,48 @@ export default function MonthlyCharts({
             )}
           </div>
         </div>
+        {safeMonthlyDividends.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3"
+              style={{ background: 'color-mix(in srgb, var(--gain) 12%, transparent)' }}>
+              <span className="text-2xl">💰</span>
+            </div>
+            <p className="font-semibold text-hi">No dividend records found</p>
+            <p className="text-xs mt-1" style={{ color: 'var(--text-lo)' }}>
+              Re-upload your portfolio Excel — ensure dividend rows have "Buy/Sell = Dividend" and a valid amount.
+            </p>
+          </div>
+        ) : (
         <div style={{ position: 'relative', zIndex: 10, width: '100%', height: '300px' }}>
           <ResponsiveContainer width="100%" height={300}>
-            <ComposedChart 
+            <ComposedChart
               data={safeMonthlyDividends}
               syncId="dashboard-charts"
               margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
             >
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-            <XAxis 
+            <XAxis
               dataKey="month"
               tick={{ fill: '#6b7280', fontSize: 12 }}
               stroke="#9ca3af"
             />
-            <YAxis 
+            <YAxis
               tickFormatter={(value) => `₹${(value / 1000).toFixed(0)}k`}
               tick={{ fill: '#6b7280', fontSize: 12 }}
               stroke="#9ca3af"
             />
-            <Tooltip 
+            <Tooltip
               content={({ active, payload, label }) => {
                 if (!active || !payload || !payload.length) return null;
-                
-                // Find the current month's data point to get stock details
                 const currentMonthData = safeMonthlyDividends.find(r => r.month === label);
                 const stockDetails = currentMonthData?.stockDetails || [];
-                
                 return (
                   <div className="card p-3 text-sm">
                     <p className="font-semibold text-hi mb-2">Month: {label}</p>
                     {payload.map((entry: any, index: number) => {
                       const value = entry.value;
                       const name = entry.name || entry.dataKey;
-                      
-                      // Hide trendline from tooltip
-                      if (name === 'Dividends Trend') {
-                        return null;
-                      }
-                      
+                      if (name === 'Dividends Trend') return null;
                       return (
                         <div key={index}>
                           <p className="text-sm text-hi font-medium mb-2">
@@ -381,19 +384,19 @@ export default function MonthlyCharts({
               filterNull={true}
             />
             <Legend />
-            <Bar 
-              dataKey="amount" 
-              fill="#10b981" 
+            <Bar
+              dataKey="amount"
+              fill="#10b981"
               name="Dividend Amount"
               isAnimationActive={false}
               radius={[4, 4, 0, 0]}
               stroke="#059669"
               strokeWidth={1}
             />
-            <Line 
-              type="monotone" 
-              dataKey="amount" 
-              stroke="#059669" 
+            <Line
+              type="monotone"
+              dataKey="amount"
+              stroke="#059669"
               strokeWidth={2}
               dot={{ fill: '#059669', r: 3 }}
               strokeDasharray="5 5"
@@ -404,8 +407,8 @@ export default function MonthlyCharts({
             </ComposedChart>
           </ResponsiveContainer>
         </div>
+        )}
       </div>
-      )}
 
       {/* Monthly Returns Chart */}
       {safeMonthlyReturns.length > 0 && (

@@ -995,11 +995,20 @@ export function parseExcelFile(buffer: ArrayBuffer): ExcelData {
       
       const tradedQty = parseFloat(row['Traded Qty'] || row['tradedQty'] || 0);
       const tradePriceAdjusted = parseFloat(row['Trade Price (Adjusted)'] || row['tradePriceAdjusted'] || 0);
-      let tradeValueAdjusted = parseFloat(row['Trade Value (Adjusted)'] || row['tradeValueAdjusted'] || 0);
-      
+      let tradeValueAdjusted = parseFloat(
+        row['Trade Value (Adjusted)'] || row['tradeValueAdjusted'] ||
+        row['Net Amount'] || row['Amount'] || row['Dividend Amount'] ||
+        row['Net Dividend'] || row['Dividend'] || 0
+      );
+
       // If tradeValueAdjusted is 0 or missing, calculate it from price * qty
       if (tradeValueAdjusted === 0 && tradePriceAdjusted > 0 && tradedQty > 0) {
         tradeValueAdjusted = tradePriceAdjusted * tradedQty;
+      }
+      // For dividends: if still 0, try tradePriceAdjusted alone (some brokers store total amount there)
+      const isDividendRow = String(buySell || '').toUpperCase().includes('DIVIDEND');
+      if (tradeValueAdjusted === 0 && isDividendRow && tradePriceAdjusted > 0) {
+        tradeValueAdjusted = tradePriceAdjusted;
       }
       
       return {

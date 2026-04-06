@@ -1904,10 +1904,15 @@ function calculateMonthlyDividends(transactions: any[]): Array<{month: string, a
       const month = format(date, 'MMM-yy'); // e.g., "Mar-16"
       const sortKey = date.getTime();
       
-      // Calculate trade value if not present: price * qty
+      // Calculate trade value — dividends may store amount differently per broker
       let tradeValue = t.tradeValueAdjusted || 0;
       if (tradeValue === 0 && t.tradePriceAdjusted && t.tradedQty) {
+        // Standard: price per share × qty
         tradeValue = t.tradePriceAdjusted * t.tradedQty;
+      }
+      if (tradeValue === 0 && t.tradePriceAdjusted > 0) {
+        // Fallback: some brokers store total dividend amount in tradePriceAdjusted when qty=0
+        tradeValue = t.tradePriceAdjusted;
       }
       
       if (!monthlyMap[month]) {
