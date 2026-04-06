@@ -2641,6 +2641,23 @@ async function calculateRealizedStocks(transactions: any[], currentHoldings: any
     holdingPeriodDays: number;
   }> = [];
   
+  // Batch-fetch current prices for all non-held ISINs in one DB query
+  const soldIsins = Object.keys(stockTransactions).filter(isin => !currentHoldingsIsins.has(isin));
+  const calcRealizedPriceMap = new Map<string, number>();
+  if (soldIsins.length > 0) {
+    try {
+      const StockDataModel2 = (await import('@/models/StockData')).default;
+      const priceDocs2 = await StockDataModel2.aggregate([
+        { $match: { isin: { $in: soldIsins }, close: { $gt: 0 } } },
+        { $sort: { date: -1, _id: -1 } },
+        { $group: { _id: '$isin', latestPrice: { $first: '$close' } } },
+      ]).exec();
+      for (const doc of priceDocs2) {
+        if (doc._id && doc.latestPrice) calcRealizedPriceMap.set(doc._id, doc.latestPrice);
+      }
+    } catch (e) { /* silent — prices will show as N/A */ }
+  }
+
   // Find stocks that were fully sold (have SELL transactions but not in current holdings)
   for (const [isin, stockTxns] of Object.entries(stockTransactions)) {
     // Skip if stock is still in current holdings
@@ -2703,8 +2720,8 @@ async function calculateRealizedStocks(transactions: any[], currentHoldings: any
       console.error(`Error fetching stock master for ${isin}:`, error);
     }
     
-    // Get current price from database (will be 0 if not available)
-    const currentPrice = await getCurrentStockPrice(isin);
+    // Get current price from batch-fetched map
+    const currentPrice = calcRealizedPriceMap.get(isin) || 0;
     const qtySold = totalBoughtQty; // Total quantity that was held and sold
     const currentValue = currentPrice > 0 ? currentPrice * qtySold : 0;
     const avgCost = totalInvested / qtySold;
@@ -2961,6 +2978,29 @@ async function calculateRealizedStocksFromPL(realizedPL: any[], currentHoldings:
       }
     }
     
+    // ── Batch-fetch current prices for ALL realized stock ISINs in ONE query ──
+    const realizedIsins = [...stockMap.values()]
+      .map(s => s.isin)
+      .filter(Boolean);
+
+    const realizedPriceMap = new Map<string, number>();
+    if (realizedIsins.length > 0) {
+      try {
+        const StockDataModel = (await import('@/models/StockData')).default;
+        const priceDocs = await StockDataModel.aggregate([
+          { $match: { isin: { $in: realizedIsins }, close: { $gt: 0 } } },
+          { $sort: { date: -1, _id: -1 } },
+          { $group: { _id: '$isin', latestPrice: { $first: '$close' } } },
+        ]).exec();
+        for (const doc of priceDocs) {
+          if (doc._id && doc.latestPrice) realizedPriceMap.set(doc._id, doc.latestPrice);
+        }
+        console.log(`calculateRealizedStocksFromPL: Batch-fetched prices for ${realizedPriceMap.size}/${realizedIsins.length} realized stocks`);
+      } catch (priceErr) {
+        console.error('calculateRealizedStocksFromPL: Error batch-fetching prices:', priceErr);
+      }
+    }
+
     // Convert map to array and calculate metrics
     const realizedStocksData: Array<{
       stockName: string;
@@ -2983,7 +3023,7 @@ async function calculateRealizedStocksFromPL(realizedPL: any[], currentHoldings:
       holdingPeriodMonths: number;
       holdingPeriodDays: number;
     }> = [];
-    
+
     for (const [key, stockData] of stockMap.entries()) {
       const isOlaElectric = stockData.stockName.toLowerCase().includes('ola electric');
       
@@ -3044,8 +3084,8 @@ async function calculateRealizedStocksFromPL(realizedPL: any[], currentHoldings:
         ? stockData.buyPrices.reduce((sum, p) => sum + p, 0) / stockData.buyPrices.length
         : stockData.totalClosedQty > 0 ? stockData.totalBuyValue / stockData.totalClosedQty : 0;
       
-      // Get current price (will be 0 if not available)
-      const currentPrice = stockData.isin ? await getCurrentStockPrice(stockData.isin) : 0;
+      // Get current price from pre-fetched batch map (0 if not in StockData yet)
+      const currentPrice = stockData.isin ? (realizedPriceMap.get(stockData.isin) || 0) : 0;
       const currentValue = currentPrice > 0 ? currentPrice * stockData.totalClosedQty : 0;
       
       // Calculate metrics
@@ -3173,7 +3213,7 @@ async function calculateRealizedStocksFromPL(realizedPL: any[], currentHoldings:
           ? olaStockData.sellPrices.reduce((sum: number, p: number) => sum + p, 0) / olaStockData.sellPrices.length
           : (olaStockData.totalSellValue / (olaStockData.totalClosedQty || 1));
         
-        const currentPrice = await getCurrentStockPrice(olaStockData.isin);
+        const currentPrice = realizedPriceMap.get(olaStockData.isin) || 0;
         const currentValue = currentPrice > 0 ? (olaStockData.totalClosedQty * currentPrice) : 0;
         const unrealizedPL = currentValue - totalInvested;
         const totalPL = realizedPL + unrealizedPL;
@@ -3251,7 +3291,7 @@ async function calculateRealizedStocksFromPL(realizedPL: any[], currentHoldings:
             ? stockData.sellPrices.reduce((sum: number, p: number) => sum + p, 0) / stockData.sellPrices.length
             : (stockData.totalSellValue / (stockData.totalClosedQty || 1));
           
-          const currentPrice = await getCurrentStockPrice(stockData.isin);
+          const currentPrice = realizedPriceMap.get(stockData.isin) || 0;
           const currentValue = currentPrice > 0 ? (stockData.totalClosedQty * currentPrice) : 0;
           const unrealizedPL = currentValue - totalInvested;
           const totalPL = realizedPL + unrealizedPL;
