@@ -41,12 +41,18 @@ export default function HoldingsTable({ holdings }: HoldingsTableProps) {
   const [selectedSector,        setSelectedSector]        = useState('all');
   const [selectedStock,         setSelectedStock]         = useState('all');
   const [selectedHoldingPeriod, setSelectedHoldingPeriod] = useState('all');
+  const [showClosed,            setShowClosed]            = useState(false);
   const [isRefreshing,          setIsRefreshing]          = useState(false);
   const [refreshMessage,        setRefreshMessage]        = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const rowsPerPage = 10;
 
-  const uniqueSectors = [...new Set(holdings.map(h => h.sectorName))].sort();
-  const uniqueStocks  = [...new Set(holdings.map(h => h.stockName))].sort();
+  // Split into active vs closed
+  const activeHoldings = holdings.filter(h => (h.openQty || 0) > 0);
+  const closedCount    = holdings.length - activeHoldings.length;
+  const baseHoldings   = showClosed ? holdings : activeHoldings;
+
+  const uniqueSectors = [...new Set(baseHoldings.map(h => h.sectorName))].sort();
+  const uniqueStocks  = [...new Set(baseHoldings.map(h => h.stockName))].sort();
 
   const getTotalMonths = (h: typeof holdings[0]) => (h.holdingPeriodYears || 0) * 12 + (h.holdingPeriodMonths || 0);
 
@@ -61,7 +67,7 @@ export default function HoldingsTable({ holdings }: HoldingsTableProps) {
     return 'moreThan5Years';
   };
 
-  const filteredHoldings = holdings.filter(h =>
+  const filteredHoldings = baseHoldings.filter(h =>
     (selectedSector === 'all' || h.sectorName === selectedSector) &&
     (selectedStock  === 'all' || h.stockName  === selectedStock)  &&
     (selectedHoldingPeriod === 'all' || getPeriodCategory(h) === selectedHoldingPeriod)
@@ -86,7 +92,7 @@ export default function HoldingsTable({ holdings }: HoldingsTableProps) {
   const paginatedHoldings = sortedHoldings.slice(startIndex, startIndex + rowsPerPage);
   const hasActiveFilters  = selectedSector !== 'all' || selectedStock !== 'all' || selectedHoldingPeriod !== 'all';
 
-  useEffect(() => { setCurrentPage(1); }, [selectedSector, selectedStock, selectedHoldingPeriod]);
+  useEffect(() => { setCurrentPage(1); }, [selectedSector, selectedStock, selectedHoldingPeriod, showClosed]);
   useEffect(() => { if (currentPage > totalPages && totalPages > 0) setCurrentPage(1); }, [totalPages, currentPage]);
 
   const getLastRefreshedDate = () => {
@@ -166,7 +172,7 @@ export default function HoldingsTable({ holdings }: HoldingsTableProps) {
           <div>
             <h2 className="text-sm font-bold text-hi">Holdings</h2>
             <p className="text-[10px] text-lo">
-              {filteredHoldings.length} stocks{hasActiveFilters ? ` (filtered from ${holdings.length})` : ''}
+              {filteredHoldings.length} stocks{hasActiveFilters ? ` (filtered from ${baseHoldings.length})` : ''}
               {getLastRefreshedDate() && ` · ${getLastRefreshedDate()}`}
             </p>
           </div>
@@ -180,10 +186,10 @@ export default function HoldingsTable({ holdings }: HoldingsTableProps) {
             color: isRefreshing ? 'var(--text-lo)' : 'var(--gain)',
             cursor: isRefreshing ? 'not-allowed' : 'pointer',
           }}>
-          <svg className={`w-3.5 h-3.5 ${isRefreshing ? 'animate-spin' : ''}`}
-            fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          <svg className={`w-4 h-4 flex-shrink-0 ${isRefreshing ? 'animate-spin' : ''}`}
+            viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" clipRule="evenodd"
+              d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" />
           </svg>
           {isRefreshing ? 'Refreshing…' : 'Refresh'}
         </button>
@@ -193,25 +199,46 @@ export default function HoldingsTable({ holdings }: HoldingsTableProps) {
       <div className="px-5 py-3 flex flex-wrap gap-2 items-center"
         style={{ borderBottom: '1px solid var(--border-sm)' }}>
         <select value={selectedSector} onChange={e => setSelectedSector(e.target.value)} className="form-input text-sm py-1.5">
-          <option value="all">All Sectors ({holdings.length})</option>
+          <option value="all">All Sectors ({baseHoldings.length})</option>
           {uniqueSectors.map(s => (
-            <option key={s} value={s}>{s} ({holdings.filter(h => h.sectorName === s).length})</option>
+            <option key={s} value={s}>{s} ({baseHoldings.filter(h => h.sectorName === s).length})</option>
           ))}
         </select>
         <select value={selectedStock} onChange={e => setSelectedStock(e.target.value)} className="form-input text-sm py-1.5" style={{ minWidth: 160 }}>
-          <option value="all">All Stocks ({holdings.length})</option>
+          <option value="all">All Stocks ({baseHoldings.length})</option>
           {uniqueStocks.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
         <select value={selectedHoldingPeriod} onChange={e => setSelectedHoldingPeriod(e.target.value)} className="form-input text-sm py-1.5" style={{ minWidth: 150 }}>
           <option value="all">All Periods</option>
-          <option value="lessThan6M">{'< 6 Months'} ({holdings.filter(h => getPeriodCategory(h) === 'lessThan6M').length})</option>
-          <option value="6Mto1Year">6M – 1Y ({holdings.filter(h => getPeriodCategory(h) === '6Mto1Year').length})</option>
-          <option value="1YearTo1_5Year">1 – 1.5Y ({holdings.filter(h => getPeriodCategory(h) === '1YearTo1_5Year').length})</option>
-          <option value="1_5YearTo2Year">1.5 – 2Y ({holdings.filter(h => getPeriodCategory(h) === '1_5YearTo2Year').length})</option>
-          <option value="2YearTo3Year">2 – 3Y ({holdings.filter(h => getPeriodCategory(h) === '2YearTo3Year').length})</option>
-          <option value="3YearTo5Year">3 – 5Y ({holdings.filter(h => getPeriodCategory(h) === '3YearTo5Year').length})</option>
-          <option value="moreThan5Years">{'> 5 Years'} ({holdings.filter(h => getPeriodCategory(h) === 'moreThan5Years').length})</option>
+          <option value="lessThan6M">{'< 6 Months'} ({baseHoldings.filter(h => getPeriodCategory(h) === 'lessThan6M').length})</option>
+          <option value="6Mto1Year">6M – 1Y ({baseHoldings.filter(h => getPeriodCategory(h) === '6Mto1Year').length})</option>
+          <option value="1YearTo1_5Year">1 – 1.5Y ({baseHoldings.filter(h => getPeriodCategory(h) === '1YearTo1_5Year').length})</option>
+          <option value="1_5YearTo2Year">1.5 – 2Y ({baseHoldings.filter(h => getPeriodCategory(h) === '1_5YearTo2Year').length})</option>
+          <option value="2YearTo3Year">2 – 3Y ({baseHoldings.filter(h => getPeriodCategory(h) === '2YearTo3Year').length})</option>
+          <option value="3YearTo5Year">3 – 5Y ({baseHoldings.filter(h => getPeriodCategory(h) === '3YearTo5Year').length})</option>
+          <option value="moreThan5Years">{'> 5 Years'} ({baseHoldings.filter(h => getPeriodCategory(h) === 'moreThan5Years').length})</option>
         </select>
+        {/* Show closed positions toggle */}
+        {closedCount > 0 && (
+          <button
+            onClick={() => setShowClosed(v => !v)}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold ml-auto"
+            style={{
+              background: showClosed
+                ? 'color-mix(in srgb, var(--warn) 12%, transparent)'
+                : 'var(--bg-raised)',
+              border: `1px solid ${showClosed ? 'color-mix(in srgb, var(--warn) 30%, transparent)' : 'var(--border-sm)'}`,
+              color: showClosed ? 'var(--warn)' : 'var(--text-mid)',
+            }}>
+            <svg className="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+              <path d={showClosed
+                ? 'M10 12a2 2 0 100-4 2 2 0 000 4z M2.458 10C3.732 5.943 6.523 3 10 3s6.268 2.943 7.542 7c-1.274 4.057-4.065 7-7.542 7S3.732 14.057 2.458 10z'
+                : 'M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 15.477 3 12 3a9.958 9.958 0 00-4.512 1.074l-1.78-1.781zm4.261 4.26l1.514 1.515a2.003 2.003 0 012.45 2.45l1.514 1.515a4 4 0 00-5.478-5.478z M12.454 16.697L9.75 13.992a4 4 0 01-3.742-3.741L2.335 6.578A9.98 9.98 0 00.458 10c1.274 4.057 4.065 7 7.542 7a9.958 9.958 0 004.454-1.303z'
+              }/>
+            </svg>
+            {showClosed ? `Hide closed (${closedCount})` : `Show closed (${closedCount})`}
+          </button>
+        )}
         {hasActiveFilters && (
           <button
             onClick={() => { setSelectedSector('all'); setSelectedStock('all'); setSelectedHoldingPeriod('all'); }}
