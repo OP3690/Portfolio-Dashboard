@@ -2507,10 +2507,13 @@ function calculateIndustryDistribution(
   profitLossAmount: number
 }> {
   const sectorMap: { [key: string]: { holdings: any[], marketValue: number, invested: number, profitLoss: number } } = {};
-  const totalValue = holdings.reduce((sum, h) => sum + (h.marketValue || 0), 0);
-  
+
+  // Only consider current (active) holdings — exclude fully exited positions
+  const activeHoldings = holdings.filter(h => (h.openQty || 0) > 0);
+  const totalValue = activeHoldings.reduce((sum, h) => sum + (h.marketValue || 0), 0);
+
   // Group holdings by sector
-  holdings.forEach(h => {
+  activeHoldings.forEach(h => {
     const sector = h.sectorName || 'Unknown';
     if (!sectorMap[sector]) {
       sectorMap[sector] = { holdings: [], marketValue: 0, invested: 0, profitLoss: 0 };
