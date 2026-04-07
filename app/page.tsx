@@ -18,6 +18,7 @@ import PortfolioQuadrant from '@/components/PortfolioQuadrant';
 import MonthlyHeatmap from '@/components/MonthlyHeatmap';
 import WealthBreakdown from '@/components/WealthBreakdown';
 import SectorPerformance from '@/components/SectorPerformance';
+import DrawdownAnalysis from '@/components/DrawdownAnalysis';
 
 /* Skeleton block */
 function Skeleton({ className = '', style = {} }: { className?: string; style?: React.CSSProperties }) {
@@ -235,6 +236,14 @@ export default function Dashboard() {
         <SectorPerformance
           holdings={(dashboardData.holdings || []).filter((h: any) => (h.openQty || 0) > 0)}
         />
+
+        {/* Portfolio Drawdown & Risk Analysis */}
+        {(dashboardData.monthlyReturns?.length ?? 0) >= 3 && (
+          <DrawdownAnalysis
+            monthlyReturns={dashboardData.monthlyReturns || []}
+            currentValue={dashboardData.summary?.currentValue ?? 0}
+          />
+        )}
 
         {/* Complete Wealth Breakdown */}
         <WealthBreakdown
