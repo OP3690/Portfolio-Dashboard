@@ -15,8 +15,8 @@ export async function GET(request: NextRequest) {
     const periodMonthsParam = searchParams.get('periodMonths');
     const periodMonths = periodMonthsParam ? parseInt(periodMonthsParam, 10) : 12;
 
-    // Get all holdings with ISINs
-    const holdings = await Holding.find({ clientId }).lean();
+    // Get only currently held stocks (openQty > 0) — exclude exited positions
+    const holdings = await Holding.find({ clientId, openQty: { $gt: 0 } }).lean();
     
     if (holdings.length === 0) {
       return NextResponse.json({ stockPerformance: [] });
