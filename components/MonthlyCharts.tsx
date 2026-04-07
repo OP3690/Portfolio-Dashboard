@@ -33,6 +33,7 @@ interface MonthlyChartsProps {
   monthlyDividends: Array<{ month: string; amount: number; stockDetails?: Array<{stockName: string; amount: number}> }>;
   avgMonthlyDividends?: number;
   medianMonthlyDividendsLast12M?: number;
+  avgMonthlyDividendsLast12M?: number;
   monthlyReturns: Array<{ month: string; returnPercent: number; returnAmount: number }>;
   returnStatistics?: {
     xirr: number;
@@ -50,6 +51,7 @@ export default function MonthlyCharts({
   monthlyDividends,
   avgMonthlyDividends,
   medianMonthlyDividendsLast12M,
+  avgMonthlyDividendsLast12M,
   monthlyReturns,
   returnStatistics,
 }: MonthlyChartsProps) {
@@ -344,6 +346,14 @@ export default function MonthlyCharts({
                 <p className="text-xs text-lo font-medium mb-0.5">Avg. Monthly Dividends</p>
                 <p className="text-base font-bold metric-value" style={{ color: 'var(--gain)' }}>
                   {formatCurrency(avgMonthlyDividends || 0)}
+                </p>
+              </div>
+            )}
+            {avgMonthlyDividendsLast12M !== undefined && (
+              <div className="px-4 py-2 rounded-xl" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-md)' }}>
+                <p className="text-xs text-lo font-medium mb-0.5">Avg. (Last 12M)</p>
+                <p className="text-base font-bold metric-value" style={{ color: 'var(--gain)' }}>
+                  {formatCurrency(avgMonthlyDividendsLast12M || 0)}
                 </p>
               </div>
             )}

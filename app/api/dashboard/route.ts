@@ -412,10 +412,12 @@ export async function GET(request: NextRequest) {
     let monthlyDividends: Array<{month: string, amount: number, stockDetails: any[], sortKey?: number}> = [];
     let avgMonthlyDividends: number = 0;
     let medianMonthlyDividendsLast12M: number = 0;
+    let avgMonthlyDividendsLast12M: number = 0;
     try {
       monthlyDividends = calculateMonthlyDividends(transactions);
       avgMonthlyDividends = calculateMonthlyDividendAverage(monthlyDividends);
       medianMonthlyDividendsLast12M = calculateMonthlyDividendMedianLast12M(monthlyDividends);
+      avgMonthlyDividendsLast12M = calculateMonthlyDividendAvgLast12M(monthlyDividends);
     } catch (error: any) {
       console.error('Error calculating monthly dividends:', error);
       monthlyDividends = [];
@@ -1297,6 +1299,7 @@ export async function GET(request: NextRequest) {
           monthlyDividends: monthlyDividends || [],
           avgMonthlyDividends: avgMonthlyDividends || 0,
           medianMonthlyDividendsLast12M: medianMonthlyDividendsLast12M || 0,
+          avgMonthlyDividendsLast12M: avgMonthlyDividendsLast12M || 0,
           monthlyReturns: monthlyReturns || [],
           returnStatistics: returnStatistics || {
             xirr: 0,
@@ -2009,6 +2012,25 @@ function calculateMonthlyDividendMedianLast12M(
   } else {
     return amounts[mid];
   }
+}
+
+function calculateMonthlyDividendAvgLast12M(
+  monthlyDividends: Array<{ month: string; amount: number; sortKey?: number }>
+): number {
+  if (!monthlyDividends || monthlyDividends.length === 0) return 0;
+
+  const sortedDividends = [...monthlyDividends].sort((a, b) => {
+    if (a.sortKey && b.sortKey) return b.sortKey - a.sortKey;
+    const dateA = parse(a.month, 'MMM-yy', new Date());
+    const dateB = parse(b.month, 'MMM-yy', new Date());
+    return dateB.getTime() - dateA.getTime();
+  });
+
+  const last12 = sortedDividends.slice(0, 12);
+  const withDividends = last12.filter(m => (m.amount || 0) > 0);
+  if (withDividends.length === 0) return 0;
+  const total = last12.reduce((s, m) => s + (m.amount || 0), 0);
+  return total / withDividends.length;
 }
 
 async function calculateMonthlyReturns(holdings: any[], transactions: any[]): Promise<Array<{month: string, returnPercent: number, returnAmount: number}>> {

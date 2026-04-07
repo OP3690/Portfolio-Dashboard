@@ -207,6 +207,7 @@ export default function Dashboard() {
           monthlyInvestmentAverages={dashboardData.monthlyInvestmentAverages}
           monthlyDividends={dashboardData.monthlyDividends}
           avgMonthlyDividends={dashboardData.avgMonthlyDividends}
+          avgMonthlyDividendsLast12M={dashboardData.avgMonthlyDividendsLast12M}
           medianMonthlyDividendsLast12M={dashboardData.medianMonthlyDividendsLast12M}
           monthlyReturns={dashboardData.monthlyReturns}
           returnStatistics={dashboardData.returnStatistics}
