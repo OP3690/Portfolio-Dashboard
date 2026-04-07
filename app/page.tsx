@@ -11,6 +11,7 @@ import RealizedStocksTable from '@/components/RealizedStocksTable';
 import IndustryPieChart from '@/components/IndustryPieChart';
 import StockAnalytics from '@/components/StockAnalytics';
 import StockResearch from '@/components/StockResearch';
+import PortfolioGrowthChart from '@/components/PortfolioGrowthChart';
 
 /* Skeleton block */
 function Skeleton({ className = '', style = {} }: { className?: string; style?: React.CSSProperties }) {
@@ -190,6 +191,15 @@ export default function Dashboard() {
           <TopPerformers title="Top 3 Gainers"  performers={dashboardData.topPerformers}   isPositive={true}  />
           <TopPerformers title="Top 3 Laggards" performers={dashboardData.worstPerformers} isPositive={false} />
         </div>
+
+        {/* Portfolio Wealth Journey */}
+        <PortfolioGrowthChart
+          monthlyInvestments={dashboardData.monthlyInvestments || []}
+          monthlyReturns={dashboardData.monthlyReturns || []}
+          currentValue={dashboardData.summary?.currentValue ?? 0}
+          totalInvested={dashboardData.summary?.totalInvested ?? 0}
+          totalPL={dashboardData.summary?.totalProfitLoss ?? 0}
+        />
 
         {/* Monthly charts */}
         <MonthlyCharts
