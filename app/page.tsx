@@ -17,7 +17,7 @@ import PortfolioTreemap from '@/components/PortfolioTreemap';
 import PortfolioQuadrant from '@/components/PortfolioQuadrant';
 import MonthlyHeatmap from '@/components/MonthlyHeatmap';
 import WealthBreakdown from '@/components/WealthBreakdown';
-import HoldingPeriodAnalysis from '@/components/HoldingPeriodAnalysis';
+import SectorPerformance from '@/components/SectorPerformance';
 
 /* Skeleton block */
 function Skeleton({ className = '', style = {} }: { className?: string; style?: React.CSSProperties }) {
@@ -231,10 +231,9 @@ export default function Dashboard() {
         {/* Portfolio Quadrant Matrix */}
         <PortfolioQuadrant holdings={(dashboardData.holdings || []).filter((h: any) => (h.openQty || 0) > 0)} />
 
-        {/* Patience Premium – Holding Period Return Analysis */}
-        <HoldingPeriodAnalysis
+        {/* Sector Performance Breakdown */}
+        <SectorPerformance
           holdings={(dashboardData.holdings || []).filter((h: any) => (h.openQty || 0) > 0)}
-          realizedStocks={dashboardData.realizedStocks || []}
         />
 
         {/* Complete Wealth Breakdown */}
