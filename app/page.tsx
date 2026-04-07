@@ -16,6 +16,7 @@ import StockPLContribution from '@/components/StockPLContribution';
 import PortfolioTreemap from '@/components/PortfolioTreemap';
 import PortfolioQuadrant from '@/components/PortfolioQuadrant';
 import MonthlyHeatmap from '@/components/MonthlyHeatmap';
+import WealthBreakdown from '@/components/WealthBreakdown';
 
 /* Skeleton block */
 function Skeleton({ className = '', style = {} }: { className?: string; style?: React.CSSProperties }) {
@@ -228,6 +229,13 @@ export default function Dashboard() {
 
         {/* Portfolio Quadrant Matrix */}
         <PortfolioQuadrant holdings={(dashboardData.holdings || []).filter((h: any) => (h.openQty || 0) > 0)} />
+
+        {/* Complete Wealth Breakdown */}
+        <WealthBreakdown
+          summary={dashboardData.summary || {}}
+          realizedStocks={dashboardData.realizedStocks || []}
+          monthlyDividends={dashboardData.monthlyDividends || []}
+        />
 
         {/* Monthly Performance Heatmap */}
         <MonthlyHeatmap
