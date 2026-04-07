@@ -246,35 +246,49 @@ export default function PortfolioQuadrant({ holdings }: Props) {
         <div className="relative rounded-2xl overflow-hidden mb-6"
           style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-sm)' }}>
 
-          {/* Corner quadrant labels (HTML overlay — precise positioning) */}
-          <div className="absolute inset-0 pointer-events-none" style={{ padding: '24px 40px 60px 62px' }}>
-            <div className="relative w-full h-full">
-              {/* Top-right: Stars */}
-              <div className="absolute top-1 right-1 flex items-center gap-1 px-2 py-0.5 rounded-lg"
-                style={{ background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.25)' }}>
-                <span className="text-[10px]">⭐</span>
-                <span className="text-[10px] font-black tracking-widest uppercase" style={{ color: 'rgba(16,185,129,0.8)' }}>Stars</span>
+          {/* Corner quadrant labels (HTML overlay — y=0 aware positioning) */}
+          {(() => {
+            // Where y=0 sits as % from top of the data area
+            const yZeroPct = ((yMax - 0) / (yMax - yMin)) * 100;
+            // Clamp so labels are always visible even if negative band is tiny
+            const bottomTopPct = Math.min(Math.max(yZeroPct, 40), 88);
+            return (
+              <div className="absolute inset-0 pointer-events-none" style={{ padding: '28px 44px 48px 68px' }}>
+                <div className="relative w-full h-full">
+                  {/* Top-right: Stars */}
+                  <div className="absolute top-2 right-2 flex items-center gap-1 px-2 py-0.5 rounded-lg"
+                    style={{ background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.25)' }}>
+                    <span className="text-[10px]">⭐</span>
+                    <span className="text-[10px] font-black tracking-widest uppercase" style={{ color: 'rgba(16,185,129,0.8)' }}>Stars</span>
+                  </div>
+                  {/* Top-left: Gems */}
+                  <div className="absolute top-2 left-2 flex items-center gap-1 px-2 py-0.5 rounded-lg"
+                    style={{ background: 'rgba(129,140,248,0.12)', border: '1px solid rgba(129,140,248,0.25)' }}>
+                    <span className="text-[10px]">💎</span>
+                    <span className="text-[10px] font-black tracking-widest uppercase" style={{ color: 'rgba(129,140,248,0.8)' }}>Gems</span>
+                  </div>
+                  {/* Bottom-right: Red Flags — placed just below break-even line */}
+                  <div className="absolute right-2 flex items-center gap-1 px-2 py-0.5 rounded-lg"
+                    style={{
+                      top: `calc(${bottomTopPct.toFixed(1)}% + 6px)`,
+                      background: 'rgba(244,63,94,0.12)', border: '1px solid rgba(244,63,94,0.25)',
+                    }}>
+                    <span className="text-[10px]">🚨</span>
+                    <span className="text-[10px] font-black tracking-widest uppercase" style={{ color: 'rgba(244,63,94,0.8)' }}>Red Flags</span>
+                  </div>
+                  {/* Bottom-left: Dead Weight — placed just below break-even line */}
+                  <div className="absolute left-2 flex items-center gap-1 px-2 py-0.5 rounded-lg"
+                    style={{
+                      top: `calc(${bottomTopPct.toFixed(1)}% + 6px)`,
+                      background: 'rgba(100,116,139,0.12)', border: '1px solid rgba(100,116,139,0.22)',
+                    }}>
+                    <span className="text-[10px]">🪦</span>
+                    <span className="text-[10px] font-black tracking-widest uppercase" style={{ color: 'rgba(100,116,139,0.7)' }}>Dead Weight</span>
+                  </div>
+                </div>
               </div>
-              {/* Top-left: Gems */}
-              <div className="absolute top-1 left-1 flex items-center gap-1 px-2 py-0.5 rounded-lg"
-                style={{ background: 'rgba(129,140,248,0.12)', border: '1px solid rgba(129,140,248,0.25)' }}>
-                <span className="text-[10px]">💎</span>
-                <span className="text-[10px] font-black tracking-widest uppercase" style={{ color: 'rgba(129,140,248,0.8)' }}>Gems</span>
-              </div>
-              {/* Bottom-right: Red Flags */}
-              <div className="absolute bottom-1 right-1 flex items-center gap-1 px-2 py-0.5 rounded-lg"
-                style={{ background: 'rgba(244,63,94,0.12)', border: '1px solid rgba(244,63,94,0.25)' }}>
-                <span className="text-[10px]">🚨</span>
-                <span className="text-[10px] font-black tracking-widest uppercase" style={{ color: 'rgba(244,63,94,0.8)' }}>Red Flags</span>
-              </div>
-              {/* Bottom-left: Dead Weight */}
-              <div className="absolute bottom-1 left-1 flex items-center gap-1 px-2 py-0.5 rounded-lg"
-                style={{ background: 'rgba(100,116,139,0.12)', border: '1px solid rgba(100,116,139,0.22)' }}>
-                <span className="text-[10px]">🪦</span>
-                <span className="text-[10px] font-black tracking-widest uppercase" style={{ color: 'rgba(100,116,139,0.7)' }}>Dead Weight</span>
-              </div>
-            </div>
-          </div>
+            );
+          })()}
 
           {/* Zoom notice */}
           {zoomed && hasOutlier && (
