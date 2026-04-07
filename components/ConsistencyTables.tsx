@@ -467,6 +467,7 @@ export default function ConsistencyTables({ stockPerformance, holdings }: Consis
       const monthlyReturnsMap = new Map(stock.monthlyReturns.map(m => [m.month, m.return]));
       return {
         stock: stock.stockName,
+        averageReturn: stock.averageReturn,   // used for row highlight
         months: allMonths.map(month => {
           const ret = monthlyReturnsMap.get(month);
           if (ret === undefined) return { value: '-', return: null };
@@ -853,11 +854,32 @@ export default function ConsistencyTables({ stockPerformance, holdings }: Consis
       {/* 4. Consistency Calendar Table */}
       <div className="card p-6">
         <h3 className="text-base font-bold text-hi mb-4">Consistency Calendar Table</h3>
-        <div className="mb-3 text-xs" style={{ color: 'var(--text-lo)' }}>
-          <span className="mr-4"><span className="font-semibold" style={{ color: 'var(--gain)' }}>Green</span> = Positive Return</span>
-          <span className="mr-4"><span className="font-semibold" style={{ color: 'var(--loss)' }}>Red</span> = Negative Return</span>
-          <span style={{ color: 'var(--text-lo)' }}>— = No Data</span>
+
+        {/* Legend */}
+        <div className="mb-3 flex flex-wrap items-center gap-4 text-xs">
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block w-3 h-3 rounded-sm" style={{ background: 'rgba(5,150,105,0.18)' }} />
+            <span style={{ color: 'var(--text-mid)' }}>Avg return &gt;1% (Strong)</span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block w-3 h-3 rounded-sm" style={{ background: 'rgba(217,119,6,0.18)' }} />
+            <span style={{ color: 'var(--text-mid)' }}>Avg return 0.5–1% (Moderate)</span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block w-3 h-3 rounded-sm" style={{ background: 'rgba(225,29,72,0.14)' }} />
+            <span style={{ color: 'var(--text-mid)' }}>Avg return &lt;0.5% (Weak)</span>
+          </span>
+          <span className="flex items-center gap-1.5 ml-2" style={{ borderLeft: '1px solid var(--border-sm)', paddingLeft: 12 }}>
+            <span className="font-semibold" style={{ color: 'var(--gain)' }}>+%</span>
+            <span style={{ color: 'var(--text-lo)' }}>= positive month</span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="font-semibold" style={{ color: 'var(--loss)' }}>−%</span>
+            <span style={{ color: 'var(--text-lo)' }}>= negative month</span>
+          </span>
+          <span style={{ color: 'var(--text-lo)' }}>— = no data</span>
         </div>
+
         <div className="tbl-wrap">
           <table className="tbl">
             <thead>
@@ -871,18 +893,33 @@ export default function ConsistencyTables({ stockPerformance, holdings }: Consis
               </tr>
             </thead>
             <tbody>
-              {consistencyCalendar.map((row, idx) => (
-                <tr key={idx} style={{ background: idx % 2 === 0 ? 'transparent' : 'var(--bg-raised)' }}>
-                  <td className="px-4 py-3 font-semibold text-hi sticky left-0"
-                    style={{ background: idx % 2 === 0 ? 'var(--bg-surface)' : 'var(--bg-raised)' }}>{row.stock}</td>
-                  {row.months.map((month, i) => (
-                    <td key={i} className="px-3 py-3 text-center text-sm font-semibold metric-value"
-                      style={{ color: month.return === null ? 'var(--text-lo)' : month.return >= 0 ? 'var(--gain)' : 'var(--loss)' }}>
-                      {month.value}
+              {consistencyCalendar.map((row, idx) => {
+                // Row background based on average monthly return
+                const avg = row.averageReturn ?? 0;
+                const rowBg = avg > 1
+                  ? 'rgba(5,150,105,0.10)'       // light green  — strong (>1%)
+                  : avg >= 0.5
+                    ? 'rgba(217,119,6,0.10)'      // light yellow — moderate (0.5–1%)
+                    : 'rgba(225,29,72,0.08)';     // light red    — weak (<0.5%)
+
+                return (
+                  <tr key={idx} style={{ background: rowBg }}>
+                    <td className="px-4 py-3 font-semibold text-hi sticky left-0"
+                      style={{ background: rowBg }}>
+                      {row.stock}
+                      <span className="ml-2 text-[10px] font-normal" style={{ color: avg > 1 ? 'var(--gain)' : avg >= 0.5 ? 'var(--warn)' : 'var(--loss)' }}>
+                        ({avg >= 0 ? '+' : ''}{avg.toFixed(2)}% avg)
+                      </span>
                     </td>
-                  ))}
-                </tr>
-              ))}
+                    {row.months.map((month, i) => (
+                      <td key={i} className="px-3 py-3 text-center text-sm font-semibold metric-value"
+                        style={{ color: month.return === null ? 'var(--text-lo)' : month.return >= 0 ? 'var(--gain)' : 'var(--loss)' }}>
+                        {month.value}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
