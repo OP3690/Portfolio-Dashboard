@@ -5,15 +5,21 @@ import { createPortal } from 'react-dom';
 import { formatCurrency } from '@/lib/utils';
 import PerformanceAnalyticsCharts from './PerformanceAnalyticsCharts';
 import DetailedAnalysis from './DetailedAnalysis';
+import StockScorecard from './StockScorecard';
 
 interface StockAnalyticsProps {
   holdings: Array<{
     stockName: string;
+    isin?: string;
     marketValue: number;
     investmentAmount: number;
     profitLossTillDatePercent: number;
     profitLossTillDate: number;
     sectorName?: string;
+    xirr?: number;
+    cagr?: number;
+    holdingPeriodYears?: number;
+    holdingPeriodMonths?: number;
   }>;
   transactions: Array<{
     isin: string;
@@ -415,6 +421,12 @@ export default function StockAnalytics({ holdings, transactions }: StockAnalytic
       <div>
         <SectionTitle>Performance Analytics & Trend Detection</SectionTitle>
         <PerformanceAnalyticsCharts clientId="994826" holdings={holdings} transactions={transactions} />
+      </div>
+
+      {/* ── Stock Intelligence Scorecard ──────────────────────── */}
+      <div>
+        <SectionTitle>Stock Intelligence Scorecard</SectionTitle>
+        <StockScorecard holdings={holdings} transactions={transactions} />
       </div>
 
       {/* ── Detailed Analysis ─────────────────────────────────── */}
