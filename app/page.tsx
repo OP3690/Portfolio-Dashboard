@@ -17,6 +17,7 @@ import PortfolioTreemap from '@/components/PortfolioTreemap';
 import PortfolioQuadrant from '@/components/PortfolioQuadrant';
 import MonthlyHeatmap from '@/components/MonthlyHeatmap';
 import WealthBreakdown from '@/components/WealthBreakdown';
+import MonteCarloSimulation from '@/components/MonteCarloSimulation';
 
 /* Skeleton block */
 function Skeleton({ className = '', style = {} }: { className?: string; style?: React.CSSProperties }) {
@@ -229,6 +230,15 @@ export default function Dashboard() {
 
         {/* Portfolio Quadrant Matrix */}
         <PortfolioQuadrant holdings={(dashboardData.holdings || []).filter((h: any) => (h.openQty || 0) > 0)} />
+
+        {/* Monte Carlo Portfolio Simulation */}
+        {(dashboardData.monthlyReturns?.length ?? 0) >= 3 && (
+          <MonteCarloSimulation
+            monthlyReturns={dashboardData.monthlyReturns || []}
+            currentValue={dashboardData.summary?.currentValue ?? 0}
+            totalInvested={dashboardData.summary?.totalInvested ?? 0}
+          />
+        )}
 
         {/* Complete Wealth Breakdown */}
         <WealthBreakdown
