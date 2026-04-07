@@ -14,6 +14,7 @@ import StockResearch from '@/components/StockResearch';
 import PortfolioGrowthChart from '@/components/PortfolioGrowthChart';
 import StockPLContribution from '@/components/StockPLContribution';
 import PortfolioTreemap from '@/components/PortfolioTreemap';
+import PortfolioQuadrant from '@/components/PortfolioQuadrant';
 
 /* Skeleton block */
 function Skeleton({ className = '', style = {} }: { className?: string; style?: React.CSSProperties }) {
@@ -223,6 +224,9 @@ export default function Dashboard() {
 
         {/* Portfolio Concentration Treemap */}
         <PortfolioTreemap holdings={(dashboardData.holdings || []).filter((h: any) => (h.openQty || 0) > 0)} />
+
+        {/* Portfolio Quadrant Matrix */}
+        <PortfolioQuadrant holdings={(dashboardData.holdings || []).filter((h: any) => (h.openQty || 0) > 0)} />
 
         {/* Holdings table */}
         <HoldingsTable holdings={dashboardData.holdings} />
