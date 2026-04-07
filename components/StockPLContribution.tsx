@@ -186,12 +186,12 @@ export default function StockPLContribution({ holdings }: StockPLContributionPro
             <Bar dataKey="pl" radius={[0, 4, 4, 0]} isAnimationActive={false}
               label={{
                 position: 'right',
-                formatter: (v: number) => {
-                  const abs = Math.abs(v);
-                  const str = abs >= 1_00_000
-                    ? `${v < 0 ? '-' : '+'}₹${(abs / 1_00_000).toFixed(1)}L`
-                    : `${v < 0 ? '-' : '+'}₹${(abs / 1_000).toFixed(1)}k`;
-                  return str;
+                formatter: (v: unknown) => {
+                  const n = Number(v);
+                  const abs = Math.abs(n);
+                  return abs >= 1_00_000
+                    ? `${n < 0 ? '-' : '+'}₹${(abs / 1_00_000).toFixed(1)}L`
+                    : `${n < 0 ? '-' : '+'}₹${(abs / 1_000).toFixed(1)}k`;
                 },
                 style: { fontSize: 10, fontWeight: 600, fill: '#9ca3af' },
               }}
