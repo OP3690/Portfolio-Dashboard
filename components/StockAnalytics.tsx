@@ -6,6 +6,7 @@ import { formatCurrency } from '@/lib/utils';
 import PerformanceAnalyticsCharts from './PerformanceAnalyticsCharts';
 import DetailedAnalysis from './DetailedAnalysis';
 import StockScorecard from './StockScorecard';
+import CapitalEfficiency from './CapitalEfficiency';
 
 interface StockAnalyticsProps {
   holdings: Array<{
@@ -421,6 +422,12 @@ export default function StockAnalytics({ holdings, transactions }: StockAnalytic
       <div>
         <SectionTitle>Performance Analytics & Trend Detection</SectionTitle>
         <PerformanceAnalyticsCharts clientId="994826" holdings={holdings} transactions={transactions} />
+      </div>
+
+      {/* ── Capital Allocation Efficiency ────────────────────── */}
+      <div>
+        <SectionTitle>Capital Allocation Efficiency</SectionTitle>
+        <CapitalEfficiency holdings={holdings} />
       </div>
 
       {/* ── Stock Intelligence Scorecard ──────────────────────── */}
