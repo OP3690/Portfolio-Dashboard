@@ -3,10 +3,11 @@
 import { useMemo, useState } from 'react';
 import {
   ScatterChart, Scatter, XAxis, YAxis, CartesianGrid,
-  Tooltip, ReferenceLine, ResponsiveContainer, Cell, Label,
+  Tooltip, ReferenceLine, ReferenceArea, ResponsiveContainer, Label,
 } from 'recharts';
 import { formatCurrency } from '@/lib/utils';
 
+/* ─── Types ──────────────────────────────────────────────── */
 interface Holding {
   stockName: string;
   openQty: number;
@@ -19,375 +20,459 @@ interface Holding {
   holdingPeriodYears?: number;
   holdingPeriodMonths?: number;
 }
-
 interface Props { holdings: Holding[] }
 
-/* Consistent color per industry */
+/* ─── Helpers ────────────────────────────────────────────── */
 const INDUSTRY_COLORS: Record<string, string> = {
-  'Banking':             '#6366f1',
-  'Financial Services':  '#8b5cf6',
-  'IT':                  '#06b6d4',
-  'Technology':          '#06b6d4',
-  'Pharma':              '#10b981',
-  'Healthcare':          '#10b981',
-  'FMCG':                '#f59e0b',
-  'Consumer':            '#f59e0b',
-  'Auto':                '#ef4444',
-  'Automobile':          '#ef4444',
-  'Energy':              '#f97316',
-  'Oil & Gas':           '#f97316',
-  'Metals':              '#a1a1aa',
-  'Infrastructure':      '#84cc16',
-  'Real Estate':         '#ec4899',
-  'Telecom':             '#14b8a6',
-  'Media':               '#a78bfa',
-  'Chemicals':           '#fb923c',
-  'Cement':              '#d4d4d8',
+  'Banking':            '#818cf8', 'Financial':          '#a78bfa',
+  'IT':                 '#22d3ee', 'Technology':         '#22d3ee',
+  'Software':           '#38bdf8', 'Pharma':             '#34d399',
+  'Healthcare':         '#34d399', 'FMCG':               '#fbbf24',
+  'Consumer':           '#fbbf24', 'Auto':               '#f87171',
+  'Automobile':         '#f87171', 'Energy':             '#fb923c',
+  'Oil':                '#fb923c', 'Metals':             '#a1a1aa',
+  'Infrastructure':     '#a3e635', 'Real Estate':        '#f472b6',
+  'Telecom':            '#2dd4bf', 'Media':              '#c084fc',
+  'Chemicals':          '#fdba74', 'Cement':             '#d4d4d8',
+  'Defence':            '#60a5fa', 'Power':              '#facc15',
 };
 function industryColor(ind: string): string {
-  for (const [key, val] of Object.entries(INDUSTRY_COLORS)) {
-    if (ind?.toLowerCase().includes(key.toLowerCase())) return val;
-  }
-  // Deterministic fallback from string hash
-  const hash = [...(ind || 'Other')].reduce((acc, c) => acc + c.charCodeAt(0), 0);
-  const palette = ['#f43f5e','#e879f9','#38bdf8','#34d399','#fbbf24','#a3e635','#fb923c'];
-  return palette[hash % palette.length];
+  for (const [k, v] of Object.entries(INDUSTRY_COLORS))
+    if (ind?.toLowerCase().includes(k.toLowerCase())) return v;
+  const h = [...(ind || 'X')].reduce((a, c) => a + c.charCodeAt(0), 0);
+  return ['#f43f5e','#e879f9','#38bdf8','#34d399','#fbbf24','#a3e635','#fb923c'][h % 7];
 }
 
-function abbrev(name: string, max = 14): string {
-  const cleaned = name
-    .replace(/\s+(LIMITED|LTD|INDUSTRIES|ENTERPRISES|CORPORATION|CORP|INC|PVT|PRIVATE)\.?$/i, '')
-    .trim();
-  return cleaned.length > max ? cleaned.slice(0, max - 2) + '…' : cleaned;
+const QUADRANT_COLORS = {
+  stars: '#10b981', gems: '#818cf8', flags: '#f43f5e', dead: '#6b7280',
+} as const;
+
+function quadrantOf(weight: number, ret: number, xRef: number) {
+  if (weight >= xRef) return ret > 0 ? 'stars'  : 'flags';
+  return                       ret > 0 ? 'gems'   : 'dead';
+}
+function quadrantLabel(q: string) {
+  return q === 'stars' ? '⭐ Star' : q === 'gems' ? '💎 Hidden Gem'
+       : q === 'flags' ? '🚨 Red Flag' : '🪦 Dead Weight';
 }
 
-/* Custom scatter dot — sized by investment */
-const CustomDot = (props: any) => {
-  const { cx, cy, payload, highlighted } = props;
-  if (cx == null || cy == null) return null;
-  const r = Math.max(6, Math.min(28, Math.sqrt(payload.invested / 5000)));
-  const color = industryColor(payload.industry || '');
-  const isHighlighted = highlighted === payload.name;
+function abbrev(name: string, maxChars = 13): string {
+  const s = name.replace(/\s+(LIMITED|LTD\.?|INDUSTRIES|ENTERPRISES|CORPORATION|CORP\.?|INC\.?|PVT\.?|PRIVATE)\.?\s*$/i,'').trim();
+  return s.length > maxChars ? s.slice(0, maxChars - 1) + '…' : s;
+}
+function holdStr(m: number) {
+  if (!m) return '—';
+  const y = Math.floor(m / 12), mo = m % 12;
+  return y > 0 ? `${y}y ${mo}m` : `${mo}m`;
+}
+
+/* ─── Custom dot (rendered inside SVG) ──────────────────── */
+function Dot(props: any) {
+  const { cx, cy, payload, colorBy, xRef, hoveredName, onHover } = props;
+  if (cx == null || cy == null || !payload) return null;
+
+  const q     = quadrantOf(payload.weight, payload.ret, xRef);
+  const color = colorBy === 'quadrant' ? QUADRANT_COLORS[q as keyof typeof QUADRANT_COLORS] : industryColor(payload.industry);
+  const r     = Math.max(8, Math.min(30, Math.sqrt((payload.invested || 1) / 4500)));
+  const isHov = hoveredName === payload.name;
+
   return (
-    <g>
-      <circle cx={cx} cy={cy} r={r + 3} fill={color} opacity={0.15} />
+    <g style={{ cursor: 'pointer' }}
+      onMouseEnter={() => onHover(payload.name)}
+      onMouseLeave={() => onHover(null)}>
+      {/* glow ring */}
+      {isHov && <circle cx={cx} cy={cy} r={r + 7} fill={color} opacity={0.18} />}
+      {/* outer pulse ring */}
+      <circle cx={cx} cy={cy} r={r + 3} fill={color} opacity={isHov ? 0.25 : 0.12} />
+      {/* main bubble */}
       <circle cx={cx} cy={cy} r={r}
-        fill={color}
-        stroke={isHighlighted ? '#fff' : color}
-        strokeWidth={isHighlighted ? 2 : 0.8}
-        opacity={0.88}
-        style={{ cursor: 'pointer' }}
+        fill={color} fillOpacity={isHov ? 1 : 0.82}
+        stroke={isHov ? '#fff' : 'rgba(255,255,255,0.3)'}
+        strokeWidth={isHov ? 2 : 1}
       />
-      {r > 14 && (
-        <text x={cx} y={cy + 1} textAnchor="middle" dominantBaseline="middle"
-          fontSize={9} fontWeight={700} fill="#fff" style={{ pointerEvents: 'none', userSelect: 'none' }}>
-          {abbrev(payload.name, 8)}
+      {/* label inside bubble (only if big enough) */}
+      {r >= 13 && (
+        <text x={cx} y={cy} textAnchor="middle" dominantBaseline="central"
+          fontSize={Math.min(10, r * 0.65)} fontWeight={700} fill="#fff"
+          style={{ pointerEvents: 'none', userSelect: 'none' }}>
+          {abbrev(payload.name, Math.max(5, Math.floor(r / 5.5)))}
+        </text>
+      )}
+      {/* small dot label below bubble (when hovered or medium-sized) */}
+      {(isHov && r < 13) && (
+        <text x={cx} y={cy + r + 9} textAnchor="middle"
+          fontSize={9} fontWeight={600} fill="#e2e8f0"
+          style={{ pointerEvents: 'none', userSelect: 'none' }}>
+          {abbrev(payload.name, 12)}
         </text>
       )}
     </g>
   );
-};
+}
 
-/* Quadrant background overlay using a custom SVG layer */
-const QuadrantOverlay = ({ xRef, yRef, xMax, yMin, yMax, width, height, xScale, yScale }: any) => {
-  if (!xScale || !yScale) return null;
-  const x0 = xScale(0);
-  const xR = xScale(xRef);
-  const y0 = yScale(0);
-  return (
-    <g>
-      {/* Stars: right of xRef, above y=0 */}
-      <rect x={xR} y={0} width={width - xR} height={y0}
-        fill="#05966920" stroke="none" />
-      {/* Hidden Gems: left of xRef, above y=0 */}
-      <rect x={x0} y={0} width={xR - x0} height={y0}
-        fill="#6366f112" stroke="none" />
-      {/* Red Flags: right of xRef, below y=0 */}
-      <rect x={xR} y={y0} width={width - xR} height={height - y0}
-        fill="#e11d4820" stroke="none" />
-      {/* Dead Weight: left of xRef, below y=0 */}
-      <rect x={x0} y={y0} width={xR - x0} height={height - y0}
-        fill="#9ca3af10" stroke="none" />
-    </g>
-  );
-};
-
+/* ─── Main component ─────────────────────────────────────── */
 export default function PortfolioQuadrant({ holdings }: Props) {
-  const [highlighted, setHighlighted] = useState<string | null>(null);
-  const [colorBy, setColorBy] = useState<'industry' | 'quadrant'>('industry');
+  const [hoveredName, setHoveredName] = useState<string | null>(null);
+  const [colorBy, setColorBy]         = useState<'industry' | 'quadrant'>('industry');
+  const [selectedIndustry, setSelectedIndustry] = useState<string | null>(null);
 
-  const { data, xRef, industries, summary } = useMemo(() => {
-    const active = (holdings || []).filter(
-      h => (h.openQty || 0) > 0 && (h.marketValue || 0) > 0
-    );
+  /* ── Derived data ── */
+  const { data, xRef, yMin, yMax, xMax, industries, summary, topPerformers, worstPerformers } = useMemo(() => {
+    const active = (holdings || []).filter(h => (h.openQty || 0) > 0 && (h.marketValue || 0) > 0);
     const totalMV = active.reduce((s, h) => s + (h.marketValue ?? 0), 0);
-    if (!totalMV) return { data: [], xRef: 5, industries: [], summary: null };
+    if (!totalMV) return { data: [], xRef: 5, yMin: -20, yMax: 20, xMax: 15, industries: [], summary: null, topPerformers: [], worstPerformers: [] };
 
     const mapped = active.map(h => {
-      const mv       = h.marketValue ?? 0;
-      const pl       = h.profitLossTillDate ?? 0;
-      const invested = Math.max(mv - pl, 1);
-      const weight   = (mv / totalMV) * 100;
-      const ret      = h.profitLossTillDatePercent ?? 0;
-      const holdM    = (h.holdingPeriodYears ?? 0) * 12 + (h.holdingPeriodMonths ?? 0);
+      const mv   = h.marketValue ?? 0;
+      const pl   = h.profitLossTillDate ?? 0;
+      const inv  = Math.max(mv - pl, 1);
       return {
         name:     h.stockName,
-        weight:   +weight.toFixed(2),
-        ret:      +ret.toFixed(2),
-        invested,
+        weight:   +(mv / totalMV * 100).toFixed(2),
+        ret:      +(h.profitLossTillDatePercent ?? 0).toFixed(2),
+        invested: inv,
         mv,
         plAbs:    pl,
         industry: h.industry || 'Other',
         xirr:     h.xirr ?? 0,
         cagr:     h.cagr ?? 0,
-        holdM,
+        holdM:    (h.holdingPeriodYears ?? 0) * 12 + (h.holdingPeriodMonths ?? 0),
       };
     });
 
-    const avgWeight = 100 / mapped.length;  // equal-weight benchmark
-    const xRef = +avgWeight.toFixed(2);
+    const xRef = +(100 / mapped.length).toFixed(2);
+    const rets = mapped.map(d => d.ret);
+    const yPad = 8;
+    const yMin = Math.min(...rets, -5) - yPad;
+    const yMax = Math.max(...rets,  5) + yPad;
+    const xMax = Math.max(...mapped.map(d => d.weight), xRef * 1.2) * 1.12;
 
-    const stars  = mapped.filter(d => d.weight >= xRef && d.ret > 0);
-    const gems   = mapped.filter(d => d.weight < xRef && d.ret > 0);
-    const flags  = mapped.filter(d => d.weight >= xRef && d.ret <= 0);
-    const dead   = mapped.filter(d => d.weight < xRef && d.ret <= 0);
+    const counts = { stars: 0, gems: 0, flags: 0, dead: 0, total: mapped.length };
+    mapped.forEach(d => { counts[quadrantOf(d.weight, d.ret, xRef) as keyof typeof counts]++; });
 
     const inds = [...new Set(mapped.map(d => d.industry))].sort();
+    const sorted = [...mapped].sort((a, b) => b.ret - a.ret);
+    const topPerformers  = sorted.slice(0, 3);
+    const worstPerformers = sorted.slice(-3).reverse();
 
-    return {
-      data:       mapped,
-      xRef,
-      industries: inds,
-      summary: { stars: stars.length, gems: gems.length, flags: flags.length, dead: dead.length, total: mapped.length },
-    };
+    return { data: mapped, xRef, yMin, yMax, xMax, industries: inds, summary: counts, topPerformers, worstPerformers };
   }, [holdings]);
 
-  const yMin = useMemo(() => Math.min(...data.map(d => d.ret), -5) - 5, [data]);
-  const yMax = useMemo(() => Math.max(...data.map(d => d.ret), 5) + 5, [data]);
-  const xMax = useMemo(() => Math.max(...data.map(d => d.weight), xRef) + 2, [data, xRef]);
+  /* ── Filtered display data ── */
+  const displayData = useMemo(() =>
+    selectedIndustry ? data.map(d => ({ ...d, _dim: d.industry !== selectedIndustry })) : data
+  , [data, selectedIndustry]);
 
   if (!data.length) return null;
 
-  const quadrantConfig = [
-    { key: 'stars',  emoji: '⭐', label: 'Stars',        count: summary?.stars ?? 0,  color: '#059669', bg: 'rgba(5,150,105,0.1)',   desc: 'High weight · High return' },
-    { key: 'gems',   emoji: '💎', label: 'Hidden Gems',  count: summary?.gems ?? 0,   color: '#6366f1', bg: 'rgba(99,102,241,0.1)',  desc: 'Low weight · High return' },
-    { key: 'flags',  emoji: '🚨', label: 'Red Flags',    count: summary?.flags ?? 0,  color: '#e11d48', bg: 'rgba(225,29,72,0.1)',   desc: 'High weight · Poor return' },
-    { key: 'dead',   emoji: '🪦', label: 'Dead Weight',  count: summary?.dead ?? 0,   color: '#6b7280', bg: 'rgba(107,114,128,0.1)', desc: 'Low weight · Poor return' },
+  const quadCards = [
+    { key: 'stars', emoji: '⭐', label: 'Stars',       count: summary?.stars ?? 0,  color: QUADRANT_COLORS.stars, bg: 'rgba(16,185,129,0.09)', border: 'rgba(16,185,129,0.25)', tip: 'Overweight & outperforming — keep & add' },
+    { key: 'gems',  emoji: '💎', label: 'Hidden Gems', count: summary?.gems  ?? 0,  color: QUADRANT_COLORS.gems,  bg: 'rgba(129,140,248,0.09)', border: 'rgba(129,140,248,0.25)', tip: 'Underweight & outperforming — scale up?' },
+    { key: 'flags', emoji: '🚨', label: 'Red Flags',   count: summary?.flags ?? 0,  color: QUADRANT_COLORS.flags, bg: 'rgba(244,63,94,0.09)',   border: 'rgba(244,63,94,0.25)',  tip: 'Overweight & underperforming — review' },
+    { key: 'dead',  emoji: '🪦', label: 'Dead Weight', count: summary?.dead  ?? 0,  color: QUADRANT_COLORS.dead,  bg: 'rgba(107,114,128,0.09)', border: 'rgba(107,114,128,0.2)', tip: 'Underweight & underperforming — exit?' },
   ];
 
   return (
-    <div className="card p-6 animate-fadeIn">
-      {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-4 mb-5">
+    <div className="card p-6 animate-fadeIn" style={{ background: 'var(--bg-card)' }}>
+
+      {/* ── Header ── */}
+      <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
         <div>
-          <h2 className="section-title text-base flex items-center gap-2">
-            <div className="w-1 h-5 rounded-full" style={{ background: 'var(--brand)' }} />
-            Portfolio Quadrant Matrix
-          </h2>
-          <p className="text-xs mt-0.5" style={{ color: 'var(--text-lo)' }}>
-            Each bubble = one stock · Size = invested value · X = portfolio weight % · Y = return %
+          <div className="flex items-center gap-2 mb-1">
+            <div className="w-1 h-6 rounded-full" style={{ background: 'linear-gradient(180deg,#818cf8,#10b981)' }} />
+            <h2 className="text-base font-bold tracking-tight" style={{ color: 'var(--text-hi)' }}>
+              Portfolio Quadrant Matrix
+            </h2>
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+              style={{ background: 'rgba(129,140,248,0.15)', color: '#818cf8' }}>
+              BCG-Style Analysis
+            </span>
+          </div>
+          <p className="text-xs ml-3" style={{ color: 'var(--text-lo)' }}>
+            Bubble size = invested · X = portfolio weight % · Y = return % · Hover for details
           </p>
         </div>
-        {/* Colour toggle */}
-        <div className="flex gap-1.5 p-1 rounded-lg" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-md)' }}>
-          {(['industry', 'quadrant'] as const).map(opt => (
-            <button key={opt} onClick={() => setColorBy(opt)}
-              className="px-3 py-1 rounded-md text-xs font-semibold transition-all capitalize"
-              style={{
-                background: colorBy === opt ? 'var(--bg-card)' : 'transparent',
-                color:      colorBy === opt ? 'var(--brand)' : 'var(--text-lo)',
-                boxShadow:  colorBy === opt ? '0 1px 4px rgba(0,0,0,0.2)' : 'none',
-              }}>
-              {opt === 'industry' ? 'By Industry' : 'By Quadrant'}
-            </button>
-          ))}
+        {/* Controls */}
+        <div className="flex gap-2 flex-wrap">
+          <div className="flex gap-1 p-1 rounded-lg" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-md)' }}>
+            {(['industry', 'quadrant'] as const).map(opt => (
+              <button key={opt} onClick={() => setColorBy(opt)}
+                className="px-3 py-1 rounded-md text-xs font-semibold transition-all"
+                style={{
+                  background: colorBy === opt ? 'var(--bg-card)' : 'transparent',
+                  color:      colorBy === opt ? 'var(--brand)'   : 'var(--text-lo)',
+                  boxShadow:  colorBy === opt ? '0 1px 3px rgba(0,0,0,0.25)' : 'none',
+                }}>
+                {opt === 'industry' ? '🏭 Industry' : '🎯 Quadrant'}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
-      {/* Quadrant legend pills */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
-        {quadrantConfig.map(q => (
-          <div key={q.key} className="rounded-xl p-3 flex items-start gap-2"
-            style={{ background: q.bg, border: `1px solid ${q.color}30` }}>
-            <span className="text-lg leading-none mt-0.5">{q.emoji}</span>
-            <div>
-              <p className="text-xs font-bold" style={{ color: q.color }}>{q.label}</p>
-              <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-lo)' }}>{q.desc}</p>
-              <p className="text-sm font-bold mt-1" style={{ color: q.color }}>{q.count} stocks</p>
+      {/* ── 4 quadrant stat cards ── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+        {quadCards.map(q => (
+          <div key={q.key} className="rounded-2xl p-4 transition-transform hover:scale-[1.02]"
+            style={{ background: q.bg, border: `1px solid ${q.border}` }}>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xl">{q.emoji}</span>
+              <span className="text-2xl font-black" style={{ color: q.color }}>{q.count}</span>
             </div>
+            <p className="text-sm font-bold" style={{ color: q.color }}>{q.label}</p>
+            <p className="text-[10px] mt-0.5 leading-snug" style={{ color: 'var(--text-lo)' }}>{q.tip}</p>
           </div>
         ))}
       </div>
 
-      {/* Chart */}
-      <div style={{ width: '100%', height: 420 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <ScatterChart margin={{ top: 20, right: 30, bottom: 40, left: 20 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="var(--border-sm)" opacity={0.5} />
+      {/* ── Main chart ── */}
+      <div className="rounded-2xl p-3 mb-5"
+        style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-sm)' }}>
+        <div style={{ width: '100%', height: 440 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <ScatterChart margin={{ top: 24, right: 40, bottom: 44, left: 16 }}>
 
-            <XAxis
-              type="number" dataKey="weight"
-              domain={[0, xMax]}
-              tickFormatter={v => `${v.toFixed(1)}%`}
-              tick={{ fill: '#6b7280', fontSize: 11 }}
-              stroke="#4b5563"
-              label={{ value: 'Portfolio Weight (%)', position: 'insideBottom', offset: -25, fill: '#6b7280', fontSize: 12 }}
-            />
-            <YAxis
-              type="number" dataKey="ret"
-              domain={[yMin, yMax]}
-              tickFormatter={v => `${v > 0 ? '+' : ''}${v.toFixed(0)}%`}
-              tick={{ fill: '#6b7280', fontSize: 11 }}
-              stroke="#4b5563"
-              label={{ value: 'Return (%)', angle: -90, position: 'insideLeft', offset: 10, fill: '#6b7280', fontSize: 12 }}
-            />
+              {/* Quadrant background fills */}
+              <ReferenceArea x1={xRef} x2={xMax} y1={0}    y2={yMax} fill="#10b981" fillOpacity={0.05} />
+              <ReferenceArea x1={0}    x2={xRef} y1={0}    y2={yMax} fill="#818cf8" fillOpacity={0.05} />
+              <ReferenceArea x1={xRef} x2={xMax} y1={yMin} y2={0}    fill="#f43f5e" fillOpacity={0.05} />
+              <ReferenceArea x1={0}    x2={xRef} y1={yMin} y2={0}    fill="#6b7280" fillOpacity={0.04} />
 
-            {/* Divider lines */}
-            <ReferenceLine y={0} stroke="#e11d48" strokeWidth={1.5} strokeDasharray="6 3" opacity={0.7}>
-              <Label value="0% Return" position="right" fill="#e11d48" fontSize={10} />
-            </ReferenceLine>
-            <ReferenceLine x={xRef} stroke="#6366f1" strokeWidth={1.5} strokeDasharray="6 3" opacity={0.7}>
-              <Label value={`Avg weight ${xRef.toFixed(1)}%`} position="top" fill="#6366f1" fontSize={10} />
-            </ReferenceLine>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
 
-            {/* Quadrant corner labels */}
-            <ReferenceLine y={yMax * 0.75} stroke="none">
-              <Label
-                value="⭐ STARS"
-                position="insideTopRight"
-                fill="#059669" fontSize={11} fontWeight={700}
-              />
-            </ReferenceLine>
-            <ReferenceLine y={yMax * 0.75} stroke="none">
-              <Label
-                value="💎 HIDDEN GEMS"
-                position="insideTopLeft"
-                fill="#6366f1" fontSize={11} fontWeight={700}
-              />
-            </ReferenceLine>
-            <ReferenceLine y={yMin * 0.6} stroke="none">
-              <Label
-                value="🚨 RED FLAGS"
-                position="insideBottomRight"
-                fill="#e11d48" fontSize={11} fontWeight={700}
-              />
-            </ReferenceLine>
-            <ReferenceLine y={yMin * 0.6} stroke="none">
-              <Label
-                value="🪦 DEAD WEIGHT"
-                position="insideBottomLeft"
-                fill="#6b7280" fontSize={11} fontWeight={700}
-              />
-            </ReferenceLine>
+              <XAxis type="number" dataKey="weight" domain={[0, xMax]}
+                tickFormatter={v => `${v.toFixed(1)}%`}
+                tick={{ fill: '#6b7280', fontSize: 11 }} stroke="#374151">
+                <Label value="Portfolio Weight  (%)" position="insideBottom" offset={-28}
+                  style={{ fill: '#6b7280', fontSize: 12 }} />
+              </XAxis>
 
-            <Tooltip
-              cursor={false}
-              content={({ active, payload }) => {
-                if (!active || !payload?.length) return null;
-                const d = payload[0]?.payload;
-                if (!d) return null;
-                const isPos = d.ret >= 0;
-                const holdStr = d.holdM > 0
-                  ? d.holdM >= 12
-                    ? `${Math.floor(d.holdM / 12)}y ${d.holdM % 12}m`
-                    : `${d.holdM}m`
-                  : '—';
-                const quad = d.weight >= xRef
-                  ? (d.ret > 0 ? '⭐ Star' : '🚨 Red Flag')
-                  : (d.ret > 0 ? '💎 Hidden Gem' : '🪦 Dead Weight');
-                return (
-                  <div className="card p-3 text-sm min-w-[220px]">
-                    <p className="font-bold text-hi mb-1.5 pb-1.5 leading-tight"
-                      style={{ borderBottom: '1px solid var(--border-sm)' }}>
-                      {d.name}
-                    </p>
-                    <p className="text-[10px] mb-2 flex justify-between">
-                      <span style={{ color: 'var(--text-lo)' }}>{d.industry}</span>
-                      <span className="font-bold ml-2">{quad}</span>
-                    </p>
-                    <div className="space-y-1.5">
-                      {[
-                        { label: 'Return',          val: `${isPos ? '+' : ''}${d.ret.toFixed(2)}%`,       color: isPos ? 'var(--gain)' : 'var(--loss)' },
-                        { label: 'Portfolio Weight', val: `${d.weight.toFixed(2)}%`,                       color: 'var(--text-hi)' },
-                        { label: 'Gain / Loss',     val: `${isPos ? '+' : ''}${formatCurrency(d.plAbs)}`, color: isPos ? 'var(--gain)' : 'var(--loss)' },
-                        { label: 'Invested',        val: formatCurrency(d.invested),                      color: 'var(--text-hi)' },
-                        { label: 'Market Value',    val: formatCurrency(d.mv),                            color: 'var(--text-hi)' },
-                        { label: 'Holding Period',  val: holdStr,                                         color: 'var(--text-hi)' },
-                        { label: 'XIRR',            val: d.xirr ? `${d.xirr.toFixed(1)}%` : '—',        color: d.xirr > 0 ? 'var(--gain)' : 'var(--loss)' },
-                      ].map(({ label, val, color }) => (
-                        <div key={label} className="flex justify-between gap-5">
-                          <span style={{ color: 'var(--text-lo)' }}>{label}</span>
-                          <span className="font-semibold" style={{ color }}>{val}</span>
+              <YAxis type="number" dataKey="ret" domain={[yMin, yMax]}
+                tickFormatter={v => `${v >= 0 ? '+' : ''}${v.toFixed(0)}%`}
+                tick={{ fill: '#6b7280', fontSize: 11 }} stroke="#374151" width={46}>
+                <Label value="Return (%)" angle={-90} position="insideLeft" offset={14}
+                  style={{ fill: '#6b7280', fontSize: 12 }} />
+              </YAxis>
+
+              {/* Divider: 0% return */}
+              <ReferenceLine y={0} stroke="#f43f5e" strokeWidth={1.5}
+                strokeDasharray="8 4" opacity={0.55}>
+                <Label value="Break-even" position="insideBottomRight"
+                  style={{ fill: '#f43f5e', fontSize: 10, fontWeight: 600 }} />
+              </ReferenceLine>
+
+              {/* Divider: equal-weight benchmark */}
+              <ReferenceLine x={xRef} stroke="#818cf8" strokeWidth={1.5}
+                strokeDasharray="8 4" opacity={0.55}>
+                <Label value={`Equal weight  ${xRef.toFixed(1)}%`} position="insideTopRight"
+                  style={{ fill: '#818cf8', fontSize: 10, fontWeight: 600 }} />
+              </ReferenceLine>
+
+              {/* Quadrant corner watermarks */}
+              <ReferenceLine x={xMax * 0.72} y={yMax * 0.75} stroke="none">
+                <Label value="⭐ STARS"
+                  style={{ fill: 'rgba(16,185,129,0.45)', fontSize: 13, fontWeight: 800, letterSpacing: 1 }} />
+              </ReferenceLine>
+              <ReferenceLine x={xMax * 0.08} y={yMax * 0.75} stroke="none">
+                <Label value="💎 GEMS"
+                  style={{ fill: 'rgba(129,140,248,0.45)', fontSize: 13, fontWeight: 800, letterSpacing: 1 }} />
+              </ReferenceLine>
+              <ReferenceLine x={xMax * 0.72} y={yMin * 0.72} stroke="none">
+                <Label value="🚨 RED FLAGS"
+                  style={{ fill: 'rgba(244,63,94,0.45)', fontSize: 13, fontWeight: 800, letterSpacing: 1 }} />
+              </ReferenceLine>
+              <ReferenceLine x={xMax * 0.06} y={yMin * 0.72} stroke="none">
+                <Label value="🪦 DEAD WEIGHT"
+                  style={{ fill: 'rgba(107,114,128,0.40)', fontSize: 13, fontWeight: 800, letterSpacing: 1 }} />
+              </ReferenceLine>
+
+              {/* Rich tooltip */}
+              <Tooltip cursor={false}
+                content={({ active, payload }) => {
+                  if (!active || !payload?.length) return null;
+                  const d = payload[0]?.payload;
+                  if (!d) return null;
+                  const pos = d.ret >= 0;
+                  const q   = quadrantOf(d.weight, d.ret, xRef);
+                  const qc  = QUADRANT_COLORS[q as keyof typeof QUADRANT_COLORS];
+                  return (
+                    <div className="rounded-2xl overflow-hidden shadow-2xl text-sm"
+                      style={{ background: 'var(--bg-card)', border: '1px solid var(--border-md)', minWidth: 230 }}>
+                      {/* colour band top */}
+                      <div className="px-4 pt-3 pb-2" style={{ background: `${qc}18`, borderBottom: `1px solid ${qc}30` }}>
+                        <p className="font-black text-[13px] leading-tight" style={{ color: 'var(--text-hi)' }}>{d.name}</p>
+                        <div className="flex items-center justify-between mt-1 gap-3">
+                          <span className="text-[10px]" style={{ color: 'var(--text-lo)' }}>{d.industry}</span>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                            style={{ background: `${qc}25`, color: qc }}>
+                            {quadrantLabel(q)}
+                          </span>
                         </div>
-                      ))}
+                      </div>
+                      {/* data rows */}
+                      <div className="px-4 py-3 space-y-1.5">
+                        {[
+                          { l: 'Return',           v: `${pos?'+':''}${d.ret.toFixed(2)}%`,          c: pos?'var(--gain)':'var(--loss)' },
+                          { l: 'Gain / Loss',      v: `${pos?'+':''}${formatCurrency(d.plAbs)}`,    c: pos?'var(--gain)':'var(--loss)' },
+                          { l: 'Portfolio Weight', v: `${d.weight.toFixed(2)}%`,                    c: 'var(--text-hi)' },
+                          { l: 'Market Value',     v: formatCurrency(d.mv),                         c: 'var(--text-hi)' },
+                          { l: 'Invested',         v: formatCurrency(d.invested),                   c: 'var(--text-lo)' },
+                          { l: 'Holding Period',   v: holdStr(d.holdM),                             c: 'var(--text-hi)' },
+                          { l: 'XIRR',             v: d.xirr ? `${d.xirr.toFixed(1)}%` : '—',     c: d.xirr>0?'var(--gain)':'var(--loss)' },
+                        ].map(({ l, v, c }) => (
+                          <div key={l} className="flex justify-between gap-6">
+                            <span style={{ color: 'var(--text-lo)' }}>{l}</span>
+                            <span className="font-semibold" style={{ color: c }}>{v}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                );
-              }}
-            />
+                  );
+                }}
+              />
 
-            <Scatter
-              data={data}
-              shape={(props: any) => (
-                <CustomDot {...props} highlighted={highlighted} />
-              )}
-              onMouseEnter={(d: any) => setHighlighted(d.name)}
-              onMouseLeave={() => setHighlighted(null)}
-            >
-              {data.map((entry, i) => {
-                const color = colorBy === 'quadrant'
-                  ? entry.weight >= xRef
-                    ? (entry.ret > 0 ? '#059669' : '#e11d48')
-                    : (entry.ret > 0 ? '#6366f1' : '#6b7280')
-                  : industryColor(entry.industry);
-                return <Cell key={i} fill={color} />;
-              })}
-            </Scatter>
-          </ScatterChart>
-        </ResponsiveContainer>
+              <Scatter data={displayData} isAnimationActive={false}
+                shape={(p: any) => (
+                  <Dot {...p} colorBy={colorBy} xRef={xRef}
+                    hoveredName={hoveredName} onHover={setHoveredName} />
+                )}
+              />
+            </ScatterChart>
+          </ResponsiveContainer>
+        </div>
       </div>
 
-      {/* Industry legend (only in By Industry mode) */}
+      {/* ── Industry legend / filter ── */}
       {colorBy === 'industry' && industries.length > 0 && (
-        <div className="flex flex-wrap gap-3 mt-4 pt-3" style={{ borderTop: '1px solid var(--border-sm)' }}>
-          <span className="text-[10px] font-semibold uppercase tracking-wide mr-1 self-center" style={{ color: 'var(--text-lo)' }}>Industry</span>
-          {industries.map(ind => (
-            <div key={ind} className="flex items-center gap-1.5">
-              <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: industryColor(ind) }} />
-              <span className="text-[10px]" style={{ color: 'var(--text-lo)' }}>{ind}</span>
-            </div>
-          ))}
+        <div className="mb-5">
+          <p className="text-[10px] font-semibold uppercase tracking-widest mb-2"
+            style={{ color: 'var(--text-lo)' }}>Filter by industry</p>
+          <div className="flex flex-wrap gap-2">
+            {industries.map(ind => {
+              const active = selectedIndustry === ind;
+              return (
+                <button key={ind} onClick={() => setSelectedIndustry(active ? null : ind)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all"
+                  style={{
+                    background: active ? `${industryColor(ind)}22` : 'var(--bg-raised)',
+                    border:     `1px solid ${active ? industryColor(ind) : 'var(--border-sm)'}`,
+                    color:      active ? industryColor(ind) : 'var(--text-lo)',
+                  }}>
+                  <span className="w-2 h-2 rounded-full flex-shrink-0"
+                    style={{ background: industryColor(ind) }} />
+                  {ind}
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
 
-      {/* Action insights */}
-      {summary && (summary.flags > 0 || summary.gems > 0) && (
-        <div className="mt-4 pt-3 space-y-2" style={{ borderTop: '1px solid var(--border-sm)' }}>
-          <p className="text-xs font-bold uppercase tracking-wide" style={{ color: 'var(--text-lo)' }}>Actionable Insights</p>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      {/* ── Top / Worst performers strip ── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-5">
+        {/* Top performers */}
+        <div className="rounded-2xl p-4"
+          style={{ background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.18)' }}>
+          <p className="text-[11px] font-bold uppercase tracking-wide mb-3"
+            style={{ color: '#10b981' }}>🏆 Top Performers</p>
+          <div className="space-y-2">
+            {topPerformers.map((s, i) => (
+              <div key={s.name} className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-[10px] font-black w-4 flex-shrink-0"
+                    style={{ color: '#10b981' }}>{i + 1}</span>
+                  <span className="text-xs font-semibold truncate" style={{ color: 'var(--text-hi)' }}>
+                    {abbrev(s.name, 18)}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className="text-[10px]" style={{ color: 'var(--text-lo)' }}>
+                    {s.weight.toFixed(1)}%
+                  </span>
+                  <span className="text-xs font-bold px-2 py-0.5 rounded-full"
+                    style={{ background: 'rgba(16,185,129,0.15)', color: '#10b981' }}>
+                    +{s.ret.toFixed(1)}%
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Worst performers */}
+        <div className="rounded-2xl p-4"
+          style={{ background: 'rgba(244,63,94,0.06)', border: '1px solid rgba(244,63,94,0.18)' }}>
+          <p className="text-[11px] font-bold uppercase tracking-wide mb-3"
+            style={{ color: '#f43f5e' }}>📉 Needs Attention</p>
+          <div className="space-y-2">
+            {worstPerformers.map((s, i) => (
+              <div key={s.name} className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-[10px] font-black w-4 flex-shrink-0"
+                    style={{ color: '#f43f5e' }}>{i + 1}</span>
+                  <span className="text-xs font-semibold truncate" style={{ color: 'var(--text-hi)' }}>
+                    {abbrev(s.name, 18)}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className="text-[10px]" style={{ color: 'var(--text-lo)' }}>
+                    {s.weight.toFixed(1)}%
+                  </span>
+                  <span className="text-xs font-bold px-2 py-0.5 rounded-full"
+                    style={{ background: 'rgba(244,63,94,0.15)', color: '#f43f5e' }}>
+                    {s.ret.toFixed(1)}%
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Actionable Insights ── */}
+      {summary && (summary.flags > 0 || summary.gems > 0 || summary.dead > 0) && (
+        <div className="rounded-2xl p-4 space-y-2"
+          style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-sm)' }}>
+          <p className="text-[11px] font-bold uppercase tracking-widest mb-3"
+            style={{ color: 'var(--text-lo)' }}>💡 Actionable Insights</p>
+          <div className="space-y-2">
             {summary.flags > 0 && (
-              <div className="rounded-lg px-3 py-2 text-xs flex items-start gap-2"
-                style={{ background: 'rgba(225,29,72,0.07)', border: '1px solid rgba(225,29,72,0.2)' }}>
-                <span className="text-sm">🚨</span>
-                <span style={{ color: '#f87171' }}>
-                  <strong>{summary.flags} Red Flag{summary.flags > 1 ? 's' : ''}</strong> — large positions
-                  with negative returns. Review allocation or set stop-loss targets.
+              <div className="flex items-start gap-3 rounded-xl px-3 py-2.5 text-xs"
+                style={{ background: 'rgba(244,63,94,0.07)', border: '1px solid rgba(244,63,94,0.2)' }}>
+                <span className="mt-0.5">🚨</span>
+                <span style={{ color: '#fca5a5' }}>
+                  <strong style={{ color: '#f87171' }}>{summary.flags} Red Flag{summary.flags > 1 ? 's' : ''}</strong>
+                  {' '}— heavy positions with negative returns. These are dragging your overall portfolio.
+                  Consider trimming allocation or setting stop-loss targets.
                 </span>
               </div>
             )}
             {summary.gems > 0 && (
-              <div className="rounded-lg px-3 py-2 text-xs flex items-start gap-2"
-                style={{ background: 'rgba(99,102,241,0.07)', border: '1px solid rgba(99,102,241,0.2)' }}>
-                <span className="text-sm">💎</span>
-                <span style={{ color: '#a5b4fc' }}>
-                  <strong>{summary.gems} Hidden Gem{summary.gems > 1 ? 's' : ''}</strong> — small positions
-                  outperforming the benchmark. Consider increasing allocation.
+              <div className="flex items-start gap-3 rounded-xl px-3 py-2.5 text-xs"
+                style={{ background: 'rgba(129,140,248,0.07)', border: '1px solid rgba(129,140,248,0.2)' }}>
+                <span className="mt-0.5">💎</span>
+                <span style={{ color: '#c7d2fe' }}>
+                  <strong style={{ color: '#a5b4fc' }}>{summary.gems} Hidden Gem{summary.gems > 1 ? 's' : ''}</strong>
+                  {' '}— small allocations outperforming the benchmark. These deserve more capital.
+                  Consider increasing their portfolio weight.
+                </span>
+              </div>
+            )}
+            {summary.dead > 0 && (
+              <div className="flex items-start gap-3 rounded-xl px-3 py-2.5 text-xs"
+                style={{ background: 'rgba(107,114,128,0.07)', border: '1px solid rgba(107,114,128,0.2)' }}>
+                <span className="mt-0.5">🪦</span>
+                <span style={{ color: '#d1d5db' }}>
+                  <strong style={{ color: '#9ca3af' }}>{summary.dead} Dead Weight stock{summary.dead > 1 ? 's' : ''}</strong>
+                  {' '}— small, underperforming positions consuming mental bandwidth.
+                  Consider exiting and redeploying capital into Gems or Stars.
                 </span>
               </div>
             )}
           </div>
         </div>
       )}
+
     </div>
   );
 }
