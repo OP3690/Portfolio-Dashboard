@@ -12,6 +12,7 @@ import IndustryPieChart from '@/components/IndustryPieChart';
 import StockAnalytics from '@/components/StockAnalytics';
 import StockResearch from '@/components/StockResearch';
 import PortfolioGrowthChart from '@/components/PortfolioGrowthChart';
+import StockPLContribution from '@/components/StockPLContribution';
 
 /* Skeleton block */
 function Skeleton({ className = '', style = {} }: { className?: string; style?: React.CSSProperties }) {
@@ -215,6 +216,9 @@ export default function Dashboard() {
 
         {/* Industry pie */}
         <IndustryPieChart data={dashboardData.industryDistribution} />
+
+        {/* Stock P&L contribution */}
+        <StockPLContribution holdings={(dashboardData.holdings || []).filter((h: any) => (h.openQty || 0) > 0)} />
 
         {/* Holdings table */}
         <HoldingsTable holdings={dashboardData.holdings} />
