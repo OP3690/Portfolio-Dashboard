@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react';
 /* ─── types ─── */
 interface Holding {
   stockName?: string; isin?: string; sectorName?: string;
-  investmentAmount?: number; marketValue?: number;
+  investmentAmount?: number; marketValue?: number; openQty?: number;
   profitLossTillDate?: number; profitLossTillDatePercent?: number;
   holdingPeriodYears?: number; holdingPeriodMonths?: number;
 }
@@ -65,7 +65,7 @@ function dequeue(queue: BuyLot[], qty: number) {
 interface Tranche { date: Date; price: number; qty: number; runningAvg: number; runningQty: number; }
 interface Cycle {
   no: number; buyDate: Date; sellDate: Date | null; status: 'open' | 'closed';
-  plPct: number; plAmt: number; avgBuy: number; sellPrice: number; daysHeld: number; tranches: Tranche[];
+  plPct: number; plAmt: number; avgBuy: number; sellPrice: number; currentPrice: number; daysHeld: number; tranches: Tranche[];
 }
 interface StockRow {
   name: string; isin: string; sector: string; cycles: Cycle[];
@@ -137,7 +137,7 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
           dequeue(buyQueue, qty);
           runQty -= qty; runCost = runQty > 0 ? avgCost * runQty : 0;
           if (buyQueue.length === 0) {
-            cycles.push({ no: cycles.length + 1, buyDate: tranches[0].date, sellDate: date, status: 'closed', plPct, plAmt, avgBuy: avgCost, sellPrice: price, daysHeld: Math.round((date.getTime() - tranches[0].date.getTime()) / 86400000), tranches: [...tranches] });
+            cycles.push({ no: cycles.length + 1, buyDate: tranches[0].date, sellDate: date, status: 'closed', plPct, plAmt, avgBuy: avgCost, sellPrice: price, currentPrice: 0, daysHeld: Math.round((date.getTime() - tranches[0].date.getTime()) / 86400000), tranches: [...tranches] });
             tranches = []; runQty = 0; runCost = 0;
           }
         }
@@ -150,7 +150,13 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
         // incorrectly mark fully-sold stocks (e.g. Bajaj Finserv, Va Tech Wabag)
         // as HOLDING when their sell transaction is missing from the export.
         if (activeIsinSet.has(isin) && hd) {
-          cycles.push({ no: cycles.length + 1, buyDate: tranches[0].date, sellDate: null, status: 'open', plPct: hd.profitLossTillDatePercent ?? 0, plAmt: hd.profitLossTillDate ?? 0, avgBuy: tranches.at(-1)!.runningAvg, sellPrice: 0, daysHeld: Math.round((today.getTime() - tranches[0].date.getTime()) / 86400000), tranches: [...tranches] });
+          const avgBuyPrice = tranches.at(-1)!.runningAvg;
+          const plPct       = hd.profitLossTillDatePercent ?? 0;
+          // Prefer marketValue/openQty for accuracy; fall back to avgBuy × (1 + plPct/100)
+          const cmp = (hd.marketValue && hd.openQty && hd.openQty > 0)
+            ? hd.marketValue / hd.openQty
+            : avgBuyPrice * (1 + plPct / 100);
+          cycles.push({ no: cycles.length + 1, buyDate: tranches[0].date, sellDate: null, status: 'open', plPct, plAmt: hd.profitLossTillDate ?? 0, avgBuy: avgBuyPrice, sellPrice: 0, currentPrice: cmp, daysHeld: Math.round((today.getTime() - tranches[0].date.getTime()) / 86400000), tranches: [...tranches] });
         }
       }
       if (!cycles.length) return;
@@ -430,6 +436,11 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
                               {cycle.tranches.length} tranches
                             </span>
                           )}
+                          {cycle.status === 'open' && cycle.currentPrice > 0 && (
+                            <span className="text-xs px-2 py-0.5 rounded-full font-semibold" style={{ background: 'rgba(56,189,248,0.15)', color: '#38bdf8', border: '1px solid rgba(56,189,248,0.3)' }}>
+                              CMP ₹{cycle.currentPrice.toFixed(2)}
+                            </span>
+                          )}
                           <span className="ml-auto text-sm font-bold" style={{ color: cc }}>
                             {plSign(cycle.plPct)}{cycle.plPct.toFixed(1)}%
                             <span className="text-xs ml-1.5 font-semibold" style={{ color: cc, opacity: 0.85 }}>
@@ -497,8 +508,13 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
                             {cycle.sellDate ? `Sold ${fmtDate(cycle.sellDate)}` : 'Open position'}
                           </div>
                           <div className="font-bold" style={{ color: '#ffffff' }}>{cycle.tranches.reduce((s, t) => s + t.qty, 0).toLocaleString('en-IN')}</div>
-                          <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 10 }}>
-                            {cycle.sellPrice > 0 ? `@ ₹${cycle.sellPrice.toFixed(2)}` : '—'}
+                          <div style={{ fontSize: 10 }}>
+                            {cycle.status === 'open' && cycle.currentPrice > 0
+                              ? <span className="font-semibold" style={{ color: '#38bdf8' }}>CMP ₹{cycle.currentPrice.toFixed(2)}</span>
+                              : cycle.sellPrice > 0
+                                ? <span style={{ color: 'rgba(255,255,255,0.7)' }}>@ ₹{cycle.sellPrice.toFixed(2)}</span>
+                                : <span style={{ color: 'rgba(255,255,255,0.35)' }}>—</span>
+                            }
                           </div>
                           <div className="font-bold" style={{ color: '#38bdf8' }}>₹{cycle.avgBuy.toFixed(2)} avg</div>
                           <div />
