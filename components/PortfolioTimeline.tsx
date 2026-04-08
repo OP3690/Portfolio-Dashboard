@@ -27,6 +27,7 @@ interface Transaction {
 interface Props {
   holdings: Holding[];
   transactions: Transaction[];
+  realizedStocks?: Array<{ isin?: string; stockName?: string }>;
 }
 
 /* ─── helpers ─── */
@@ -122,7 +123,7 @@ interface StockRow {
 /* ═══════════════════════════════════════════════
    MAIN
 ═══════════════════════════════════════════════ */
-export default function PortfolioTimeline({ holdings, transactions }: Props) {
+export default function PortfolioTimeline({ holdings, transactions, realizedStocks = [] }: Props) {
   const [sort,   setSort]   = useState<'recent' | 'name' | 'pl' | 'hold'>('recent');
   const [expand, setExpand] = useState<string | null>(null);
 
@@ -131,8 +132,14 @@ export default function PortfolioTimeline({ holdings, transactions }: Props) {
   const holdingMap = useMemo(() => {
     const m = new Map<string, Holding>();
     holdings.forEach(h => { if (h.isin) m.set(h.isin, h); });
+    // also register realized stock names so exited trades show name not ISIN
+    realizedStocks.forEach(r => {
+      if (r.isin && r.stockName && !m.has(r.isin)) {
+        m.set(r.isin, { stockName: r.stockName, isin: r.isin });
+      }
+    });
     return m;
-  }, [holdings]);
+  }, [holdings, realizedStocks]);
 
   /* ── Build rows ── */
   const stockRows: StockRow[] = useMemo(() => {

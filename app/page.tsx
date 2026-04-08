@@ -183,7 +183,7 @@ export default function Dashboard() {
     if (activeTab === 'stock-analytics') {
       // Analytics should only consider active (currently held) stocks
       const activeHoldings = (dashboardData?.holdings || []).filter((h: any) => (h.openQty || 0) > 0);
-      return <StockAnalytics holdings={activeHoldings} transactions={dashboardData?.transactions || []} />;
+      return <StockAnalytics holdings={activeHoldings} transactions={dashboardData?.transactions || []} realizedStocks={dashboardData?.realizedStocks || []} />;
     }
     if (activeTab === 'stock-research') {
       return <StockResearch />;

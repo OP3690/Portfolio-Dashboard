@@ -31,9 +31,13 @@ interface StockAnalyticsProps {
     tradedQty?: number;
     tradeValueAdjusted?: number;
   }>;
+  realizedStocks?: Array<{
+    isin?: string;
+    stockName?: string;
+  }>;
 }
 
-export default function StockAnalytics({ holdings, transactions }: StockAnalyticsProps) {
+export default function StockAnalytics({ holdings, transactions, realizedStocks = [] }: StockAnalyticsProps) {
   // ── Base calculations ────────────────────────────────────────
   const totalStocks = holdings.length;
   const totalCurrentValue = holdings.reduce((sum, h) => sum + (h.marketValue || 0), 0);
@@ -428,7 +432,7 @@ export default function StockAnalytics({ holdings, transactions }: StockAnalytic
       {/* ── Portfolio Entry Timeline ──────────────────────────── */}
       <div>
         <SectionTitle>Portfolio Entry Timeline</SectionTitle>
-        <PortfolioTimeline holdings={holdings} transactions={transactions} />
+        <PortfolioTimeline holdings={holdings} transactions={transactions} realizedStocks={realizedStocks} />
       </div>
 
       {/* ── Capital Allocation Efficiency ────────────────────── */}
