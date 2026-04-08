@@ -7,6 +7,7 @@ import PerformanceAnalyticsCharts from './PerformanceAnalyticsCharts';
 import DetailedAnalysis from './DetailedAnalysis';
 import StockScorecard from './StockScorecard';
 import CapitalEfficiency from './CapitalEfficiency';
+import PortfolioTimeline from './PortfolioTimeline';
 
 interface StockAnalyticsProps {
   holdings: Array<{
@@ -422,6 +423,12 @@ export default function StockAnalytics({ holdings, transactions }: StockAnalytic
       <div>
         <SectionTitle>Performance Analytics & Trend Detection</SectionTitle>
         <PerformanceAnalyticsCharts clientId="994826" holdings={holdings} transactions={transactions} />
+      </div>
+
+      {/* ── Portfolio Entry Timeline ──────────────────────────── */}
+      <div>
+        <SectionTitle>Portfolio Entry Timeline</SectionTitle>
+        <PortfolioTimeline holdings={holdings} transactions={transactions} />
       </div>
 
       {/* ── Capital Allocation Efficiency ────────────────────── */}
