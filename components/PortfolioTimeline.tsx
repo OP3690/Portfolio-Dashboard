@@ -34,8 +34,12 @@ function toDate(d: Date | string): Date {
   return d instanceof Date ? d : new Date(d);
 }
 
-function fmtDate(d: Date): string {
-  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' });
+function fmtShort(d: Date): string {
+  return d.toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
+}
+
+function fmtFull(d: Date): string {
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
 }
 
 function fmtAmt(v: number): string {
@@ -46,69 +50,66 @@ function fmtAmt(v: number): string {
   return `₹${v.toFixed(0)}`;
 }
 
-/* ─── segment colours ─── */
-function segColor(pct: number, open: boolean) {
+function holdLabel(days: number): string {
+  if (days < 30)   return `${days}d`;
+  if (days < 365)  return `${Math.round(days / 30)}m`;
+  const y = Math.floor(days / 365);
+  const m = Math.round((days % 365) / 30);
+  return m > 0 ? `${y}y ${m}m` : `${y}y`;
+}
+
+/* ─── palette ─── */
+function palette(pct: number, open: boolean) {
   if (open) {
-    if (pct >= 20)  return { fill: '#166534', stroke: '#4ade80', text: '#4ade80', label: '#052e16' };
-    if (pct >= 0)   return { fill: '#14532d', stroke: '#86efac', text: '#86efac', label: '#052e16' };
-    if (pct >= -10) return { fill: '#7f1d1d', stroke: '#fca5a5', text: '#fca5a5', label: '#2d0a0a' };
-    return               { fill: '#450a0a', stroke: '#f87171',  text: '#f87171',  label: '#2d0a0a' };
+    if (pct >= 30) return { bg: '#052e16', border: '#22c55e', text: '#4ade80',  badge: '#14532d', badgeText: '#4ade80'  };
+    if (pct >= 0)  return { bg: '#0a1f10', border: '#4ade80', text: '#86efac',  badge: '#14532d', badgeText: '#86efac'  };
+    if (pct >= -15)return { bg: '#2d0a0a', border: '#f87171', text: '#fca5a5',  badge: '#7f1d1d', badgeText: '#fca5a5'  };
+    return              { bg: '#1a0505', border: '#ef4444', text: '#f87171',  badge: '#450a0a', badgeText: '#f87171'  };
   }
   // closed
-  if (pct >= 20)  return { fill: '#1a3a28', stroke: '#22c55e', text: '#22c55e', label: '#052e16' };
-  if (pct >= 0)   return { fill: '#1a2d1c', stroke: '#4ade80', text: '#4ade80', label: '#052e16' };
-  if (pct >= -10) return { fill: '#3a1a1a', stroke: '#f87171', text: '#f87171', label: '#2d0a0a' };
-  return               { fill: '#2d0a0a', stroke: '#ef4444', text: '#ef4444', label: '#2d0a0a' };
+  if (pct >= 30) return { bg: '#052e1699', border: '#22c55e88', text: '#4ade80',  badge: '#14532d', badgeText: '#4ade80'  };
+  if (pct >= 0)  return { bg: '#0a1f1099', border: '#4ade8066', text: '#86efac',  badge: '#14532d', badgeText: '#86efac'  };
+  if (pct >= -15)return { bg: '#2d0a0a99', border: '#f8717166', text: '#fca5a5',  badge: '#7f1d1d', badgeText: '#fca5a5'  };
+  return              { bg: '#1a050599', border: '#ef444466', text: '#f87171',  badge: '#450a0a', badgeText: '#f87171'  };
 }
 
-/* ─── FIFO P&L per sell ─── */
+/* ─── FIFO helpers ─── */
 interface BuyLot { price: number; qty: number }
 
-function calcSellPL(queue: BuyLot[], sellPrice: number, sellQty: number): { plPct: number; plAmt: number; avgCost: number } {
-  let remaining = sellQty;
-  let totalCost = 0;
-  let totalQty  = 0;
-  const temp = queue.map(b => ({ ...b }));
-
-  while (remaining > 0 && temp.length > 0) {
-    const lot = temp[0];
-    const take = Math.min(lot.qty, remaining);
-    totalCost += take * lot.price;
-    totalQty  += take;
-    remaining -= take;
-    lot.qty   -= take;
-    if (lot.qty <= 0) temp.shift();
+function calcSellPL(queue: BuyLot[], sellPrice: number, sellQty: number) {
+  let rem = sellQty, cost = 0, qty = 0;
+  const tmp = queue.map(b => ({ ...b }));
+  while (rem > 0 && tmp.length) {
+    const lot = tmp[0];
+    const take = Math.min(lot.qty, rem);
+    cost += take * lot.price; qty += take; rem -= take; lot.qty -= take;
+    if (lot.qty <= 0) tmp.shift();
   }
-
-  const avgCost = totalQty > 0 ? totalCost / totalQty : sellPrice;
-  const plAmt   = (sellPrice - avgCost) * sellQty;
-  const plPct   = avgCost > 0 ? ((sellPrice - avgCost) / avgCost) * 100 : 0;
-  return { plPct, plAmt, avgCost };
+  const avg = qty > 0 ? cost / qty : sellPrice;
+  return { plPct: avg > 0 ? ((sellPrice - avg) / avg) * 100 : 0, plAmt: (sellPrice - avg) * sellQty, avgCost: avg };
 }
 
-/* mutate queue after sell */
-function dequeueQty(queue: BuyLot[], qty: number) {
-  let remaining = qty;
-  while (remaining > 0 && queue.length > 0) {
-    const lot = queue[0];
-    const take = Math.min(lot.qty, remaining);
-    lot.qty   -= take;
-    remaining -= take;
-    if (lot.qty <= 0) queue.shift();
+function dequeue(queue: BuyLot[], qty: number) {
+  let rem = qty;
+  while (rem > 0 && queue.length) {
+    const take = Math.min(queue[0].qty, rem);
+    queue[0].qty -= take; rem -= take;
+    if (queue[0].qty <= 0) queue.shift();
   }
 }
 
-/* ─── build per-stock segments ─── */
+/* ─── segment type ─── */
 interface Segment {
-  buyDate:  Date;
-  sellDate: Date | null;  // null = still open
-  status:   'open' | 'closed';
-  plPct:    number;       // realised P&L% if closed, current % if open
-  plAmt:    number;
-  avgBuy:   number;
-  sellPrice?: number;
-  buyCount: number;       // accumulation buys within this segment
-  buyDates: Date[];       // all buy dates within segment
+  buyDate:   Date;
+  sellDate:  Date | null;
+  status:    'open' | 'closed';
+  plPct:     number;
+  plAmt:     number;
+  avgBuy:    number;
+  sellPrice: number;
+  buyCount:  number;
+  buyDates:  Date[];
+  daysHeld:  number;
 }
 
 interface StockRow {
@@ -116,26 +117,25 @@ interface StockRow {
   isin:     string;
   sector:   string;
   segments: Segment[];
-  totalBuys:  number;
-  totalSells: number;
 }
 
-/* ─── main ─── */
+/* ═══════════════════════════════════════════════
+   MAIN
+═══════════════════════════════════════════════ */
 export default function PortfolioTimeline({ holdings, transactions }: Props) {
-  const [sort,    setSort]    = useState<'name' | 'recent' | 'pl'>('recent');
-  const [hoverId, setHoverId] = useState<string | null>(null);
+  const [sort,   setSort]   = useState<'recent' | 'name' | 'pl' | 'hold'>('recent');
+  const [expand, setExpand] = useState<string | null>(null);
+
   const today = useMemo(() => new Date(), []);
 
-  /* Build holding lookup by ISIN */
   const holdingMap = useMemo(() => {
     const m = new Map<string, Holding>();
     holdings.forEach(h => { if (h.isin) m.set(h.isin, h); });
     return m;
   }, [holdings]);
 
-  /* Build stock rows from transactions */
+  /* ── Build rows ── */
   const stockRows: StockRow[] = useMemo(() => {
-    // Group transactions by ISIN
     const txByIsin = new Map<string, Transaction[]>();
     transactions.forEach(t => {
       if (!t.isin) return;
@@ -146,23 +146,20 @@ export default function PortfolioTimeline({ holdings, transactions }: Props) {
     const rows: StockRow[] = [];
 
     txByIsin.forEach((txs, isin) => {
-      // Sort by date
       const sorted = [...txs]
         .filter(t => t.transactionDate)
         .sort((a, b) => toDate(a.transactionDate).getTime() - toDate(b.transactionDate).getTime());
 
       const holding = holdingMap.get(isin);
-      const name    = holding?.stockName || sorted[0]?.buySell || isin;
+      const name    = holding?.stockName || isin;
       const sector  = holding?.sectorName || '';
 
       const segments: Segment[] = [];
       const buyQueue: BuyLot[]  = [];
       let segBuyDates: Date[]   = [];
       let segBuyCount = 0;
-      let segAvgBuySum = 0;
-      let segAvgBuyQty = 0;
-      let totalBuys    = 0;
-      let totalSells   = 0;
+      let segAvgSum   = 0;
+      let segAvgQty   = 0;
 
       sorted.forEach(t => {
         const type   = (t.buySell || '').toUpperCase();
@@ -175,111 +172,86 @@ export default function PortfolioTimeline({ holdings, transactions }: Props) {
         const qty   = Math.abs(t.tradedQty || 1);
 
         if (isBuy) {
-          totalBuys++;
           buyQueue.push({ price, qty });
           segBuyDates.push(date);
           segBuyCount++;
-          segAvgBuySum += price * qty;
-          segAvgBuyQty += qty;
+          segAvgSum += price * qty;
+          segAvgQty += qty;
         }
 
         if (isSell && segBuyDates.length > 0) {
-          totalSells++;
           const { plPct, plAmt, avgCost } = calcSellPL(buyQueue, price, qty);
-          dequeueQty(buyQueue, qty);
+          dequeue(buyQueue, qty);
 
-          // If buy queue is now empty → close the segment
           if (buyQueue.length === 0) {
+            const sellDate = date;
             segments.push({
               buyDate:   segBuyDates[0],
-              sellDate:  date,
+              sellDate,
               status:    'closed',
-              plPct,
-              plAmt,
+              plPct, plAmt,
               avgBuy:    avgCost,
               sellPrice: price,
               buyCount:  segBuyCount,
               buyDates:  [...segBuyDates],
+              daysHeld:  Math.round((sellDate.getTime() - segBuyDates[0].getTime()) / 86400000),
             });
-            segBuyDates  = [];
-            segBuyCount  = 0;
-            segAvgBuySum = 0;
-            segAvgBuyQty = 0;
+            segBuyDates = []; segBuyCount = 0; segAvgSum = 0; segAvgQty = 0;
           }
         }
       });
 
-      // Open segment (still holding)
-      if (buyQueue.length > 0 || segBuyDates.length > 0) {
+      // open segment
+      if (segBuyDates.length > 0) {
         const h = holdingMap.get(isin);
-        const currentPct = h?.profitLossTillDatePercent ?? 0;
-        const currentPl  = h?.profitLossTillDate ?? 0;
-        const avgBuy     = segAvgBuyQty > 0 ? segAvgBuySum / segAvgBuyQty : 0;
-
-        if (segBuyDates.length > 0) {
-          segments.push({
-            buyDate:  segBuyDates[0],
-            sellDate: null,
-            status:   'open',
-            plPct:    currentPct,
-            plAmt:    currentPl,
-            avgBuy,
-            buyCount: segBuyCount,
-            buyDates: [...segBuyDates],
-          });
-        }
+        segments.push({
+          buyDate:   segBuyDates[0],
+          sellDate:  null,
+          status:    'open',
+          plPct:     h?.profitLossTillDatePercent ?? 0,
+          plAmt:     h?.profitLossTillDate ?? 0,
+          avgBuy:    segAvgQty > 0 ? segAvgSum / segAvgQty : 0,
+          sellPrice: 0,
+          buyCount:  segBuyCount,
+          buyDates:  [...segBuyDates],
+          daysHeld:  Math.round((today.getTime() - segBuyDates[0].getTime()) / 86400000),
+        });
       }
 
-      if (segments.length > 0) {
-        rows.push({ name, isin, sector, segments, totalBuys, totalSells });
-      }
+      if (segments.length > 0) rows.push({ name, isin, sector, segments });
     });
 
     return rows;
   }, [transactions, holdingMap, today]);
 
-  /* Sort */
+  /* ── Sort ── */
   const sorted = useMemo(() => {
     const r = [...stockRows];
     if (sort === 'name')   return r.sort((a, b) => a.name.localeCompare(b.name));
-    if (sort === 'recent') return r.sort((a, b) => {
-      const aLast = a.segments.at(-1)?.buyDate.getTime() ?? 0;
-      const bLast = b.segments.at(-1)?.buyDate.getTime() ?? 0;
-      return bLast - aLast;
+    if (sort === 'hold')   return r.sort((a, b) => {
+      const aMax = Math.max(...a.segments.map(s => s.daysHeld));
+      const bMax = Math.max(...b.segments.map(s => s.daysHeld));
+      return bMax - aMax;
     });
-    // by best current P&L
+    if (sort === 'pl')     return r.sort((a, b) => {
+      const aOpen = a.segments.find(s => s.status === 'open')?.plPct ?? -9999;
+      const bOpen = b.segments.find(s => s.status === 'open')?.plPct ?? -9999;
+      return bOpen - aOpen;
+    });
+    // recent — last buy date
     return r.sort((a, b) => {
-      const aOpen = a.segments.find(s => s.status === 'open');
-      const bOpen = b.segments.find(s => s.status === 'open');
-      return (bOpen?.plPct ?? -999) - (aOpen?.plPct ?? -999);
+      const aLast = Math.max(...a.segments.map(s => s.buyDate.getTime()));
+      const bLast = Math.max(...b.segments.map(s => s.buyDate.getTime()));
+      return bLast - aLast;
     });
   }, [stockRows, sort]);
 
-  /* Timeline span */
-  const allDates = stockRows.flatMap(r => r.segments.map(s => s.buyDate.getTime()));
-  const minTs = allDates.length ? Math.min(...allDates) : today.getTime() - 365 * 24 * 3600 * 1000;
-  const span  = today.getTime() - minTs || 1;
-
-  /* Year markers */
-  const years = useMemo(() => {
-    const list: { year: number; pct: number }[] = [];
-    const startY = new Date(minTs).getFullYear();
-    const endY   = today.getFullYear();
-    for (let y = startY + 1; y <= endY; y++) {
-      const ts = new Date(y, 0, 1).getTime();
-      if (ts > minTs && ts < today.getTime()) {
-        list.push({ year: y, pct: ((ts - minTs) / span) * 100 });
-      }
-    }
-    return list;
-  }, [minTs, span, today]);
-
-  /* Summary */
-  const openCount   = stockRows.filter(r => r.segments.some(s => s.status === 'open')).length;
-  const closedCount = stockRows.reduce((s, r) => s + r.segments.filter(x => x.status === 'closed').length, 0);
-  const profitExits = stockRows.reduce((s, r) => s + r.segments.filter(x => x.status === 'closed' && x.plPct > 0).length, 0);
-  const exitWinRate = closedCount > 0 ? ((profitExits / closedCount) * 100).toFixed(0) : '–';
-  const multiTrades = stockRows.filter(r => r.segments.length > 1).length;
+  /* ── Summary ── */
+  const openCount    = stockRows.filter(r => r.segments.some(s => s.status === 'open')).length;
+  const closedCount  = stockRows.reduce((s, r) => s + r.segments.filter(x => x.status === 'closed').length, 0);
+  const winExits     = stockRows.reduce((s, r) => s + r.segments.filter(x => x.status === 'closed' && x.plPct > 0).length, 0);
+  const reEntries    = stockRows.filter(r => r.segments.length > 1).length;
+  const winRate      = closedCount > 0 ? Math.round((winExits / closedCount) * 100) : 0;
 
   if (!sorted.length) {
     return <div className="card p-6 text-center text-lo text-sm">No transaction data available.</div>;
@@ -293,20 +265,21 @@ export default function PortfolioTimeline({ holdings, transactions }: Props) {
         <div>
           <h3 className="text-base font-bold text-hi">Trade Cycle Timeline</h3>
           <p className="text-xs text-lo mt-0.5">
-            Every buy → hold → exit cycle per stock · Re-entries shown · Current open positions
+            Buy → Hold → Exit per stock · Re-entries &amp; accumulations shown
           </p>
         </div>
         <div className="flex gap-1 p-1 rounded-lg" style={{ background: 'var(--bg-card-alt)' }}>
           {([
-            { k: 'recent', l: 'Recent' },
-            { k: 'name',   l: 'A–Z' },
+            { k: 'recent', l: 'Recent'   },
             { k: 'pl',     l: 'Best P&L' },
+            { k: 'hold',   l: 'Longest'  },
+            { k: 'name',   l: 'A–Z'      },
           ] as const).map(({ k, l }) => (
             <button key={k} onClick={() => setSort(k)}
               className="text-xs px-3 py-1 rounded-md font-medium transition-all"
               style={{
                 background: sort === k ? 'var(--brand)' : 'transparent',
-                color: sort === k ? '#fff' : 'var(--text-lo)',
+                color:      sort === k ? '#fff' : 'var(--text-lo)',
               }}>
               {l}
             </button>
@@ -317,245 +290,225 @@ export default function PortfolioTimeline({ holdings, transactions }: Props) {
       {/* ── Summary cards ── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: 'Open Positions',  value: openCount,    sub: 'currently holding',        color: '#4ade80' },
-          { label: 'Closed Cycles',   value: closedCount,  sub: 'fully exited trades',       color: 'var(--text-hi)' },
-          { label: 'Exit Win Rate',   value: `${exitWinRate}%`, sub: `${profitExits} profitable exits`, color: parseInt(exitWinRate) >= 50 ? '#4ade80' : '#f87171' },
-          { label: 'Re-Entries',      value: multiTrades,  sub: 'stocks traded 2+ times',   color: '#38bdf8' },
+          { label: 'Open Positions', value: openCount,             color: '#4ade80', sub: 'currently holding'         },
+          { label: 'Exited Trades',  value: closedCount,           color: 'var(--text-hi)', sub: `${winExits} profitable exits` },
+          { label: 'Exit Win Rate',  value: `${winRate}%`,         color: winRate >= 50 ? '#4ade80' : '#f87171', sub: 'closed trades' },
+          { label: 'Re-Entries',     value: reEntries,             color: '#38bdf8', sub: 'stocks bought again'       },
         ].map(s => (
           <div key={s.label} className="rounded-xl p-3 text-center"
             style={{ background: 'var(--bg-card-alt)', border: '1px solid var(--border)' }}>
             <p className="text-xs text-lo mb-1">{s.label}</p>
-            <p className="text-xl font-bold" style={{ color: s.color }}>{s.value}</p>
+            <p className="text-2xl font-bold" style={{ color: s.color }}>{s.value}</p>
             <p className="text-xs text-lo mt-0.5">{s.sub}</p>
           </div>
         ))}
       </div>
 
-      {/* ── Legend ── */}
-      <div className="flex flex-wrap gap-4 text-xs text-lo">
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-sm inline-block" style={{ background: '#166534', border: '1px solid #4ade80' }} />
-          Open – Profit
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-sm inline-block" style={{ background: '#450a0a', border: '1px solid #f87171' }} />
-          Open – Loss
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-sm inline-block" style={{ background: '#1a3a28', border: '1px solid #22c55e', opacity: 0.6 }} />
-          Exited – Profit
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-sm inline-block" style={{ background: '#2d0a0a', border: '1px solid #ef4444', opacity: 0.6 }} />
-          Exited – Loss
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: '#4ade80' }} /> BUY
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ background: '#f87171', border: '2px solid #f87171' }} /> SELL
-        </span>
+      {/* ── Rows ── */}
+      <div className="space-y-2">
+        {sorted.map(stock => {
+          const isExpanded = expand === stock.isin;
+          const openSeg    = stock.segments.find(s => s.status === 'open');
+
+          return (
+            <div key={stock.isin}
+              className="rounded-xl overflow-hidden transition-all"
+              style={{ border: '1px solid var(--border)', background: 'var(--bg-card-alt)' }}>
+
+              {/* ── Stock header row ── */}
+              <button
+                className="w-full flex items-center justify-between px-4 py-3 gap-3 text-left"
+                onClick={() => setExpand(isExpanded ? null : stock.isin)}>
+
+                <div className="flex items-center gap-3 min-w-0">
+                  {/* Expand chevron */}
+                  <span className="text-lo transition-transform shrink-0"
+                    style={{ transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)', fontSize: 12 }}>
+                    ▶
+                  </span>
+
+                  {/* Name + sector */}
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-hi truncate">{stock.name}</p>
+                    {stock.sector && <p className="text-lo truncate" style={{ fontSize: 10 }}>{stock.sector}</p>}
+                  </div>
+
+                  {/* Cycle count badge */}
+                  <span className="shrink-0 text-xs px-2 py-0.5 rounded-full font-medium"
+                    style={{ background: 'var(--bg-card)', color: 'var(--text-lo)', border: '1px solid var(--border)' }}>
+                    {stock.segments.length} cycle{stock.segments.length > 1 ? 's' : ''}
+                  </span>
+                </div>
+
+                {/* Mini cycle pills preview (collapsed) */}
+                {!isExpanded && (
+                  <div className="flex items-center gap-1.5 shrink-0 overflow-hidden">
+                    {stock.segments.map((seg, si) => {
+                      const pal  = palette(seg.plPct, seg.status === 'open');
+                      const sign = seg.plPct >= 0 ? '+' : '';
+                      return (
+                        <div key={si} className="flex items-center gap-1">
+                          {si > 0 && <span className="text-lo" style={{ fontSize: 10 }}>→</span>}
+                          <span className="text-xs font-bold px-2 py-0.5 rounded-full whitespace-nowrap"
+                            style={{ background: pal.badge, color: pal.text, border: `1px solid ${pal.border}` }}>
+                            {sign}{seg.plPct.toFixed(1)}%
+                            {seg.status === 'open' && ' ●'}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Current P&L if open (collapsed view) */}
+                {!isExpanded && openSeg && (
+                  <div className="shrink-0 text-right ml-2">
+                    <p className="text-sm font-bold" style={{ color: openSeg.plPct >= 0 ? '#4ade80' : '#f87171' }}>
+                      {openSeg.plPct >= 0 ? '+' : ''}{openSeg.plPct.toFixed(1)}%
+                    </p>
+                    <p className="text-xs text-lo">{fmtAmt(openSeg.plAmt)}</p>
+                  </div>
+                )}
+              </button>
+
+              {/* ── Expanded: full cycle cards ── */}
+              {isExpanded && (
+                <div className="px-4 pb-4">
+                  <div className="flex items-stretch gap-0 overflow-x-auto pb-1">
+                    {stock.segments.map((seg, si) => {
+                      const pal      = palette(seg.plPct, seg.status === 'open');
+                      const sign     = seg.plPct >= 0 ? '+' : '';
+                      const isOpen   = seg.status === 'open';
+                      // width proportional to hold duration (min 140px)
+                      const maxDays  = Math.max(...stock.segments.map(s => s.daysHeld), 1);
+                      const flexVal  = Math.max(seg.daysHeld / maxDays, 0.3);
+
+                      return (
+                        <div key={si} className="flex items-center gap-0 shrink-0" style={{ flex: flexVal, minWidth: 150 }}>
+
+                          {/* Arrow connector between cycles */}
+                          {si > 0 && (
+                            <div className="flex flex-col items-center shrink-0 px-2">
+                              <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
+                              <span className="text-lo" style={{ fontSize: 11 }}>→</span>
+                              <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
+                            </div>
+                          )}
+
+                          {/* Cycle card */}
+                          <div className="flex-1 rounded-xl overflow-hidden"
+                            style={{ border: `1px solid ${pal.border}`, background: pal.bg }}>
+
+                            {/* Top: BUY info */}
+                            <div className="px-3 pt-3 pb-2" style={{ borderBottom: `1px solid ${pal.border}44` }}>
+                              <div className="flex items-center gap-1.5">
+                                <span className="w-2 h-2 rounded-full bg-green-400 shrink-0" />
+                                <span className="text-xs font-semibold" style={{ color: '#4ade80' }}>BUY</span>
+                                {seg.buyCount > 1 && (
+                                  <span className="text-xs px-1.5 py-0.5 rounded-full"
+                                    style={{ background: '#14532d', color: '#4ade80', fontSize: 9 }}>
+                                    ×{seg.buyCount} adds
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-xs font-bold text-hi mt-0.5">{fmtShort(seg.buyDate)}</p>
+                              <p className="text-lo mt-0.5" style={{ fontSize: 9 }}>{fmtFull(seg.buyDate)}</p>
+                              {seg.avgBuy > 0 && (
+                                <p className="text-lo mt-0.5" style={{ fontSize: 9 }}>
+                                  Avg ₹{seg.avgBuy.toFixed(1)}
+                                </p>
+                              )}
+                            </div>
+
+                            {/* Middle: P&L */}
+                            <div className="px-3 py-3 text-center">
+                              <p className="font-bold leading-none" style={{ color: pal.text, fontSize: 22 }}>
+                                {sign}{seg.plPct.toFixed(1)}%
+                              </p>
+                              <p className="text-xs font-semibold mt-1" style={{ color: pal.text, opacity: 0.85 }}>
+                                {seg.plAmt >= 0 ? '+' : ''}{fmtAmt(seg.plAmt)}
+                              </p>
+                              <p className="text-lo mt-1" style={{ fontSize: 9 }}>
+                                {holdLabel(seg.daysHeld)} held
+                              </p>
+
+                              {/* Duration bar */}
+                              <div className="mt-2 rounded-full overflow-hidden" style={{ height: 3, background: 'rgba(255,255,255,0.1)' }}>
+                                <div className="h-full rounded-full"
+                                  style={{ width: `${Math.min((seg.daysHeld / Math.max(...stock.segments.map(s => s.daysHeld), 1)) * 100, 100)}%`, background: pal.border }} />
+                              </div>
+                            </div>
+
+                            {/* Bottom: SELL or OPEN */}
+                            <div className="px-3 pb-3 pt-2" style={{ borderTop: `1px solid ${pal.border}44` }}>
+                              {isOpen ? (
+                                <>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="w-2 h-2 rounded-full shrink-0 animate-pulse"
+                                      style={{ background: pal.text }} />
+                                    <span className="text-xs font-semibold" style={{ color: pal.text }}>HOLDING</span>
+                                  </div>
+                                  <p className="text-xs text-lo mt-0.5">Since {fmtShort(seg.buyDate)}</p>
+                                  <p className="text-lo mt-0.5" style={{ fontSize: 9 }}>Open position</p>
+                                </>
+                              ) : (
+                                <>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="w-2 h-2 rounded-full shrink-0"
+                                      style={{ background: seg.plPct >= 0 ? '#22c55e' : '#ef4444' }} />
+                                    <span className="text-xs font-semibold"
+                                      style={{ color: seg.plPct >= 0 ? '#4ade80' : '#f87171' }}>
+                                      SOLD {seg.plPct >= 0 ? '✓' : '✗'}
+                                    </span>
+                                  </div>
+                                  <p className="text-xs font-bold text-hi mt-0.5">
+                                    {seg.sellDate ? fmtShort(seg.sellDate) : '–'}
+                                  </p>
+                                  <p className="text-lo mt-0.5" style={{ fontSize: 9 }}>
+                                    {seg.sellDate ? fmtFull(seg.sellDate) : '–'}
+                                  </p>
+                                  {seg.sellPrice > 0 && (
+                                    <p className="text-lo mt-0.5" style={{ fontSize: 9 }}>
+                                      @ ₹{seg.sellPrice.toFixed(1)}
+                                    </p>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
 
-      {/* ── Timeline ── */}
-      <div className="overflow-x-auto">
-        <div style={{ minWidth: 580 }}>
-
-          {/* Year header ticks */}
-          <div className="relative h-5 mb-1" style={{ marginLeft: 152, marginRight: 8 }}>
-            {years.map(y => (
-              <div key={y.year} className="absolute flex flex-col items-center"
-                style={{ left: `${y.pct}%`, transform: 'translateX(-50%)' }}>
-                <span className="text-lo font-semibold" style={{ fontSize: 9 }}>{y.year}</span>
-              </div>
-            ))}
-          </div>
-
-          {/* Stock rows */}
-          <div className="space-y-3">
-            {sorted.map(stock => (
-              <div key={stock.isin}
-                className="flex items-center gap-3"
-                onMouseEnter={() => setHoverId(stock.isin)}
-                onMouseLeave={() => setHoverId(null)}>
-
-                {/* Stock name */}
-                <div className="shrink-0 text-right" style={{ width: 148 }}>
-                  <p className="text-xs font-semibold truncate"
-                    style={{ color: hoverId === stock.isin ? 'var(--text-hi)' : 'var(--text-mid)' }}>
-                    {stock.name}
-                  </p>
-                  {stock.sector && (
-                    <p className="text-lo truncate" style={{ fontSize: 9 }}>{stock.sector}</p>
-                  )}
-                </div>
-
-                {/* Timeline track */}
-                <div className="flex-1 relative" style={{ height: 36 }}>
-                  {/* Track background */}
-                  <div className="absolute inset-y-0 left-0 right-0"
-                    style={{ top: 14, bottom: 14, background: 'var(--bg-card-alt)', borderRadius: 99, border: '1px solid var(--border)' }} />
-
-                  {/* Year divider lines */}
-                  {years.map(y => (
-                    <div key={y.year} className="absolute"
-                      style={{ left: `${y.pct}%`, top: 10, bottom: 10, width: 1, background: 'var(--border)', opacity: 0.5 }} />
-                  ))}
-
-                  {/* Segments */}
-                  {stock.segments.map((seg, si) => {
-                    const col       = segColor(seg.plPct, seg.status === 'open');
-                    const startPct  = ((seg.buyDate.getTime() - minTs) / span) * 100;
-                    const endTs     = seg.sellDate ? seg.sellDate.getTime() : today.getTime();
-                    const widthPct  = Math.max(((endTs - seg.buyDate.getTime()) / span) * 100, 0.8);
-                    const isOpen    = seg.status === 'open';
-                    const sign      = seg.plPct >= 0 ? '+' : '';
-                    const uid       = `${stock.isin}-${si}`;
-
-                    return (
-                      <div key={si} className="absolute group/seg" style={{ left: `${startPct}%`, width: `${widthPct}%`, top: 8, bottom: 8 }}>
-                        {/* Bar */}
-                        <div className="absolute inset-0 rounded-md transition-all"
-                          style={{
-                            background: col.fill,
-                            border: `1px solid ${col.stroke}`,
-                            opacity: hoverId === stock.isin ? 1 : 0.8,
-                            boxShadow: hoverId === stock.isin ? `0 0 6px ${col.stroke}55` : 'none',
-                          }} />
-
-                        {/* % label inside bar (if wide enough) */}
-                        {widthPct > 8 && (
-                          <div className="absolute inset-0 flex items-center justify-center pointer-events-none"
-                            style={{ fontSize: 9 }}>
-                            <span className="font-bold" style={{ color: col.text }}>
-                              {sign}{seg.plPct.toFixed(1)}%
-                            </span>
-                          </div>
-                        )}
-
-                        {/* BUY marker(s) – show all accumulation dots */}
-                        {seg.buyDates.map((bd, bdi) => {
-                          const dotPct = ((bd.getTime() - seg.buyDate.getTime()) / Math.max(endTs - seg.buyDate.getTime(), 1)) * 100;
-                          return (
-                            <div key={bdi}
-                              title={`BUY ${fmtDate(bd)}`}
-                              className="absolute rounded-full"
-                              style={{
-                                left:   `${bdi === 0 ? -5 : Math.max(dotPct - 3, 2)}%`,
-                                top:    '50%', transform: 'translateY(-50%)',
-                                width:  bdi === 0 ? 10 : 7, height: bdi === 0 ? 10 : 7,
-                                background: '#4ade80',
-                                border:     '1.5px solid #052e16',
-                                zIndex: 10,
-                                boxShadow: '0 0 4px #4ade8088',
-                              }} />
-                          );
-                        })}
-
-                        {/* SELL marker */}
-                        {!isOpen && seg.sellDate && (
-                          <div title={`SELL ${fmtDate(seg.sellDate)} · ${sign}${seg.plPct.toFixed(1)}%`}
-                            className="absolute rounded-full"
-                            style={{
-                              right: -5, top: '50%', transform: 'translateY(-50%)',
-                              width: 10, height: 10,
-                              background: seg.plPct >= 0 ? '#22c55e' : '#ef4444',
-                              border: '2px solid #0a0a0a',
-                              zIndex: 10,
-                              boxShadow: `0 0 5px ${seg.plPct >= 0 ? '#22c55e88' : '#ef444488'}`,
-                            }} />
-                        )}
-
-                        {/* "OPEN" end marker */}
-                        {isOpen && (
-                          <div className="absolute rounded-full"
-                            style={{
-                              right: -3, top: '50%', transform: 'translateY(-50%)',
-                              width: 8, height: 8,
-                              background: col.stroke,
-                              border: '2px dashed #0a0a0a',
-                              zIndex: 10,
-                            }} />
-                        )}
-
-                        {/* Hover tooltip */}
-                        {hoverId === stock.isin && (
-                          <div className="absolute z-50 rounded-xl shadow-2xl text-xs hidden group-hover/seg:block"
-                            style={{
-                              top: 42,
-                              left: '50%',
-                              transform: 'translateX(-50%)',
-                              background: 'var(--bg-card)',
-                              border: `1px solid ${col.stroke}66`,
-                              minWidth: 200,
-                              padding: '10px 12px',
-                              pointerEvents: 'none',
-                            }}>
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="font-bold text-hi">{stock.name}</span>
-                              <span className="px-1.5 py-0.5 rounded text-xs font-bold"
-                                style={{ background: col.label, color: col.text }}>
-                                {isOpen ? 'HOLDING' : 'EXITED'}
-                              </span>
-                            </div>
-                            <div className="grid grid-cols-2 gap-x-4 gap-y-1" style={{ borderTop: `1px solid ${col.stroke}33`, paddingTop: 6 }}>
-                              <span className="text-lo">Bought</span>
-                              <span className="font-semibold text-hi">{fmtDate(seg.buyDate)}</span>
-                              {seg.sellDate && (
-                                <>
-                                  <span className="text-lo">Sold</span>
-                                  <span className="font-semibold text-hi">{fmtDate(seg.sellDate)}</span>
-                                </>
-                              )}
-                              {!seg.sellDate && (
-                                <>
-                                  <span className="text-lo">Since</span>
-                                  <span className="font-semibold text-hi">{fmtDate(seg.buyDate)}</span>
-                                </>
-                              )}
-                              {seg.avgBuy > 0 && (
-                                <>
-                                  <span className="text-lo">Avg Buy</span>
-                                  <span className="font-semibold text-hi">₹{seg.avgBuy.toFixed(1)}</span>
-                                </>
-                              )}
-                              {seg.sellPrice && (
-                                <>
-                                  <span className="text-lo">Sell Price</span>
-                                  <span className="font-semibold text-hi">₹{seg.sellPrice.toFixed(1)}</span>
-                                </>
-                              )}
-                              <span className="text-lo">P&L</span>
-                              <span className="font-bold" style={{ color: col.text }}>
-                                {sign}{seg.plPct.toFixed(1)}%
-                                {seg.plAmt !== 0 && ` (${seg.plAmt >= 0 ? '+' : ''}${fmtAmt(seg.plAmt)})`}
-                              </span>
-                              {seg.buyCount > 1 && (
-                                <>
-                                  <span className="text-lo">Accumulations</span>
-                                  <span className="font-semibold text-hi">{seg.buyCount}× buys</span>
-                                </>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Bottom axis line */}
-          <div className="relative mt-3" style={{ marginLeft: 152 }}>
-            <div className="w-full" style={{ height: 1, background: 'var(--border)' }} />
-            {years.map(y => (
-              <div key={y.year} className="absolute" style={{ left: `${y.pct}%`, top: 1, width: 1, height: 5, background: 'var(--border)' }} />
-            ))}
-            <div className="absolute right-0 top-2 text-lo" style={{ fontSize: 9 }}>Today</div>
-          </div>
-        </div>
+      {/* ── Legend ── */}
+      <div className="flex flex-wrap gap-4 text-xs text-lo pt-1">
+        <span className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-green-400" />
+          BUY entry
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-green-500" />
+          SOLD (profit)
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-red-400" />
+          SOLD (loss)
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
+          HOLDING now
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="text-lo">→</span>
+          Re-entry after exit
+        </span>
       </div>
     </div>
   );
