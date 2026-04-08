@@ -388,10 +388,10 @@ export default function PortfolioTimeline({ holdings, transactions }: Props) {
 
                           {/* Arrow connector between cycles */}
                           {si > 0 && (
-                            <div className="flex flex-col items-center shrink-0 px-2">
-                              <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
-                              <span className="text-lo" style={{ fontSize: 11 }}>→</span>
-                              <div style={{ width: 1, height: 20, background: 'var(--border)' }} />
+                            <div className="flex flex-col items-center shrink-0 px-3">
+                              <div style={{ width: 1, height: 24, background: 'var(--border)' }} />
+                              <span style={{ fontSize: 16, color: 'var(--text-mid)', lineHeight: 1 }}>→</span>
+                              <div style={{ width: 1, height: 24, background: 'var(--border)' }} />
                             </div>
                           )}
 
@@ -400,21 +400,21 @@ export default function PortfolioTimeline({ holdings, transactions }: Props) {
                             style={{ border: `1px solid ${pal.border}`, background: pal.bg }}>
 
                             {/* Top: BUY info */}
-                            <div className="px-3 pt-3 pb-2" style={{ borderBottom: `1px solid ${pal.border}44` }}>
+                            <div className="px-3 pt-3 pb-2" style={{ borderBottom: `1px solid ${pal.border}55` }}>
                               <div className="flex items-center gap-1.5">
                                 <span className="w-2 h-2 rounded-full bg-green-400 shrink-0" />
-                                <span className="text-xs font-semibold" style={{ color: '#4ade80' }}>BUY</span>
+                                <span className="text-xs font-bold" style={{ color: '#4ade80', letterSpacing: '0.05em' }}>BUY</span>
                                 {seg.buyCount > 1 && (
-                                  <span className="text-xs px-1.5 py-0.5 rounded-full"
-                                    style={{ background: '#14532d', color: '#4ade80', fontSize: 9 }}>
+                                  <span className="text-xs px-1.5 py-0.5 rounded-full font-semibold"
+                                    style={{ background: '#166534', color: '#bbf7d0', fontSize: 9 }}>
                                     ×{seg.buyCount} adds
                                   </span>
                                 )}
                               </div>
-                              <p className="text-xs font-bold text-hi mt-0.5">{fmtShort(seg.buyDate)}</p>
-                              <p className="text-lo mt-0.5" style={{ fontSize: 9 }}>{fmtFull(seg.buyDate)}</p>
+                              <p className="text-xs font-bold mt-1" style={{ color: '#ffffff' }}>{fmtShort(seg.buyDate)}</p>
+                              <p className="mt-0.5" style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)' }}>{fmtFull(seg.buyDate)}</p>
                               {seg.avgBuy > 0 && (
-                                <p className="text-lo mt-0.5" style={{ fontSize: 9 }}>
+                                <p className="mt-0.5 font-medium" style={{ fontSize: 10, color: 'rgba(255,255,255,0.65)' }}>
                                   Avg ₹{seg.avgBuy.toFixed(1)}
                                 </p>
                               )}
@@ -422,53 +422,55 @@ export default function PortfolioTimeline({ holdings, transactions }: Props) {
 
                             {/* Middle: P&L */}
                             <div className="px-3 py-3 text-center">
-                              <p className="font-bold leading-none" style={{ color: pal.text, fontSize: 22 }}>
+                              <p className="font-bold leading-none" style={{ color: pal.text, fontSize: 24 }}>
                                 {sign}{seg.plPct.toFixed(1)}%
                               </p>
-                              <p className="text-xs font-semibold mt-1" style={{ color: pal.text, opacity: 0.85 }}>
+                              <p className="font-semibold mt-1" style={{ color: pal.text, fontSize: 13 }}>
                                 {seg.plAmt >= 0 ? '+' : ''}{fmtAmt(seg.plAmt)}
                               </p>
-                              <p className="text-lo mt-1" style={{ fontSize: 9 }}>
+                              <p className="font-medium mt-1.5" style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)' }}>
                                 {holdLabel(seg.daysHeld)} held
                               </p>
 
                               {/* Duration bar */}
-                              <div className="mt-2 rounded-full overflow-hidden" style={{ height: 3, background: 'rgba(255,255,255,0.1)' }}>
+                              <div className="mt-2 rounded-full overflow-hidden" style={{ height: 3, background: 'rgba(255,255,255,0.12)' }}>
                                 <div className="h-full rounded-full"
                                   style={{ width: `${Math.min((seg.daysHeld / Math.max(...stock.segments.map(s => s.daysHeld), 1)) * 100, 100)}%`, background: pal.border }} />
                               </div>
                             </div>
 
                             {/* Bottom: SELL or OPEN */}
-                            <div className="px-3 pb-3 pt-2" style={{ borderTop: `1px solid ${pal.border}44` }}>
+                            <div className="px-3 pb-3 pt-2" style={{ borderTop: `1px solid ${pal.border}55` }}>
                               {isOpen ? (
                                 <>
                                   <div className="flex items-center gap-1.5">
                                     <span className="w-2 h-2 rounded-full shrink-0 animate-pulse"
                                       style={{ background: pal.text }} />
-                                    <span className="text-xs font-semibold" style={{ color: pal.text }}>HOLDING</span>
+                                    <span className="text-xs font-bold" style={{ color: pal.text, letterSpacing: '0.05em' }}>HOLDING</span>
                                   </div>
-                                  <p className="text-xs text-lo mt-0.5">Since {fmtShort(seg.buyDate)}</p>
-                                  <p className="text-lo mt-0.5" style={{ fontSize: 9 }}>Open position</p>
+                                  <p className="font-medium mt-1" style={{ fontSize: 11, color: 'rgba(255,255,255,0.75)' }}>
+                                    Since {fmtShort(seg.buyDate)}
+                                  </p>
+                                  <p className="font-medium mt-0.5" style={{ fontSize: 10, color: 'rgba(255,255,255,0.5)' }}>Open position</p>
                                 </>
                               ) : (
                                 <>
                                   <div className="flex items-center gap-1.5">
                                     <span className="w-2 h-2 rounded-full shrink-0"
                                       style={{ background: seg.plPct >= 0 ? '#22c55e' : '#ef4444' }} />
-                                    <span className="text-xs font-semibold"
-                                      style={{ color: seg.plPct >= 0 ? '#4ade80' : '#f87171' }}>
+                                    <span className="text-xs font-bold"
+                                      style={{ color: seg.plPct >= 0 ? '#4ade80' : '#f87171', letterSpacing: '0.05em' }}>
                                       SOLD {seg.plPct >= 0 ? '✓' : '✗'}
                                     </span>
                                   </div>
-                                  <p className="text-xs font-bold text-hi mt-0.5">
+                                  <p className="font-bold mt-1" style={{ fontSize: 12, color: '#ffffff' }}>
                                     {seg.sellDate ? fmtShort(seg.sellDate) : '–'}
                                   </p>
-                                  <p className="text-lo mt-0.5" style={{ fontSize: 9 }}>
+                                  <p className="mt-0.5" style={{ fontSize: 10, color: 'rgba(255,255,255,0.6)' }}>
                                     {seg.sellDate ? fmtFull(seg.sellDate) : '–'}
                                   </p>
                                   {seg.sellPrice > 0 && (
-                                    <p className="text-lo mt-0.5" style={{ fontSize: 9 }}>
+                                    <p className="font-medium mt-0.5" style={{ fontSize: 10, color: 'rgba(255,255,255,0.65)' }}>
                                       @ ₹{seg.sellPrice.toFixed(1)}
                                     </p>
                                   )}
