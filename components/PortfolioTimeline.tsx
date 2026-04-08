@@ -385,21 +385,21 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
 
               {/* expanded */}
               {isExp && (
-                <div style={{ background: 'rgba(0,0,0,0.2)', borderBottom: !isLast ? '1px solid var(--border)' : 'none' }}>
+                <div style={{ background: 'rgba(15,20,30,0.85)', borderBottom: !isLast ? '1px solid rgba(255,255,255,0.08)' : 'none' }}>
                   {row.cycles.map((cycle, ci) => {
                     const cc = cycle.status === 'open'
                       ? (cycle.plPct >= 0 ? '#4ade80' : '#f87171')
                       : (cycle.plPct >= 0 ? '#86efac' : '#fca5a5');
                     const cbg = cycle.status === 'open'
                       ? (cycle.plPct >= 0 ? '#052e16' : '#2d0a0a')
-                      : 'rgba(255,255,255,0.04)';
+                      : 'rgba(255,255,255,0.08)';
 
                     return (
-                      <div key={ci} style={{ borderBottom: ci < row.cycles.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                      <div key={ci} style={{ borderBottom: ci < row.cycles.length - 1 ? '1px solid rgba(255,255,255,0.08)' : 'none' }}>
 
                         {/* cycle header */}
                         <div className="flex flex-wrap items-center gap-2 px-5 py-2.5"
-                          style={{ background: 'rgba(255,255,255,0.03)', borderBottom: '1px solid var(--border)' }}>
+                          style={{ background: 'rgba(255,255,255,0.06)', borderBottom: '1px solid rgba(255,255,255,0.09)' }}>
                           <span className="text-xs font-bold px-2.5 py-0.5 rounded-full" style={{ background: cbg, color: cc }}>
                             Cycle {cycle.no}
                           </span>
@@ -407,10 +407,10 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
                             {cycle.status === 'open' && <span className="w-1.5 h-1.5 rounded-full animate-pulse inline-block" style={{ background: cc }} />}
                             {cycle.status === 'open' ? 'HOLDING' : cycle.plPct >= 0 ? 'SOLD ✓' : 'SOLD ✗'}
                           </span>
-                          <span className="text-xs text-lo">
+                          <span className="text-xs" style={{ color: 'rgba(255,255,255,0.75)' }}>
                             {fmtDate(cycle.buyDate)} → {cycle.sellDate ? fmtDate(cycle.sellDate) : 'Present'}
                           </span>
-                          <span className="text-xs text-lo">· {holdLabel(cycle.daysHeld)}</span>
+                          <span className="text-xs" style={{ color: 'rgba(255,255,255,0.6)' }}>· {holdLabel(cycle.daysHeld)}</span>
                           {cycle.tranches.length > 1 && (
                             <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: '#14532d', color: '#86efac', fontSize: 10 }}>
                               {cycle.tranches.length} tranches
@@ -418,15 +418,15 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
                           )}
                           <span className="ml-auto text-sm font-bold" style={{ color: cc }}>
                             {plSign(cycle.plPct)}{cycle.plPct.toFixed(1)}%
-                            <span className="text-xs ml-1.5 font-semibold" style={{ color: cc, opacity: 0.8 }}>
+                            <span className="text-xs ml-1.5 font-semibold" style={{ color: cc, opacity: 0.85 }}>
                               ({plSign(cycle.plAmt)}{fmtAmt(cycle.plAmt)})
                             </span>
                           </span>
                         </div>
 
                         {/* tranche table head */}
-                        <div className="grid text-xs font-semibold text-lo uppercase tracking-wide px-7 py-2"
-                          style={{ gridTemplateColumns: '32px 110px 72px 88px 96px 72px 80px', background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                        <div className="grid text-xs font-semibold uppercase tracking-wide px-7 py-2"
+                          style={{ gridTemplateColumns: '32px 110px 72px 88px 96px 72px 80px', background: 'rgba(255,255,255,0.08)', borderBottom: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.55)' }}>
                           <div>#</div>
                           <div>Buy Date</div>
                           <div>Qty</div>
@@ -443,7 +443,7 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
                           const daysSince = Math.round((today.getTime() - tr.date.getTime()) / 86400000);
                           return (
                             <div key={ti} className="grid items-center px-7 py-2 text-xs"
-                              style={{ gridTemplateColumns: '32px 110px 72px 88px 96px 72px 80px', borderBottom: ti < cycle.tranches.length - 1 ? '1px solid rgba(255,255,255,0.04)' : 'none', background: ti % 2 === 1 ? 'rgba(255,255,255,0.015)' : 'transparent' }}>
+                              style={{ gridTemplateColumns: '32px 110px 72px 88px 96px 72px 80px', borderBottom: ti < cycle.tranches.length - 1 ? '1px solid rgba(255,255,255,0.06)' : 'none', background: ti % 2 === 1 ? 'rgba(255,255,255,0.04)' : 'transparent' }}>
 
                               {/* # */}
                               <div>
@@ -451,12 +451,12 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
                                   style={{ background: '#14532d', color: '#4ade80', fontSize: 9 }}>{ti + 1}</span>
                               </div>
                               {/* date */}
-                              <div className="font-semibold" style={{ color: '#fff' }}>{fmtDate(tr.date)}</div>
+                              <div className="font-semibold" style={{ color: '#ffffff' }}>{fmtDate(tr.date)}</div>
                               {/* qty */}
-                              <div className="font-semibold text-hi">{tr.qty.toLocaleString('en-IN')}</div>
+                              <div className="font-semibold" style={{ color: '#ffffff' }}>{tr.qty.toLocaleString('en-IN')}</div>
                               {/* buy price */}
                               <div>
-                                {tr.price > 0 ? <span className="font-semibold text-hi">₹{tr.price.toFixed(2)}</span> : <span className="text-lo">–</span>}
+                                {tr.price > 0 ? <span className="font-semibold" style={{ color: '#ffffff' }}>₹{tr.price.toFixed(2)}</span> : <span style={{ color: 'rgba(255,255,255,0.4)' }}>–</span>}
                               </div>
                               {/* running avg */}
                               <div>
@@ -468,22 +468,22 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
                                 )}
                               </div>
                               {/* total qty */}
-                              <div className="font-semibold text-hi">{tr.runningQty.toLocaleString('en-IN')}</div>
+                              <div className="font-semibold" style={{ color: '#ffffff' }}>{tr.runningQty.toLocaleString('en-IN')}</div>
                               {/* held */}
-                              <div className="text-lo">{holdLabel(daysSince)}</div>
+                              <div style={{ color: 'rgba(255,255,255,0.6)' }}>{holdLabel(daysSince)}</div>
                             </div>
                           );
                         })}
 
                         {/* cycle summary */}
                         <div className="grid items-center px-7 py-2.5 text-xs"
-                          style={{ gridTemplateColumns: '32px 110px 72px 88px 96px 72px 80px', borderTop: '1px solid var(--border)', background: 'rgba(255,255,255,0.03)' }}>
+                          style={{ gridTemplateColumns: '32px 110px 72px 88px 96px 72px 80px', borderTop: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)' }}>
                           <div />
-                          <div className="font-semibold" style={{ color: 'var(--text-lo)', fontSize: 10 }}>
+                          <div className="font-semibold" style={{ color: 'rgba(255,255,255,0.75)', fontSize: 10 }}>
                             {cycle.sellDate ? `Sold ${fmtDate(cycle.sellDate)}` : 'Open position'}
                           </div>
-                          <div className="font-bold text-hi">{cycle.tranches.reduce((s, t) => s + t.qty, 0).toLocaleString('en-IN')}</div>
-                          <div style={{ color: 'var(--text-lo)', fontSize: 10 }}>
+                          <div className="font-bold" style={{ color: '#ffffff' }}>{cycle.tranches.reduce((s, t) => s + t.qty, 0).toLocaleString('en-IN')}</div>
+                          <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: 10 }}>
                             {cycle.sellPrice > 0 ? `@ ₹${cycle.sellPrice.toFixed(2)}` : '—'}
                           </div>
                           <div className="font-bold" style={{ color: '#38bdf8' }}>₹{cycle.avgBuy.toFixed(2)} avg</div>
