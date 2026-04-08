@@ -87,7 +87,14 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
 
   const today = useMemo(() => new Date(), []);
 
-  /* name map */
+  /* Set of ISINs that are genuinely active (openQty > 0) — used to gate open cycles */
+  const activeIsinSet = useMemo(() => {
+    const s = new Set<string>();
+    holdings.forEach(h => { if (h.isin) s.add(h.isin); });
+    return s;
+  }, [holdings]);
+
+  /* name map — includes realized stocks for display names only */
   const holdingMap = useMemo(() => {
     const m = new Map<string, Holding>();
     holdings.forEach(h => { if (h.isin) m.set(h.isin, h); });
@@ -137,11 +144,13 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
       });
       if (tranches.length > 0) {
         const hd = holdingMap.get(isin);
-        // Only create an open cycle if the stock actually exists in active holdings (openQty > 0).
-        // Transaction FIFO may show leftover lots for stocks with corporate actions,
-        // bonus shares, or qty adjustments that don't match actual current holdings.
-        if (hd) {
-          cycles.push({ no: cycles.length + 1, buyDate: tranches[0].date, sellDate: null, status: 'open', plPct: hd?.profitLossTillDatePercent ?? 0, plAmt: hd?.profitLossTillDate ?? 0, avgBuy: tranches.at(-1)!.runningAvg, sellPrice: 0, daysHeld: Math.round((today.getTime() - tranches[0].date.getTime()) / 86400000), tranches: [...tranches] });
+        // Only create an open cycle if the ISIN is in activeIsinSet (i.e. the stock
+        // came from activeHoldings with openQty > 0). holdingMap also contains
+        // realizedStocks for name lookup — checking holdingMap alone would
+        // incorrectly mark fully-sold stocks (e.g. Bajaj Finserv, Va Tech Wabag)
+        // as HOLDING when their sell transaction is missing from the export.
+        if (activeIsinSet.has(isin) && hd) {
+          cycles.push({ no: cycles.length + 1, buyDate: tranches[0].date, sellDate: null, status: 'open', plPct: hd.profitLossTillDatePercent ?? 0, plAmt: hd.profitLossTillDate ?? 0, avgBuy: tranches.at(-1)!.runningAvg, sellPrice: 0, daysHeld: Math.round((today.getTime() - tranches[0].date.getTime()) / 86400000), tranches: [...tranches] });
         }
       }
       if (!cycles.length) return;
