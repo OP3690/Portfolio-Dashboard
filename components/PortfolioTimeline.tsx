@@ -1,6 +1,10 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import {
+  ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  Legend, ResponsiveContainer, ReferenceLine, Cell, Scatter,
+} from 'recharts';
 
 /* ─── types ─── */
 interface Holding {
@@ -198,6 +202,42 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
   const expandAll   = () => setExpanded(new Set(pageRows.map(r => r.isin)));
   const collapseAll = () => setExpanded(new Set());
 
+  /* ── chart data: CMP vs Avg Buy vs P&L for open positions ── */
+  const chartData = useMemo(() => {
+    const openRows = allRows.filter(r => r.hasOpen);
+    return openRows
+      .map(r => {
+        const open = r.cycles.find(c => c.status === 'open');
+        if (!open || open.currentPrice <= 0) return null;
+        return {
+          name: r.name.length > 12 ? r.name.slice(0, 11) + '…' : r.name,
+          fullName: r.name,
+          avgBuy: parseFloat(open.avgBuy.toFixed(2)),
+          cmp:    parseFloat(open.currentPrice.toFixed(2)),
+          plPct:  parseFloat(open.plPct.toFixed(2)),
+          plAmt:  open.plAmt,
+          gap:    parseFloat((open.currentPrice - open.avgBuy).toFixed(2)),
+        };
+      })
+      .filter(Boolean) as { name: string; fullName: string; avgBuy: number; cmp: number; plPct: number; plAmt: number; gap: number }[];
+  }, [allRows]);
+
+  /* linear regression on plPct vs index */
+  const trendData = useMemo(() => {
+    if (chartData.length < 2) return [];
+    const sorted = [...chartData].sort((a, b) => a.plPct - b.plPct);
+    const n = sorted.length;
+    const xs = sorted.map((_, i) => i);
+    const ys = sorted.map(d => d.plPct);
+    const mx = xs.reduce((s, x) => s + x, 0) / n;
+    const my = ys.reduce((s, y) => s + y, 0) / n;
+    const num = xs.reduce((s, x, i) => s + (x - mx) * (ys[i] - my), 0);
+    const den = xs.reduce((s, x) => s + (x - mx) ** 2, 0);
+    const slope = den !== 0 ? num / den : 0;
+    const intercept = my - slope * mx;
+    return sorted.map((d, i) => ({ ...d, trend: parseFloat((slope * i + intercept).toFixed(2)) }));
+  }, [chartData]);
+
   /* summary (always from all rows) */
   const openCount   = allRows.filter(r => r.hasOpen).length;
   const closedCount = allRows.reduce((s, r) => s + r.cycles.filter(c => c.status === 'closed').length, 0);
@@ -282,6 +322,134 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
           </div>
         ))}
       </div>
+
+      {/* ── CMP vs Avg Buy Price vs P&L Chart ── */}
+      {trendData.length > 0 && (
+        <div className="rounded-xl p-4 space-y-3" style={{ background: 'var(--bg-card-alt)', border: '1px solid var(--border)' }}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <p className="text-sm font-bold text-hi">CMP vs Avg Buy Price · P&L Trend</p>
+              <p className="text-xs text-lo">Bars = price levels · Right axis = P&L% · Dashed = regression trend</p>
+            </div>
+            <div className="flex flex-wrap gap-3 text-xs">
+              <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: '#38bdf8' }} />Avg Buy</span>
+              <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: '#a78bfa' }} />CMP</span>
+              <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-1" style={{ background: '#facc15' }} />P&L %</span>
+              <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-1 border-dashed border-t-2" style={{ borderColor: '#fb923c' }} />Trend</span>
+            </div>
+          </div>
+
+          <ResponsiveContainer width="100%" height={320}>
+            <ComposedChart data={trendData} margin={{ top: 10, right: 55, left: 10, bottom: 60 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
+              <XAxis
+                dataKey="name"
+                tick={{ fill: 'rgba(255,255,255,0.6)', fontSize: 10 }}
+                tickLine={false}
+                axisLine={{ stroke: 'rgba(255,255,255,0.1)' }}
+                angle={-40}
+                textAnchor="end"
+                interval={0}
+                height={64}
+              />
+              {/* Left Y — price */}
+              <YAxis
+                yAxisId="price"
+                orientation="left"
+                tick={{ fill: 'rgba(255,255,255,0.5)', fontSize: 10 }}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={v => v >= 1000 ? `₹${(v / 1000).toFixed(0)}k` : `₹${v}`}
+                width={52}
+              />
+              {/* Right Y — P&L % */}
+              <YAxis
+                yAxisId="pl"
+                orientation="right"
+                tick={{ fill: 'rgba(255,255,255,0.5)', fontSize: 10 }}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={v => `${v > 0 ? '+' : ''}${v}%`}
+                width={52}
+              />
+              <Tooltip
+                contentStyle={{ background: '#0f1117', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, fontSize: 12 }}
+                labelStyle={{ color: '#ffffff', fontWeight: 700, marginBottom: 6 }}
+                formatter={(value: number, name: string) => {
+                  if (name === 'avgBuy') return [`₹${value.toFixed(2)}`, 'Avg Buy Price'];
+                  if (name === 'cmp')    return [`₹${value.toFixed(2)}`, 'Current Price (CMP)'];
+                  if (name === 'plPct')  return [`${value > 0 ? '+' : ''}${value.toFixed(2)}%`, 'P&L %'];
+                  if (name === 'trend')  return [`${value > 0 ? '+' : ''}${value.toFixed(2)}%`, 'Trend Line'];
+                  return [value, name];
+                }}
+                labelFormatter={(_: any, payload: any) => payload?.[0]?.payload?.fullName ?? ''}
+              />
+              <ReferenceLine yAxisId="pl" y={0} stroke="rgba(255,255,255,0.2)" strokeDasharray="4 4" />
+
+              {/* Avg Buy bars */}
+              <Bar yAxisId="price" dataKey="avgBuy" name="avgBuy" barSize={14} radius={[3, 3, 0, 0]} fill="#38bdf8" opacity={0.75} />
+
+              {/* CMP bars — green if above avgBuy, red if below */}
+              <Bar yAxisId="price" dataKey="cmp" name="cmp" barSize={14} radius={[3, 3, 0, 0]}>
+                {trendData.map((entry, i) => (
+                  <Cell key={i} fill={entry.cmp >= entry.avgBuy ? '#4ade80' : '#f87171'} opacity={0.85} />
+                ))}
+              </Bar>
+
+              {/* P&L % line */}
+              <Line
+                yAxisId="pl" type="monotone" dataKey="plPct" name="plPct"
+                stroke="#facc15" strokeWidth={2} dot={{ r: 4, fill: '#facc15', stroke: '#0f1117', strokeWidth: 1.5 }}
+                activeDot={{ r: 6, fill: '#facc15' }}
+              />
+
+              {/* Trend line */}
+              <Line
+                yAxisId="pl" type="linear" dataKey="trend" name="trend"
+                stroke="#fb923c" strokeWidth={2} strokeDasharray="6 3"
+                dot={false} activeDot={false}
+              />
+            </ComposedChart>
+          </ResponsiveContainer>
+
+          {/* Summary strip */}
+          <div className="grid grid-cols-3 gap-3 pt-1">
+            {[
+              {
+                label: 'Above Avg Buy',
+                value: trendData.filter(d => d.cmp >= d.avgBuy).length,
+                sub: `of ${trendData.length} stocks`,
+                color: '#4ade80',
+              },
+              {
+                label: 'Avg P&L %',
+                value: `${trendData.reduce((s, d) => s + d.plPct, 0) / trendData.length >= 0 ? '+' : ''}${(trendData.reduce((s, d) => s + d.plPct, 0) / trendData.length).toFixed(1)}%`,
+                sub: 'across open positions',
+                color: trendData.reduce((s, d) => s + d.plPct, 0) >= 0 ? '#4ade80' : '#f87171',
+              },
+              {
+                label: 'Trend Direction',
+                value: (() => {
+                  if (trendData.length < 2) return '—';
+                  const first = trendData[0].trend, last = trendData[trendData.length - 1].trend;
+                  return last > first ? '↑ Improving' : last < first ? '↓ Declining' : '→ Flat';
+                })(),
+                sub: 'regression slope',
+                color: (() => {
+                  if (trendData.length < 2) return 'var(--text-lo)';
+                  return trendData[trendData.length - 1].trend >= trendData[0].trend ? '#4ade80' : '#f87171';
+                })(),
+              },
+            ].map(s => (
+              <div key={s.label} className="rounded-lg p-2.5 text-center" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                <p className="text-xs mb-0.5" style={{ color: 'rgba(255,255,255,0.5)' }}>{s.label}</p>
+                <p className="text-base font-bold" style={{ color: s.color }}>{s.value}</p>
+                <p className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>{s.sub}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Controls bar ── */}
       <div className="flex flex-wrap items-center justify-between gap-3">
