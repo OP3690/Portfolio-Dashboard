@@ -14,7 +14,6 @@ interface Holding {
   holdingPeriodYears?: number;
   holdingPeriodMonths?: number;
 }
-
 interface Transaction {
   isin: string;
   transactionDate: Date | string;
@@ -23,7 +22,6 @@ interface Transaction {
   tradedQty?: number;
   tradeValueAdjusted?: number;
 }
-
 interface Props {
   holdings: Holding[];
   transactions: Transaction[];
@@ -31,33 +29,25 @@ interface Props {
 }
 
 /* ─── helpers ─── */
-function toDate(d: Date | string): Date {
-  return d instanceof Date ? d : new Date(d);
-}
-
-function fmtShort(d: Date): string {
-  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' });
-}
-
-function fmtAmt(v: number): string {
+const toDate  = (d: Date | string) => d instanceof Date ? d : new Date(d);
+const fmtDate = (d: Date) => d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: '2-digit' });
+const fmtAmt  = (v: number) => {
   const a = Math.abs(v);
   if (a >= 1_00_00_000) return `₹${(v / 1_00_00_000).toFixed(1)}Cr`;
   if (a >= 1_00_000)    return `₹${(v / 1_00_000).toFixed(1)}L`;
   if (a >= 1_000)       return `₹${(v / 1_000).toFixed(1)}k`;
   return `₹${v.toFixed(0)}`;
-}
-
-function holdLabel(days: number): string {
+};
+const holdLabel = (days: number) => {
   if (days < 30)  return `${days}d`;
   if (days < 365) return `${Math.round(days / 30)}m`;
-  const y = Math.floor(days / 365);
-  const m = Math.round((days % 365) / 30);
+  const y = Math.floor(days / 365), m = Math.round((days % 365) / 30);
   return m > 0 ? `${y}y ${m}m` : `${y}y`;
-}
+};
+const plCol = (v: number) => v >= 0 ? '#4ade80' : '#f87171';
 
 /* ─── FIFO ─── */
 interface BuyLot { price: number; qty: number }
-
 function calcSellPL(queue: BuyLot[], sellPrice: number, sellQty: number) {
   let rem = sellQty, cost = 0, qty = 0;
   const tmp = queue.map(b => ({ ...b }));
@@ -69,7 +59,6 @@ function calcSellPL(queue: BuyLot[], sellPrice: number, sellQty: number) {
   const avg = qty > 0 ? cost / qty : sellPrice;
   return { plPct: avg > 0 ? ((sellPrice - avg) / avg) * 100 : 0, plAmt: (sellPrice - avg) * sellQty, avgCost: avg };
 }
-
 function dequeue(queue: BuyLot[], qty: number) {
   let rem = qty;
   while (rem > 0 && queue.length) {
@@ -79,66 +68,54 @@ function dequeue(queue: BuyLot[], qty: number) {
   }
 }
 
-/* ─── segment / row types ─── */
-interface Segment {
-  cycleNo:   number;
-  buyDate:   Date;
-  sellDate:  Date | null;
-  status:    'open' | 'closed';
-  plPct:     number;
-  plAmt:     number;
-  avgBuy:    number;
-  sellPrice: number;
-  buyCount:  number;
-  daysHeld:  number;
+/* ─── data model ─── */
+interface Tranche {
+  date:       Date;
+  price:      number;
+  qty:        number;
+  runningAvg: number;   // avg cost after this buy
+  runningQty: number;   // total qty held after this buy
 }
-
+interface Cycle {
+  no:         number;
+  buyDate:    Date;
+  sellDate:   Date | null;
+  status:     'open' | 'closed';
+  plPct:      number;
+  plAmt:      number;
+  avgBuy:     number;
+  sellPrice:  number;
+  daysHeld:   number;
+  tranches:   Tranche[];  // every individual BUY within this cycle
+}
 interface StockRow {
-  name:        string;
-  isin:        string;
-  sector:      string;
-  segments:    Segment[];
-  totalCycles: number;
-  openPct:     number | null;   // current open return
-  openAmt:     number | null;
-  bestPct:     number;
-  totalPL:     number;
-  hasOpen:     boolean;
+  name: string; isin: string; sector: string;
+  cycles:     Cycle[];
+  openPct:    number | null;
+  openAmt:    number | null;
+  bestPct:    number;
+  totalPL:    number;
+  hasOpen:    boolean;
 }
-
 type SortKey = 'name' | 'recent' | 'pl' | 'best' | 'cycles';
 
-/* ─── colour helpers ─── */
-function plColor(v: number) { return v >= 0 ? '#4ade80' : '#f87171'; }
-function statusBadge(status: 'open' | 'closed', plPct: number) {
-  if (status === 'open')
-    return { bg: plPct >= 0 ? '#052e16' : '#2d0a0a', color: plPct >= 0 ? '#4ade80' : '#f87171', label: '● HOLDING' };
-  return plPct >= 0
-    ? { bg: '#052e16', color: '#86efac', label: 'SOLD ✓' }
-    : { bg: '#2d0a0a', color: '#fca5a5', label: 'SOLD ✗' };
-}
-
-/* ═══════════════════════ MAIN ═══════════════════════ */
+/* ═══════════ MAIN ═══════════ */
 export default function PortfolioTimeline({ holdings, transactions, realizedStocks = [] }: Props) {
-  const [sort,      setSort]      = useState<SortKey>('recent');
-  const [sortDir,   setSortDir]   = useState<1 | -1>(1);
-  const [expanded,  setExpanded]  = useState<Set<string>>(new Set());
-  const [search,    setSearch]    = useState('');
-
+  const [sort,    setSort]    = useState<SortKey>('recent');
+  const [sortDir, setSortDir] = useState<1 | -1>(1);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [search,  setSearch]  = useState('');
   const today = useMemo(() => new Date(), []);
 
-  /* name map: active + realized */
+  /* name map */
   const holdingMap = useMemo(() => {
     const m = new Map<string, Holding>();
     holdings.forEach(h => { if (h.isin) m.set(h.isin, h); });
-    realizedStocks.forEach(r => {
-      if (r.isin && r.stockName && !m.has(r.isin))
-        m.set(r.isin, { stockName: r.stockName, isin: r.isin });
-    });
+    realizedStocks.forEach(r => { if (r.isin && r.stockName && !m.has(r.isin)) m.set(r.isin, { stockName: r.stockName, isin: r.isin }); });
     return m;
   }, [holdings, realizedStocks]);
 
-  /* ── build rows ── */
+  /* build rows */
   const stockRows: StockRow[] = useMemo(() => {
     const txByIsin = new Map<string, Transaction[]>();
     transactions.forEach(t => {
@@ -150,18 +127,16 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
     const rows: StockRow[] = [];
 
     txByIsin.forEach((txs, isin) => {
-      const sorted = [...txs]
-        .filter(t => t.transactionDate)
+      const sorted = [...txs].filter(t => t.transactionDate)
         .sort((a, b) => toDate(a.transactionDate).getTime() - toDate(b.transactionDate).getTime());
 
-      const h      = holdingMap.get(isin);
-      const name   = h?.stockName || isin;
-      const sector = h?.sectorName || '';
+      const h = holdingMap.get(isin);
+      const name = h?.stockName || isin, sector = h?.sectorName || '';
 
-      const segments: Segment[] = [];
-      const buyQueue: BuyLot[]  = [];
-      let segBuyDates: Date[]   = [];
-      let segBuyCount = 0, segAvgSum = 0, segAvgQty = 0;
+      const cycles: Cycle[] = [];
+      const buyQueue: BuyLot[] = [];
+      let tranches: Tranche[] = [];
+      let runQty = 0, runCost = 0;
 
       sorted.forEach(t => {
         const type   = (t.buySell || '').toUpperCase();
@@ -175,157 +150,128 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
 
         if (isBuy) {
           buyQueue.push({ price, qty });
-          segBuyDates.push(date);
-          segBuyCount++; segAvgSum += price * qty; segAvgQty += qty;
+          runQty  += qty;
+          runCost += price * qty;
+          tranches.push({ date, price, qty, runningAvg: runQty > 0 ? runCost / runQty : price, runningQty: runQty });
         }
 
-        if (isSell && segBuyDates.length > 0) {
+        if (isSell && tranches.length > 0) {
           const { plPct, plAmt, avgCost } = calcSellPL(buyQueue, price, qty);
           dequeue(buyQueue, qty);
+          runQty  -= qty;
+          runCost  = runQty > 0 ? avgCost * runQty : 0;   // recalculate after sell
+
           if (buyQueue.length === 0) {
             const sellDate = date;
-            segments.push({
-              cycleNo:   segments.length + 1,
-              buyDate:   segBuyDates[0], sellDate,
-              status:    'closed', plPct, plAmt,
-              avgBuy:    avgCost, sellPrice: price,
-              buyCount:  segBuyCount,
-              daysHeld:  Math.round((sellDate.getTime() - segBuyDates[0].getTime()) / 86400000),
+            cycles.push({
+              no:       cycles.length + 1,
+              buyDate:  tranches[0].date, sellDate,
+              status:   'closed', plPct, plAmt,
+              avgBuy:   avgCost, sellPrice: price,
+              daysHeld: Math.round((sellDate.getTime() - tranches[0].date.getTime()) / 86400000),
+              tranches: [...tranches],
             });
-            segBuyDates = []; segBuyCount = 0; segAvgSum = 0; segAvgQty = 0;
+            tranches = []; runQty = 0; runCost = 0;
           }
         }
       });
 
-      // open segment
-      if (segBuyDates.length > 0) {
+      /* open cycle */
+      if (tranches.length > 0) {
         const hd = holdingMap.get(isin);
-        segments.push({
-          cycleNo:   segments.length + 1,
-          buyDate:   segBuyDates[0], sellDate: null,
-          status:    'open',
-          plPct:     hd?.profitLossTillDatePercent ?? 0,
-          plAmt:     hd?.profitLossTillDate ?? 0,
-          avgBuy:    segAvgQty > 0 ? segAvgSum / segAvgQty : 0,
+        cycles.push({
+          no:       cycles.length + 1,
+          buyDate:  tranches[0].date, sellDate: null,
+          status:   'open',
+          plPct:    hd?.profitLossTillDatePercent ?? 0,
+          plAmt:    hd?.profitLossTillDate ?? 0,
+          avgBuy:   tranches.at(-1)!.runningAvg,
           sellPrice: 0,
-          buyCount:  segBuyCount,
-          daysHeld:  Math.round((today.getTime() - segBuyDates[0].getTime()) / 86400000),
+          daysHeld: Math.round((today.getTime() - tranches[0].date.getTime()) / 86400000),
+          tranches: [...tranches],
         });
       }
 
-      if (!segments.length) return;
-
-      const openSeg  = segments.find(s => s.status === 'open');
-      const bestSeg  = [...segments].sort((a, b) => b.plPct - a.plPct)[0];
-      const totalPL  = segments.reduce((s, x) => s + x.plAmt, 0);
-
+      if (!cycles.length) return;
+      const openCycle = cycles.find(c => c.status === 'open');
+      const bestCycle = [...cycles].sort((a, b) => b.plPct - a.plPct)[0];
       rows.push({
-        name, isin, sector, segments,
-        totalCycles: segments.length,
-        openPct:     openSeg?.plPct ?? null,
-        openAmt:     openSeg?.plAmt ?? null,
-        bestPct:     bestSeg?.plPct ?? 0,
-        totalPL,
-        hasOpen:     !!openSeg,
+        name, isin, sector, cycles,
+        openPct: openCycle?.plPct ?? null,
+        openAmt: openCycle?.plAmt ?? null,
+        bestPct: bestCycle?.plPct ?? 0,
+        totalPL: cycles.reduce((s, c) => s + c.plAmt, 0),
+        hasOpen: !!openCycle,
       });
     });
-
     return rows;
   }, [transactions, holdingMap, today]);
 
-  /* ── sort + filter ── */
-  const applySort = (key: SortKey) => {
-    if (sort === key) setSortDir(d => d === 1 ? -1 : 1);
-    else { setSort(key); setSortDir(1); }
-  };
-
+  /* sort + filter */
+  const applySort = (k: SortKey) => { sort === k ? setSortDir(d => (d === 1 ? -1 : 1)) : (setSort(k), setSortDir(1)); };
   const displayed = useMemo(() => {
     let r = [...stockRows];
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      r = r.filter(x => x.name.toLowerCase().includes(q) || x.sector.toLowerCase().includes(q));
-    }
+    if (search.trim()) { const q = search.toLowerCase(); r = r.filter(x => x.name.toLowerCase().includes(q) || x.sector.toLowerCase().includes(q)); }
     r.sort((a, b) => {
       let v = 0;
       if (sort === 'name')   v = a.name.localeCompare(b.name);
-      if (sort === 'recent') v = Math.max(...b.segments.map(s => s.buyDate.getTime())) - Math.max(...a.segments.map(s => s.buyDate.getTime()));
+      if (sort === 'recent') v = Math.max(...b.cycles.map(c => c.buyDate.getTime())) - Math.max(...a.cycles.map(c => c.buyDate.getTime()));
       if (sort === 'pl')     v = b.totalPL - a.totalPL;
       if (sort === 'best')   v = b.bestPct - a.bestPct;
-      if (sort === 'cycles') v = b.totalCycles - a.totalCycles;
+      if (sort === 'cycles') v = b.cycles.length - a.cycles.length;
       return v * sortDir;
     });
     return r;
   }, [stockRows, sort, sortDir, search]);
 
-  const toggleExpand = (isin: string) => {
-    setExpanded(prev => {
-      const next = new Set(prev);
-      next.has(isin) ? next.delete(isin) : next.add(isin);
-      return next;
-    });
-  };
-
+  const toggle      = (id: string) => setExpanded(p => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
   const expandAll   = () => setExpanded(new Set(displayed.map(r => r.isin)));
   const collapseAll = () => setExpanded(new Set());
 
-  /* ── summary ── */
+  /* summary */
   const openCount   = stockRows.filter(r => r.hasOpen).length;
-  const closedCount = stockRows.reduce((s, r) => s + r.segments.filter(x => x.status === 'closed').length, 0);
-  const winExits    = stockRows.reduce((s, r) => s + r.segments.filter(x => x.status === 'closed' && x.plPct > 0).length, 0);
-  const reEntries   = stockRows.filter(r => r.totalCycles > 1).length;
+  const closedCount = stockRows.reduce((s, r) => s + r.cycles.filter(c => c.status === 'closed').length, 0);
+  const winExits    = stockRows.reduce((s, r) => s + r.cycles.filter(c => c.status === 'closed' && c.plPct > 0).length, 0);
+  const reEntries   = stockRows.filter(r => r.cycles.length > 1).length;
   const winRate     = closedCount > 0 ? Math.round((winExits / closedCount) * 100) : 0;
 
-  /* ── sort indicator ── */
   const SortIcon = ({ k }: { k: SortKey }) => (
-    <span style={{ opacity: sort === k ? 1 : 0.3, fontSize: 10, marginLeft: 3 }}>
+    <span style={{ opacity: sort === k ? 1 : 0.3, fontSize: 9, marginLeft: 2 }}>
       {sort === k ? (sortDir === 1 ? '▲' : '▼') : '⇅'}
     </span>
   );
 
-  if (!displayed.length && !search)
-    return <div className="card p-6 text-center text-lo text-sm">No transaction data available.</div>;
+  if (!stockRows.length) return <div className="card p-6 text-center text-lo text-sm">No transaction data available.</div>;
 
   return (
     <div className="card p-5 space-y-4">
 
-      {/* ── Header ── */}
+      {/* header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="text-base font-bold text-hi">Trade Cycle Timeline</h3>
-          <p className="text-xs text-lo mt-0.5">
-            Every buy → hold → exit cycle · FIFO P&L · Re-entries tracked
-          </p>
+          <p className="text-xs text-lo mt-0.5">Every buy tranche · hold period · exit P&L · re-entries</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <input
-            value={search} onChange={e => setSearch(e.target.value)}
-            placeholder="Search stock / sector…"
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search stock / sector…"
             className="text-xs px-3 py-1.5 rounded-lg outline-none"
-            style={{ background: 'var(--bg-card-alt)', border: '1px solid var(--border)', color: 'var(--text-hi)', width: 180 }}
-          />
-          <button onClick={expandAll}
-            className="text-xs px-3 py-1.5 rounded-lg font-medium"
-            style={{ background: 'var(--bg-card-alt)', border: '1px solid var(--border)', color: 'var(--text-lo)' }}>
-            Expand All
-          </button>
-          <button onClick={collapseAll}
-            className="text-xs px-3 py-1.5 rounded-lg font-medium"
-            style={{ background: 'var(--bg-card-alt)', border: '1px solid var(--border)', color: 'var(--text-lo)' }}>
-            Collapse All
-          </button>
+            style={{ background: 'var(--bg-card-alt)', border: '1px solid var(--border)', color: 'var(--text-hi)', width: 190 }} />
+          <button onClick={expandAll} className="text-xs px-3 py-1.5 rounded-lg font-medium"
+            style={{ background: 'var(--bg-card-alt)', border: '1px solid var(--border)', color: 'var(--text-lo)' }}>Expand All</button>
+          <button onClick={collapseAll} className="text-xs px-3 py-1.5 rounded-lg font-medium"
+            style={{ background: 'var(--bg-card-alt)', border: '1px solid var(--border)', color: 'var(--text-lo)' }}>Collapse All</button>
         </div>
       </div>
 
-      {/* ── Summary cards ── */}
+      {/* summary cards */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: 'Open Positions', value: openCount,        color: '#4ade80', sub: 'currently holding'          },
-          { label: 'Exited Trades',  value: closedCount,      color: 'var(--text-hi)', sub: `${winExits} profitable exits` },
-          { label: 'Exit Win Rate',  value: `${winRate}%`,    color: winRate >= 50 ? '#4ade80' : '#f87171', sub: 'closed trades' },
-          { label: 'Re-Entries',     value: reEntries,        color: '#38bdf8', sub: 'stocks bought again'        },
+          { label: 'Open Positions', value: openCount,     color: '#4ade80',     sub: 'currently holding' },
+          { label: 'Exited Trades',  value: closedCount,   color: 'var(--text-hi)', sub: `${winExits} profitable exits` },
+          { label: 'Exit Win Rate',  value: `${winRate}%`, color: winRate >= 50 ? '#4ade80' : '#f87171', sub: 'of closed trades' },
+          { label: 'Re-Entries',     value: reEntries,     color: '#38bdf8',     sub: 'stocks bought again' },
         ].map(s => (
-          <div key={s.label} className="rounded-xl p-3 text-center"
-            style={{ background: 'var(--bg-card-alt)', border: '1px solid var(--border)' }}>
+          <div key={s.label} className="rounded-xl p-3 text-center" style={{ background: 'var(--bg-card-alt)', border: '1px solid var(--border)' }}>
             <p className="text-xs text-lo mb-1">{s.label}</p>
             <p className="text-2xl font-bold" style={{ color: s.color }}>{s.value}</p>
             <p className="text-xs text-lo mt-0.5">{s.sub}</p>
@@ -333,218 +279,197 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
         ))}
       </div>
 
-      {/* ── Table ── */}
+      {/* table */}
       <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--border)' }}>
-        {/* Table head */}
+
+        {/* head */}
         <div className="grid text-xs font-semibold text-lo uppercase tracking-wide px-4 py-2.5"
-          style={{
-            gridTemplateColumns: '28px 1fr 100px 72px 80px 90px 90px 90px',
-            background: 'var(--bg-card-alt)',
-            borderBottom: '1px solid var(--border)',
-          }}>
+          style={{ gridTemplateColumns: '28px 1fr 90px 70px 80px 84px 90px 90px', background: 'var(--bg-card-alt)', borderBottom: '1px solid var(--border)' }}>
           <div />
-          <button className="text-left flex items-center gap-0.5" onClick={() => applySort('name')}>
-            Stock <SortIcon k="name" />
-          </button>
-          <div>Sector</div>
-          <button className="text-left flex items-center gap-0.5" onClick={() => applySort('cycles')}>
-            Cycles <SortIcon k="cycles" />
-          </button>
-          <div>Status</div>
-          <button className="text-left flex items-center gap-0.5" onClick={() => applySort('best')}>
-            Best % <SortIcon k="best" />
-          </button>
-          <button className="text-left flex items-center gap-0.5" onClick={() => applySort('pl')}>
-            Total P&L <SortIcon k="pl" />
-          </button>
-          <button className="text-left flex items-center gap-0.5" onClick={() => applySort('recent')}>
-            Last Buy <SortIcon k="recent" />
-          </button>
+          {[
+            { k: 'name',   l: 'Stock'     },
+            { k: null,     l: 'Sector'    },
+            { k: 'cycles', l: 'Cycles'   },
+            { k: null,     l: 'Status'   },
+            { k: 'best',   l: 'Best %'   },
+            { k: 'pl',     l: 'Total P&L' },
+            { k: 'recent', l: 'Last Buy'  },
+          ].map(({ k, l }) => k
+            ? <button key={l} className="text-left flex items-center" onClick={() => applySort(k as SortKey)}>{l}<SortIcon k={k as SortKey} /></button>
+            : <div key={l}>{l}</div>
+          )}
         </div>
 
-        {/* Table body */}
-        {displayed.length === 0 && (
-          <div className="py-8 text-center text-lo text-sm">No results for "{search}"</div>
-        )}
+        {displayed.length === 0 && <div className="py-8 text-center text-lo text-sm">No results for "{search}"</div>}
 
         {displayed.map((row, ri) => {
-          const isExpanded = expanded.has(row.isin);
-          const lastBuy    = new Date(Math.max(...row.segments.map(s => s.buyDate.getTime())));
-          const openBadge  = row.hasOpen
+          const isExp   = expanded.has(row.isin);
+          const lastBuy = new Date(Math.max(...row.cycles.map(c => c.buyDate.getTime())));
+          const openBadge = row.hasOpen
             ? { bg: (row.openPct ?? 0) >= 0 ? '#052e16' : '#2d0a0a', color: (row.openPct ?? 0) >= 0 ? '#4ade80' : '#f87171', label: '● HOLDING' }
-            : { bg: '#1e1e2e', color: 'var(--text-lo)', label: 'EXITED' };
+            : { bg: 'var(--bg-card)',  color: 'var(--text-lo)', label: 'EXITED' };
 
           return (
             <div key={row.isin}>
-              {/* ── Main row ── */}
-              <div
-                className="grid items-center px-4 py-3 cursor-pointer transition-colors"
+
+              {/* main row */}
+              <div className="grid items-center px-4 py-3 cursor-pointer transition-colors hover:bg-white/[0.02]"
                 style={{
-                  gridTemplateColumns: '28px 1fr 100px 72px 80px 90px 90px 90px',
-                  borderBottom: isExpanded ? '1px solid var(--border)' : ri < displayed.length - 1 ? '1px solid var(--border)' : 'none',
-                  background: isExpanded ? 'var(--bg-card-alt)' : 'transparent',
+                  gridTemplateColumns: '28px 1fr 90px 70px 80px 84px 90px 90px',
+                  borderBottom: isExp || ri < displayed.length - 1 ? '1px solid var(--border)' : 'none',
+                  background: isExp ? 'rgba(255,255,255,0.03)' : 'transparent',
                 }}
-                onClick={() => toggleExpand(row.isin)}>
+                onClick={() => toggle(row.isin)}>
 
-                {/* Chevron */}
-                <span style={{
-                  fontSize: 10, color: 'var(--text-lo)',
-                  transform: isExpanded ? 'rotate(90deg)' : 'none',
-                  display: 'inline-block', transition: 'transform 0.15s',
-                }}>▶</span>
+                <span style={{ fontSize: 10, color: 'var(--text-lo)', transform: isExp ? 'rotate(90deg)' : 'none', display: 'inline-block', transition: 'transform .15s' }}>▶</span>
 
-                {/* Stock name */}
                 <div>
                   <p className="text-sm font-semibold text-hi truncate">{row.name}</p>
                   {row.sector && <p className="text-lo truncate" style={{ fontSize: 10 }}>{row.sector}</p>}
                 </div>
 
-                {/* Sector pill */}
                 <div>
                   {row.sector
-                    ? <span className="text-xs px-2 py-0.5 rounded-full truncate block max-w-full"
-                        style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-lo)', fontSize: 10 }}>
-                        {row.sector}
-                      </span>
+                    ? <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-lo)', fontSize: 10 }}>{row.sector}</span>
                     : <span className="text-lo" style={{ fontSize: 11 }}>–</span>}
                 </div>
 
-                {/* Cycles */}
-                <div>
-                  <span className="text-sm font-bold text-hi">{row.totalCycles}</span>
-                  {row.totalCycles > 1 && (
-                    <span className="ml-1 text-xs px-1.5 py-0.5 rounded-full"
-                      style={{ background: '#1e3a5f', color: '#38bdf8', fontSize: 9 }}>
-                      re-entry
-                    </span>
-                  )}
+                <div className="flex items-center gap-1">
+                  <span className="text-sm font-bold text-hi">{row.cycles.length}</span>
+                  {row.cycles.length > 1 && <span className="text-xs px-1.5 py-0.5 rounded-full" style={{ background: '#1e3a5f', color: '#38bdf8', fontSize: 9 }}>re-entry</span>}
                 </div>
 
-                {/* Status */}
                 <div>
-                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full"
-                    style={{ background: openBadge.bg, color: openBadge.color, whiteSpace: 'nowrap' }}>
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap" style={{ background: openBadge.bg, color: openBadge.color }}>
                     {openBadge.label}
                   </span>
                 </div>
 
-                {/* Best % */}
                 <div>
-                  <span className="text-sm font-bold" style={{ color: plColor(row.bestPct) }}>
+                  <span className="text-sm font-bold" style={{ color: plCol(row.bestPct) }}>
                     {row.bestPct >= 0 ? '+' : ''}{row.bestPct.toFixed(1)}%
                   </span>
                 </div>
 
-                {/* Total P&L */}
                 <div>
-                  <span className="text-sm font-bold" style={{ color: plColor(row.totalPL) }}>
-                    {row.totalPL >= 0 ? '+' : ''}{fmtAmt(row.totalPL)}
-                  </span>
-                  {row.openAmt !== null && (
-                    <p className="text-lo" style={{ fontSize: 10 }}>
-                      {(row.openPct ?? 0) >= 0 ? '+' : ''}{(row.openPct ?? 0).toFixed(1)}% open
-                    </p>
-                  )}
+                  <span className="text-sm font-bold" style={{ color: plCol(row.totalPL) }}>{row.totalPL >= 0 ? '+' : ''}{fmtAmt(row.totalPL)}</span>
+                  {row.openPct !== null && <p className="text-lo" style={{ fontSize: 10 }}>{row.openPct >= 0 ? '+' : ''}{row.openPct.toFixed(1)}% open</p>}
                 </div>
 
-                {/* Last buy */}
-                <div>
-                  <span className="text-xs text-hi">{fmtShort(lastBuy)}</span>
-                </div>
+                <div><span className="text-xs text-hi">{fmtDate(lastBuy)}</span></div>
               </div>
 
-              {/* ── Expanded: cycle sub-table ── */}
-              {isExpanded && (
-                <div style={{ borderBottom: ri < displayed.length - 1 ? '1px solid var(--border)' : 'none' }}>
-                  {/* Sub-table header */}
-                  <div className="grid px-8 py-2 text-xs font-semibold text-lo uppercase tracking-wide"
-                    style={{
-                      gridTemplateColumns: '40px 1fr 1fr 90px 80px 88px 90px',
-                      background: 'rgba(255,255,255,0.02)',
-                      borderBottom: '1px solid var(--border)',
-                    }}>
-                    <div>No.</div>
-                    <div>Buy Date</div>
-                    <div>Sell Date</div>
-                    <div>Hold Period</div>
-                    <div>Avg Buy</div>
-                    <div>Return %</div>
-                    <div>P&L</div>
-                  </div>
+              {/* expanded detail */}
+              {isExp && (
+                <div style={{ borderBottom: ri < displayed.length - 1 ? '1px solid var(--border)' : 'none', background: 'rgba(0,0,0,0.15)' }}>
+                  {row.cycles.map((cycle, ci) => {
+                    const cycleColor = cycle.status === 'open'
+                      ? (cycle.plPct >= 0 ? '#4ade80' : '#f87171')
+                      : (cycle.plPct >= 0 ? '#86efac' : '#fca5a5');
+                    const cycleBg = cycle.status === 'open'
+                      ? (cycle.plPct >= 0 ? '#052e16' : '#2d0a0a')
+                      : (cycle.plPct >= 0 ? '#052e1688' : '#2d0a0a88');
 
-                  {/* Sub-rows */}
-                  {row.segments.map((seg, si) => {
-                    const badge = statusBadge(seg.status, seg.plPct);
-                    const isLast = si === row.segments.length - 1;
                     return (
-                      <div key={si}
-                        className="grid items-center px-8 py-2.5 text-xs"
-                        style={{
-                          gridTemplateColumns: '40px 1fr 1fr 90px 80px 88px 90px',
-                          borderBottom: !isLast ? '1px dashed var(--border)' : 'none',
-                          background: seg.status === 'open' ? 'rgba(74,222,128,0.04)' : 'transparent',
-                        }}>
+                      <div key={ci} style={{ borderBottom: ci < row.cycles.length - 1 ? '1px solid var(--border)' : 'none' }}>
 
-                        {/* Cycle no. */}
-                        <div>
-                          <span className="w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold"
-                            style={{ background: 'var(--bg-card-alt)', color: 'var(--text-lo)', border: '1px solid var(--border)' }}>
-                            {seg.cycleNo}
+                        {/* cycle header bar */}
+                        <div className="flex flex-wrap items-center gap-3 px-6 py-2"
+                          style={{ background: 'rgba(255,255,255,0.02)', borderBottom: '1px solid var(--border)' }}>
+                          <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: cycleBg, color: cycleColor }}>
+                            Cycle {cycle.no}
+                          </span>
+                          <span className="text-xs font-semibold" style={{ color: cycleColor }}>
+                            {cycle.status === 'open' ? '● HOLDING' : `SOLD ${cycle.plPct >= 0 ? '✓' : '✗'}`}
+                          </span>
+                          <span className="text-xs text-lo">
+                            {fmtDate(cycle.buyDate)} → {cycle.sellDate ? fmtDate(cycle.sellDate) : 'Present'}
+                          </span>
+                          <span className="text-xs text-lo">· {holdLabel(cycle.daysHeld)} held</span>
+                          <span className="text-xs font-bold ml-auto" style={{ color: cycleColor }}>
+                            {cycle.plPct >= 0 ? '+' : ''}{cycle.plPct.toFixed(1)}% &nbsp;({cycle.plAmt >= 0 ? '+' : ''}{fmtAmt(cycle.plAmt)})
                           </span>
                         </div>
 
-                        {/* Buy date */}
-                        <div>
-                          <p className="font-semibold text-hi">{fmtShort(seg.buyDate)}</p>
-                          {seg.buyCount > 1 && (
-                            <span className="text-xs px-1.5 py-0.5 rounded-full mt-0.5 inline-block"
-                              style={{ background: '#14532d', color: '#86efac', fontSize: 9 }}>
-                              ×{seg.buyCount} buys
-                            </span>
-                          )}
+                        {/* tranche sub-table header */}
+                        <div className="grid text-xs font-semibold text-lo uppercase tracking-wide px-8 py-2"
+                          style={{ gridTemplateColumns: '36px 110px 70px 80px 90px 90px 1fr', background: 'rgba(255,255,255,0.015)', borderBottom: '1px dashed var(--border)' }}>
+                          <div>#</div>
+                          <div>Buy Date</div>
+                          <div>Qty</div>
+                          <div>Buy Price</div>
+                          <div>Avg Cost</div>
+                          <div>Total Qty</div>
+                          <div>Held Since</div>
                         </div>
 
-                        {/* Sell date */}
-                        <div>
-                          {seg.sellDate
-                            ? <p className="font-semibold text-hi">{fmtShort(seg.sellDate)}</p>
-                            : <span className="text-xs px-2 py-0.5 rounded-full font-semibold animate-pulse"
-                                style={{ background: badge.bg, color: badge.color }}>
-                                ● Open
-                              </span>}
-                        </div>
+                        {/* tranche rows */}
+                        {cycle.tranches.map((tr, ti) => {
+                          const daysSince = Math.round((today.getTime() - tr.date.getTime()) / 86400000);
+                          return (
+                            <div key={ti}
+                              className="grid items-center px-8 py-2 text-xs"
+                              style={{
+                                gridTemplateColumns: '36px 110px 70px 80px 90px 90px 1fr',
+                                borderBottom: ti < cycle.tranches.length - 1 ? '1px dashed rgba(255,255,255,0.05)' : 'none',
+                                background: ti % 2 === 1 ? 'rgba(255,255,255,0.02)' : 'transparent',
+                              }}>
+                              {/* tranche # */}
+                              <div>
+                                <span className="w-5 h-5 rounded-full flex items-center justify-center font-bold"
+                                  style={{ background: '#14532d', color: '#4ade80', fontSize: 9 }}>
+                                  {ti + 1}
+                                </span>
+                              </div>
+                              {/* date */}
+                              <div className="font-semibold text-hi">{fmtDate(tr.date)}</div>
+                              {/* qty */}
+                              <div className="font-semibold text-hi">{tr.qty.toLocaleString('en-IN')}</div>
+                              {/* buy price */}
+                              <div>
+                                {tr.price > 0
+                                  ? <span className="font-semibold text-hi">₹{tr.price.toFixed(2)}</span>
+                                  : <span className="text-lo">–</span>}
+                              </div>
+                              {/* running avg cost */}
+                              <div>
+                                <span className="font-semibold" style={{ color: '#38bdf8' }}>₹{tr.runningAvg.toFixed(2)}</span>
+                                {ti > 0 && (
+                                  <p style={{ fontSize: 9, color: tr.runningAvg < cycle.tranches[ti - 1].runningAvg ? '#4ade80' : '#f87171' }}>
+                                    {tr.runningAvg < cycle.tranches[ti - 1].runningAvg ? '▼ cost ↓' : '▲ cost ↑'}
+                                  </p>
+                                )}
+                              </div>
+                              {/* running total qty */}
+                              <div className="font-semibold text-hi">{tr.runningQty.toLocaleString('en-IN')}</div>
+                              {/* held since */}
+                              <div className="text-lo">{holdLabel(daysSince)}</div>
+                            </div>
+                          );
+                        })}
 
-                        {/* Hold period */}
-                        <div>
-                          <span className="font-semibold text-hi">{holdLabel(seg.daysHeld)}</span>
-                        </div>
-
-                        {/* Avg buy price */}
-                        <div>
-                          <span className="text-hi">{seg.avgBuy > 0 ? `₹${seg.avgBuy.toFixed(1)}` : '–'}</span>
-                        </div>
-
-                        {/* Return % + status badge */}
-                        <div className="space-y-1">
-                          <p className="font-bold" style={{ color: plColor(seg.plPct) }}>
-                            {seg.plPct >= 0 ? '+' : ''}{seg.plPct.toFixed(1)}%
-                          </p>
-                          <span className="text-xs px-1.5 py-0.5 rounded-full font-medium"
-                            style={{ background: badge.bg, color: badge.color, fontSize: 9 }}>
-                            {badge.label}
-                          </span>
-                        </div>
-
-                        {/* P&L */}
-                        <div>
-                          <span className="font-bold" style={{ color: plColor(seg.plAmt) }}>
-                            {seg.plAmt >= 0 ? '+' : ''}{fmtAmt(seg.plAmt)}
-                          </span>
-                          {seg.sellPrice > 0 && (
-                            <p className="text-lo mt-0.5" style={{ fontSize: 10 }}>
-                              @ ₹{seg.sellPrice.toFixed(1)}
-                            </p>
-                          )}
+                        {/* cycle summary footer */}
+                        <div className="grid items-center px-8 py-2 text-xs font-semibold"
+                          style={{
+                            gridTemplateColumns: '36px 110px 70px 80px 90px 90px 1fr',
+                            borderTop: '1px solid var(--border)',
+                            background: 'rgba(255,255,255,0.03)',
+                          }}>
+                          <div />
+                          <div style={{ color: 'var(--text-lo)' }}>
+                            {cycle.sellDate ? `Sold ${fmtDate(cycle.sellDate)}` : 'Still holding'}
+                          </div>
+                          <div style={{ color: cycleColor }}>
+                            {cycle.tranches.reduce((s, t) => s + t.qty, 0).toLocaleString('en-IN')} total
+                          </div>
+                          <div style={{ color: 'var(--text-lo)' }}>
+                            {cycle.sellPrice > 0 ? `@ ₹${cycle.sellPrice.toFixed(2)}` : '–'}
+                          </div>
+                          <div style={{ color: '#38bdf8' }}>₹{cycle.avgBuy.toFixed(2)} avg</div>
+                          <div />
+                          <div style={{ color: cycleColor }}>
+                            {cycle.plPct >= 0 ? '+' : ''}{cycle.plPct.toFixed(1)}% &nbsp; {cycle.plAmt >= 0 ? '+' : ''}{fmtAmt(cycle.plAmt)}
+                          </div>
                         </div>
                       </div>
                     );
@@ -556,10 +481,9 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
         })}
       </div>
 
-      {/* ── Footer ── */}
-      <div className="flex items-center justify-between text-xs text-lo px-1">
-        <span>{displayed.length} stock{displayed.length !== 1 ? 's' : ''} · {stockRows.reduce((s, r) => s + r.totalCycles, 0)} total cycles</span>
-        <span>Click any row to expand · FIFO cost basis</span>
+      <div className="flex justify-between text-xs text-lo px-1">
+        <span>{displayed.length} stock{displayed.length !== 1 ? 's' : ''} · {stockRows.reduce((s, r) => s + r.cycles.length, 0)} cycles · {stockRows.reduce((s, r) => s + r.cycles.reduce((x, c) => x + c.tranches.length, 0), 0)} buy tranches</span>
+        <span>Click row to expand · FIFO cost basis · Avg cost updates per tranche</span>
       </div>
     </div>
   );
