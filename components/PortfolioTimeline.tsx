@@ -137,7 +137,12 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
       });
       if (tranches.length > 0) {
         const hd = holdingMap.get(isin);
-        cycles.push({ no: cycles.length + 1, buyDate: tranches[0].date, sellDate: null, status: 'open', plPct: hd?.profitLossTillDatePercent ?? 0, plAmt: hd?.profitLossTillDate ?? 0, avgBuy: tranches.at(-1)!.runningAvg, sellPrice: 0, daysHeld: Math.round((today.getTime() - tranches[0].date.getTime()) / 86400000), tranches: [...tranches] });
+        // Only create an open cycle if the stock actually exists in active holdings (openQty > 0).
+        // Transaction FIFO may show leftover lots for stocks with corporate actions,
+        // bonus shares, or qty adjustments that don't match actual current holdings.
+        if (hd) {
+          cycles.push({ no: cycles.length + 1, buyDate: tranches[0].date, sellDate: null, status: 'open', plPct: hd?.profitLossTillDatePercent ?? 0, plAmt: hd?.profitLossTillDate ?? 0, avgBuy: tranches.at(-1)!.runningAvg, sellPrice: 0, daysHeld: Math.round((today.getTime() - tranches[0].date.getTime()) / 86400000), tranches: [...tranches] });
+        }
       }
       if (!cycles.length) return;
       const open = cycles.find(c => c.status === 'open');
