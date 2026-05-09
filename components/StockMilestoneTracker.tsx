@@ -6,8 +6,79 @@ import {
   ResponsiveContainer, ReferenceLine, Cell,
 } from 'recharts';
 
-interface Holding { stockName?: string; isin?: string; sectorName?: string; marketValue?: number; xirr?: number; }
-interface Props    { holdings: Holding[]; }
+interface Holding {
+  stockName?: string; isin?: string; sectorName?: string;
+  marketValue?: number; investmentAmount?: number;
+  xirr?: number; cagr?: number;
+  profitLossTillDatePercent?: number;
+  holdingPeriodYears?: number; holdingPeriodMonths?: number;
+}
+interface Props { holdings: Holding[]; }
+
+/* ─── Buying Opportunity Score ─────────────────────────────────────────────
+   Scores each stock 0-100 across 5 dimensions using available data.
+   No external price feed — derived from XIRR, CAGR, P&L%, hold period,
+   and milestone position. Intended as a quantitative signal, not advice.
+────────────────────────────────────────────────────────────────────────── */
+interface BuySignal {
+  score: number;
+  label: string;
+  emoji: string;
+  color: string;
+  bg:    string;
+  border:string;
+  reason: string;
+}
+
+function buySignal(h: Holding, pct: number): BuySignal {
+  const xirr    = h.xirr    ?? 0;
+  const cagr    = h.cagr    ?? 0;
+  const plPct   = h.profitLossTillDatePercent ?? 0;
+  const yrsFull = (h.holdingPeriodYears ?? 0) + (h.holdingPeriodMonths ?? 0) / 12;
+  let score = 0;
+  const reasons: string[] = [];
+
+  /* ── 1. XIRR momentum (0-28 pts) ─────────────────────────────────────── */
+  if      (xirr >= 30) { score += 28; reasons.push('exceptional XIRR'); }
+  else if (xirr >= 20) { score += 24; reasons.push('strong XIRR'); }
+  else if (xirr >= 12) { score += 18; reasons.push('healthy XIRR'); }
+  else if (xirr >= 5)  { score += 12; reasons.push('moderate XIRR'); }
+  else if (xirr >= 0)  { score +=  6; reasons.push('flat returns'); }
+  else                 { score +=  0; reasons.push('negative XIRR'); }
+
+  /* ── 2. P&L position — room to run vs stretched (0-24 pts) ───────────── */
+  if      (plPct >= 5  && plPct <= 40)  { score += 24; reasons.push('healthy gain, room to grow'); }
+  else if (plPct >  40 && plPct <= 80)  { score += 18; reasons.push('good gains, moderately extended'); }
+  else if (plPct > -15 && plPct < 5)    { score += 20; reasons.push('near entry — attractive add'); }
+  else if (plPct >= -30 && plPct < -15) { score += 10; reasons.push('in drawdown — recovery watch'); }
+  else if (plPct > 80)                  { score += 10; reasons.push('large gains — caution on timing'); }
+  else                                  { score +=  2; reasons.push('deep loss'); }
+
+  /* ── 3. CAGR vs 12% market benchmark (0-22 pts) ─────────────────────── */
+  if      (cagr >= 25) { score += 22; reasons.push('CAGR well above market'); }
+  else if (cagr >= 18) { score += 18; reasons.push('CAGR above market'); }
+  else if (cagr >= 12) { score += 13; reasons.push('CAGR at market level'); }
+  else if (cagr >= 0)  { score +=  7; reasons.push('CAGR below market'); }
+  else                 { score +=  0; reasons.push('negative CAGR'); }
+
+  /* ── 4. Holding period maturity (0-16 pts) ───────────────────────────── */
+  if      (yrsFull >= 1 && yrsFull <= 4) { score += 16; reasons.push('proven 1-4yr compounder'); }
+  else if (yrsFull > 4 && yrsFull <= 7)  { score += 12; reasons.push('mature holding'); }
+  else if (yrsFull < 1)                  { score +=  6; reasons.push('< 1yr — limited history'); }
+  else                                   { score +=  8; reasons.push('long-term holding'); }
+
+  /* ── 5. Milestone position — how much upside remains (0-10 pts) ─────── */
+  if      (pct >= 20 && pct <= 65) { score += 10; reasons.push('strong upside to goal'); }
+  else if (pct >  65 && pct < 90)  { score +=  6; reasons.push('moderate upside remaining'); }
+  else if (pct < 20)               { score +=  7; reasons.push('large gap to goal'); }
+  else                             { score +=  3; reasons.push('near goal value'); }
+
+  /* ── Map score → signal ─────────────────────────────────────────────── */
+  if (score >= 72) return { score, label: 'Strong Buy',  emoji: '🚀', color: '#4ade80', bg: 'rgba(74,222,128,.15)',  border: 'rgba(74,222,128,.35)',  reason: reasons.slice(0,2).join(' · ') };
+  if (score >= 56) return { score, label: 'Buy',         emoji: '📈', color: '#38bdf8', bg: 'rgba(56,189,248,.15)', border: 'rgba(56,189,248,.35)',  reason: reasons.slice(0,2).join(' · ') };
+  if (score >= 40) return { score, label: 'Watch',       emoji: '👁',  color: '#fbbf24', bg: 'rgba(251,191,36,.15)', border: 'rgba(251,191,36,.35)',  reason: reasons.slice(0,2).join(' · ') };
+  return              { score, label: 'Caution',       emoji: '⚠️', color: '#f87171', bg: 'rgba(248,113,113,.15)',border: 'rgba(248,113,113,.35)', reason: reasons.slice(0,2).join(' · ') };
+}
 
 const STEP  = 50_000;
 const GOALS = [3_00_000, 5_00_000, 10_00_000] as const;
@@ -83,6 +154,7 @@ export default function StockMilestoneTracker({ holdings }: Props) {
         msDone:  Math.floor(v / STEP),
         msTotal: Math.ceil(goal / STEP),
         atGoal:  v >= goal,
+        signal:  buySignal(h, Math.min(100, (v / goal) * 100)),
       };
     }).sort((a, b) =>
       sortBy === 'value'  ? b.value - a.value
@@ -220,6 +292,57 @@ export default function StockMilestoneTracker({ holdings }: Props) {
         ))}
       </div>
 
+      {/* ══ BUY SIGNAL SUMMARY ══ */}
+      {(() => {
+        const sb  = data.filter(d => d.signal.label === 'Strong Buy').length;
+        const b   = data.filter(d => d.signal.label === 'Buy').length;
+        const w   = data.filter(d => d.signal.label === 'Watch').length;
+        const c   = data.filter(d => d.signal.label === 'Caution').length;
+        const top = [...data].sort((a,b) => b.signal.score - a.signal.score).slice(0,3);
+        return (
+          <div className="rounded-xl p-4 flex flex-wrap items-center justify-between gap-4"
+            style={{ background: 'var(--bg-card-alt)', border: '1px solid var(--border)' }}>
+            <div>
+              <p className="font-bold text-hi text-sm mb-1">Buying Opportunity Signals</p>
+              <p className="text-lo" style={{ fontSize: 11 }}>
+                Algo-scored on XIRR · CAGR · P&L position · hold period · goal gap · Not financial advice
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              {[
+                { emoji:'🚀', label:'Strong Buy', count:sb, color:'#4ade80' },
+                { emoji:'📈', label:'Buy',         count:b,  color:'#38bdf8' },
+                { emoji:'👁',  label:'Watch',       count:w,  color:'#fbbf24' },
+                { emoji:'⚠️', label:'Caution',     count:c,  color:'#f87171' },
+              ].map(s => (
+                <div key={s.label} className="flex items-center gap-2 rounded-lg px-3 py-2"
+                  style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+                  <span style={{ fontSize: 14 }}>{s.emoji}</span>
+                  <div>
+                    <p style={{ color: s.color, fontWeight: 700, fontSize: 18, lineHeight: 1 }}>{s.count}</p>
+                    <p className="text-lo" style={{ fontSize: 10 }}>{s.label}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+            {top.length > 0 && (
+              <div className="flex flex-wrap gap-2 items-center">
+                <span className="text-lo" style={{ fontSize: 11 }}>Top picks:</span>
+                {top.map(d => (
+                  <span key={d.fullName} style={{
+                    display:'inline-flex', alignItems:'center', gap:4,
+                    padding:'3px 10px', borderRadius:99, fontSize:11, fontWeight:600,
+                    color: d.signal.color, background: d.signal.bg, border:`1px solid ${d.signal.border}`,
+                  }}>
+                    {d.signal.emoji} {d.fullName.slice(0,14)} <span style={{ opacity:0.6, fontSize:10 }}>({d.signal.score})</span>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {/* ══ CHART VIEW ══ */}
       {view === 'chart' && (
         <div className="rounded-xl p-4" style={{ background: 'var(--bg-card-alt)', border: '1px solid var(--border)' }}>
@@ -285,8 +408,9 @@ export default function StockMilestoneTracker({ holdings }: Props) {
                   borderBottom: i < data.length - 1 ? '1px solid var(--border)' : 'none',
                 }}>
 
-                {/* Stock name + sector */}
+                {/* Stock name + sector + buy signal */}
                 <div className="flex items-center gap-3 min-w-0">
+                  {/* avatar */}
                   <div style={{
                     width: 36, height: 36, borderRadius: 10, flexShrink: 0,
                     background: pBadgeBg(d.pct), border: `1.5px solid ${bc}50`,
@@ -295,9 +419,23 @@ export default function StockMilestoneTracker({ holdings }: Props) {
                   }}>
                     {d.fullName.charAt(0)}
                   </div>
-                  <div className="min-w-0">
+                  <div className="min-w-0 flex-1">
                     <p className="font-semibold text-hi truncate" style={{ fontSize: 13 }}>{d.fullName}</p>
                     {d.sector && <p className="text-lo truncate" style={{ fontSize: 11, marginTop: 1 }}>{d.sector}</p>}
+                    {/* buy signal badge */}
+                    <div className="flex items-center gap-1.5 mt-1.5" title={`Score ${d.signal.score}/100 · ${d.signal.reason}`}>
+                      <span style={{
+                        display: 'inline-flex', alignItems: 'center', gap: 4,
+                        padding: '2px 8px', borderRadius: 99, fontSize: 10, fontWeight: 700,
+                        color: d.signal.color, background: d.signal.bg, border: `1px solid ${d.signal.border}`,
+                        whiteSpace: 'nowrap', cursor: 'help',
+                      }}>
+                        {d.signal.emoji} {d.signal.label}
+                      </span>
+                      <span style={{ fontSize: 9, color: 'var(--text-lo)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 120 }}>
+                        {d.signal.reason}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
