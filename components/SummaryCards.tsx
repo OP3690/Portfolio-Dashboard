@@ -98,20 +98,48 @@ export default function SummaryCards({ summary }: SummaryCardsProps) {
   const doublingYears = xirr > 0 ? Math.log(2) / Math.log(1 + xirr / 100) : null;
 
   const DoublingBadge = doublingYears ? (
-    <span
-      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide"
+    <div
+      className="flex items-center gap-2.5 px-3 py-2 rounded-xl"
       style={{
-        background: 'color-mix(in srgb, var(--info) 12%, transparent)',
-        border: '1px solid color-mix(in srgb, var(--info) 28%, transparent)',
-        color: 'var(--info)',
+        background: 'color-mix(in srgb, var(--info) 9%, transparent)',
+        border: '1px solid color-mix(in srgb, var(--info) 22%, transparent)',
       }}
     >
-      {/* mini clock icon */}
-      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
-      </svg>
-      Double in: {doublingYears.toFixed(1)} Yrs
-    </span>
+      {/* 2× chip */}
+      <span
+        className="text-[11px] font-black leading-none px-1.5 py-0.5 rounded-md"
+        style={{
+          background: 'color-mix(in srgb, var(--info) 20%, transparent)',
+          color: 'var(--info)',
+          letterSpacing: '0.02em',
+        }}
+      >
+        2×
+      </span>
+
+      {/* label + value */}
+      <div className="flex flex-col leading-none gap-0.5">
+        <span className="text-[9px] font-semibold uppercase tracking-[0.1em]" style={{ color: 'var(--text-lo)' }}>
+          Doubles in
+        </span>
+        <span className="text-[13px] font-black" style={{ color: 'var(--info)' }}>
+          {doublingYears.toFixed(1)} Yrs
+        </span>
+      </div>
+
+      {/* divider */}
+      <div className="w-px self-stretch mx-0.5 rounded-full" style={{ background: 'color-mix(in srgb, var(--info) 25%, transparent)' }} />
+
+      {/* XIRR context */}
+      <div className="flex flex-col leading-none gap-0.5">
+        <span className="text-[9px] font-semibold uppercase tracking-[0.1em]" style={{ color: 'var(--text-lo)' }}>
+          At XIRR
+        </span>
+        <span className="text-[11px] font-bold" style={{ color: 'var(--text-hi)' }}>
+          {xirr.toFixed(1)}%
+        </span>
+      </div>
+    </div>
   ) : null;
 
   const cards = [
