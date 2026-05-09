@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  Legend, ResponsiveContainer, ReferenceLine, Cell, Scatter,
+  Legend, ResponsiveContainer, ReferenceLine, Cell, LabelList,
 } from 'recharts';
 
 /* ─── types ─── */
@@ -339,8 +339,8 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
             </div>
           </div>
 
-          <ResponsiveContainer width="100%" height={320}>
-            <ComposedChart data={trendData} margin={{ top: 10, right: 55, left: 10, bottom: 60 }}>
+          <ResponsiveContainer width="100%" height={360}>
+            <ComposedChart data={trendData} margin={{ top: 40, right: 55, left: 10, bottom: 60 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
               <XAxis
                 dataKey="name"
@@ -387,13 +387,30 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
               <ReferenceLine yAxisId="pl" y={0} stroke="rgba(255,255,255,0.2)" strokeDasharray="4 4" />
 
               {/* Avg Buy bars */}
-              <Bar yAxisId="price" dataKey="avgBuy" name="avgBuy" barSize={14} radius={[3, 3, 0, 0]} fill="#38bdf8" opacity={0.75} />
+              <Bar yAxisId="price" dataKey="avgBuy" name="avgBuy" barSize={14} radius={[3, 3, 0, 0]} fill="#38bdf8" opacity={0.75}>
+                <LabelList
+                  dataKey="avgBuy"
+                  position="top"
+                  formatter={((v: number) => v >= 1000 ? `₹${(v / 1000).toFixed(1)}k` : `₹${v}`) as any}
+                  style={{ fill: 'rgba(255,255,255,0.7)', fontSize: 8, fontWeight: 600 }}
+                  angle={-55}
+                  offset={14}
+                />
+              </Bar>
 
               {/* CMP bars — green if above avgBuy, red if below */}
               <Bar yAxisId="price" dataKey="cmp" name="cmp" barSize={14} radius={[3, 3, 0, 0]}>
                 {trendData.map((entry, i) => (
                   <Cell key={i} fill={entry.cmp >= entry.avgBuy ? '#4ade80' : '#f87171'} opacity={0.85} />
                 ))}
+                <LabelList
+                  dataKey="cmp"
+                  position="top"
+                  formatter={((v: number) => v >= 1000 ? `₹${(v / 1000).toFixed(1)}k` : `₹${v}`) as any}
+                  style={{ fill: 'rgba(255,255,255,0.85)', fontSize: 8, fontWeight: 700 }}
+                  angle={-55}
+                  offset={14}
+                />
               </Bar>
 
               {/* P&L % line */}

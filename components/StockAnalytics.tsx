@@ -8,6 +8,7 @@ import DetailedAnalysis from './DetailedAnalysis';
 import StockScorecard from './StockScorecard';
 import CapitalEfficiency from './CapitalEfficiency';
 import PortfolioTimeline from './PortfolioTimeline';
+import StockMilestoneTracker from './StockMilestoneTracker';
 
 interface StockAnalyticsProps {
   holdings: Array<{
@@ -433,6 +434,12 @@ export default function StockAnalytics({ holdings, transactions, realizedStocks 
       <div>
         <SectionTitle>Portfolio Entry Timeline</SectionTitle>
         <PortfolioTimeline holdings={holdings} transactions={transactions} realizedStocks={realizedStocks} />
+      </div>
+
+      {/* ── Stock Milestone Tracker ──────────────────────────── */}
+      <div>
+        <SectionTitle>Stock Milestone Tracker</SectionTitle>
+        <StockMilestoneTracker holdings={holdings} />
       </div>
 
       {/* ── Capital Allocation Efficiency ────────────────────── */}
