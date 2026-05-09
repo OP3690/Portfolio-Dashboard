@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import React from 'react';
 import { LineChart, Line, ResponsiveContainer, Tooltip } from 'recharts';
 import SmartAllocation from './SmartAllocation';
@@ -212,10 +212,45 @@ export default function StockResearch() {
     }
   }, [activeFilters]);
 
-  // Fetch all signals in parallel on mount
+  // Fetch quant predictions first (most valuable), then stagger secondary signals
   useEffect(() => {
-    SIGNAL_KEYS.forEach(type => fetchSignal(type));
+    fetchSignal('quantPredictions');
+    // Stagger secondary signals 800ms later so quant loads and renders first
+    const timer = setTimeout(() => {
+      (['volumeSpikes', 'deepPullbacks', 'capitulated', 'fiveDayDecliners', 'fiveDayClimbers', 'tightRangeBreakouts'] as SignalKey[])
+        .forEach(type => fetchSignal(type));
+    }, 800);
+    return () => clearTimeout(timer);
   }, []);
+
+  // Compute potential doublers client-side from quantPredictions (no extra API call)
+  const potentialDoublers = useMemo(() => {
+    const quant = signals.quantPredictions;
+    if (!quant || quant.length === 0) return [];
+    const score = (s: any) => {
+      const retScore  = Math.min((s.exp3MReturn || 0) / 30, 1);
+      const probScore = (s.p12 || s.probability || 0);
+      const hurstScore = Math.min(((s.hurst || 0.5) - 0.4) / 0.4, 1);
+      const regimeScore = (s.regimeBull || 0);
+      return retScore * 0.4 + probScore * 0.3 + hurstScore * 0.15 + regimeScore * 0.15;
+    };
+    return [...quant]
+      .filter(s => (s.exp3MReturn || 0) >= 12 && (s.p12 || s.probability || 0) >= 0.5)
+      .sort((a, b) => score(b) - score(a))
+      .slice(0, 6)
+      .map(s => ({
+        ...s,
+        doublerScore: Math.round(score(s) * 100),
+        annualEst: Math.round(((1 + (s.exp3MReturn || 0) / 100) ** 4 - 1) * 100),
+        signals: [
+          s.hurst > 0.55 ? `Hurst ${s.hurst} (trending)` : null,
+          s.regimeBull > 0.55 ? `Bull regime ${Math.round(s.regimeBull * 100)}%` : null,
+          s.kamaER > 0.5 ? `KAMA ER ${s.kamaER}` : null,
+          s.rsrsZ > 0.5 ? `RSRS +${s.rsrsZ?.toFixed(1)}` : null,
+          s.donchianPercent > 0.7 ? `Donchian ${Math.round(s.donchianPercent * 100)}%` : null,
+        ].filter(Boolean).slice(0, 2),
+      }));
+  }, [signals.quantPredictions]);
 
   const applyFilters = async (type: SignalKey, newFilters?: FilterState[SignalKey]) => {
     const merged = { ...activeFilters, [type]: newFilters ?? filters[type] };
@@ -244,6 +279,125 @@ export default function StockResearch() {
           Rules-driven technical analysis • Mathematical models • Trading strategies
           {isPageLoading && <span className="ml-2 inline-flex items-center gap-1.5"><span className="inline-block w-2 h-2 rounded-full animate-pulse" style={{ background: 'var(--brand)' }} /> Loading…</span>}
         </p>
+      </div>
+
+      {/* ── Potential Doublers ─────────────────────────────────────────────── */}
+      <div className="card p-5">
+        {/* header */}
+        <div className="flex items-start justify-between mb-4 flex-wrap gap-2">
+          <div>
+            <div className="flex items-center gap-2 mb-0.5">
+              <span className="text-lg">🚀</span>
+              <h3 className="text-base font-bold text-hi">6 Stocks with Double Return Potential</h3>
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                style={{ background: 'color-mix(in srgb,var(--brand) 15%,transparent)', color: 'var(--brand)', border: '1px solid color-mix(in srgb,var(--brand) 30%,transparent)' }}>
+                AI Screened
+              </span>
+            </div>
+            <p className="text-xs" style={{ color: 'var(--text-lo)' }}>
+              Quant model scores stocks by momentum, regime, trend quality & probability — top 6 ranked by composite doubler score
+            </p>
+          </div>
+          {!loadingMap.quantPredictions && potentialDoublers.length > 0 && (
+            <span className="text-[10px] font-semibold px-2 py-1 rounded-lg" style={{ background: 'var(--bg-raised)', color: 'var(--text-lo)' }}>
+              Based on {signals.quantPredictions?.length ?? 0} screened stocks
+            </span>
+          )}
+        </div>
+
+        {/* loading state */}
+        {loadingMap.quantPredictions && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {[0,1,2,3,4,5].map(i => (
+              <div key={i} className="rounded-xl p-4" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-sm)' }}>
+                <div className="skeleton h-4 rounded mb-2" style={{ width: '65%' }} />
+                <div className="skeleton h-3 rounded mb-3" style={{ width: '40%' }} />
+                <div className="skeleton h-7 rounded mb-2" style={{ width: '50%' }} />
+                <div className="skeleton h-3 rounded" style={{ width: '80%' }} />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* no data */}
+        {!loadingMap.quantPredictions && potentialDoublers.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-8 text-center">
+            <span className="text-3xl mb-2">📊</span>
+            <p className="text-sm font-medium text-hi">No strong doublers found yet</p>
+            <p className="text-xs mt-1" style={{ color: 'var(--text-lo)' }}>
+              Quant model requires ≥12% 3M expected return + ≥50% probability. Try adjusting Quant filters above.
+            </p>
+          </div>
+        )}
+
+        {/* 6 cards */}
+        {!loadingMap.quantPredictions && potentialDoublers.length > 0 && (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {potentialDoublers.map((s, i) => {
+              const scoreColor = s.doublerScore >= 75 ? 'var(--gain)' : s.doublerScore >= 55 ? 'var(--brand)' : 'var(--text-mid)';
+              const scoreBg   = s.doublerScore >= 75 ? 'color-mix(in srgb,var(--gain) 12%,transparent)' : s.doublerScore >= 55 ? 'color-mix(in srgb,var(--brand) 12%,transparent)' : 'var(--bg-raised)';
+              const annualColor = s.annualEst >= 100 ? 'var(--gain)' : s.annualEst >= 60 ? 'var(--brand)' : 'var(--text-hi)';
+              return (
+                <div key={s.isin ?? i}
+                  className="rounded-xl p-4 relative overflow-hidden transition-transform hover:-translate-y-0.5"
+                  style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-sm)' }}>
+                  {/* rank badge */}
+                  <span className="absolute top-3 right-3 text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center"
+                    style={{ background: scoreBg, color: scoreColor }}>
+                    {i + 1}
+                  </span>
+
+                  {/* stock name + sector */}
+                  <p className="text-sm font-bold text-hi pr-6 leading-snug">{s.stockName || '—'}</p>
+                  <p className="text-[10px] font-medium mt-0.5 mb-3" style={{ color: 'var(--text-lo)' }}>
+                    {s.sector || '—'}
+                  </p>
+
+                  {/* price + annual est */}
+                  <div className="flex items-end justify-between mb-3">
+                    <div>
+                      <p className="text-[9px] font-bold uppercase tracking-wide mb-0.5" style={{ color: 'var(--text-lo)' }}>Current Price</p>
+                      <p className="text-base font-black text-hi">₹{(s.currentPrice || 0).toFixed(0)}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[9px] font-bold uppercase tracking-wide mb-0.5" style={{ color: 'var(--text-lo)' }}>Est. Annual</p>
+                      <p className="text-xl font-black leading-none" style={{ color: annualColor }}>
+                        +{s.annualEst}%
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* confidence bar */}
+                  <div className="mb-2.5">
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-[9px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-lo)' }}>Confidence</span>
+                      <span className="text-[10px] font-black" style={{ color: scoreColor }}>{Math.round((s.p12 || s.probability || 0) * 100)}%</span>
+                    </div>
+                    <div className="h-1 rounded-full overflow-hidden" style={{ background: 'var(--border-sm)' }}>
+                      <div className="h-full rounded-full transition-all duration-700"
+                        style={{ width: `${Math.round((s.p12 || s.probability || 0) * 100)}%`, background: scoreColor }} />
+                    </div>
+                  </div>
+
+                  {/* score + signals */}
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md"
+                      style={{ background: scoreBg, color: scoreColor }}>
+                      Score {s.doublerScore}/100
+                    </span>
+                    <div className="flex gap-1 flex-wrap justify-end">
+                      {s.signals?.map((sig: string, j: number) => (
+                        <span key={j} className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: 'var(--bg-card-alt)', color: 'var(--text-lo)' }}>
+                          {sig}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Quant Predictions */}

@@ -828,55 +828,59 @@ export async function GET(request: NextRequest) {
     console.log(`✅ Fetched latest prices for ${latestPricesMap.size} stocks`);
 
     // Fetch historical price data - window depends on signal type
-    // Simple signals only need 60 days; pullback/quant need 365 days
     const needsFullHistory = !signalType || signalType === 'deepPullbacks' || signalType === 'capitulated' || signalType === 'quantPredictions';
     const dataFetchDays = needsFullHistory ? 365 : 60;
     const oneYearAgoDate = subDays(today, dataFetchDays);
     const priceDataMap = new Map<string, any[]>();
 
-    // Process ISINs in larger batches with parallel queries for better performance
-    const BATCH_SIZE = 200; // Increased batch size for better parallelization
-    console.log(`📊 Fetching ${dataFetchDays}-day data for ${isins.length} stocks in batches of ${BATCH_SIZE} (signalType=${signalType || 'all'})...`);
-    
     // Only fetch data for stocks that have valid latest prices
     const validIsins = Array.from(latestPricesMap.keys());
-    
-    for (let i = 0; i < validIsins.length; i += BATCH_SIZE) {
-      const batchIsins = validIsins.slice(i, i + BATCH_SIZE);
-      
-      // Use Promise.all for parallel processing within batch
-      await Promise.all(batchIsins.map(async (isin) => {
-        try {
-          const prices = await StockData.find({
-          isin,
-            date: { $gte: oneYearAgoDate, $lte: today }
-          })
-            .sort({ date: 1 })
-            .select('date open high low close volume')
-            .lean();
-          
-          if (prices.length > 0) {
-            priceDataMap.set(isin, prices.map((p: any) => ({
-              date: p.date,
-              open: p.open,
-              high: p.high,
-              low: p.low,
-              close: p.close,
-              volume: p.volume
-            })));
-          }
-        } catch (error) {
-          // Silently skip on error
-        }
-      }));
-      
-      // Log progress every 500 stocks
-      if ((i + BATCH_SIZE) % 500 === 0 || i + BATCH_SIZE >= validIsins.length) {
-        console.log(`   📊 Progress: ${Math.min(i + BATCH_SIZE, validIsins.length)}/${validIsins.length} stocks processed`);
+    console.log(`📊 Fetching ${dataFetchDays}-day history for ${validIsins.length} stocks via single $in query (signalType=${signalType || 'all'})...`);
+
+    try {
+      // Single $in query — replaces N individual per-stock queries
+      // ~10-20x faster than per-ISIN loop for large stock universes
+      const allHistData = await (StockData as any).find({
+        isin: { $in: validIsins },
+        date: { $gte: oneYearAgoDate, $lte: today }
+      })
+        .sort({ isin: 1, date: 1 })
+        .select('isin date open high low close volume')
+        .lean();
+
+      // Group by ISIN in memory — single O(N) pass, no extra DB round-trips
+      for (const record of allHistData as any[]) {
+        if (!priceDataMap.has(record.isin)) priceDataMap.set(record.isin, []);
+        priceDataMap.get(record.isin)!.push({
+          date: record.date,
+          open: record.open,
+          high: record.high,
+          low: record.low,
+          close: record.close,
+          volume: record.volume
+        });
       }
+      console.log(`✅ Batch fetch complete: ${allHistData.length} records across ${priceDataMap.size} stocks`);
+    } catch (batchError) {
+      console.error('Batch $in fetch failed, falling back to per-stock queries:', batchError);
+      // Fallback: smaller parallel batches
+      const BATCH_SIZE = 100;
+      for (let i = 0; i < validIsins.length; i += BATCH_SIZE) {
+        const batchIsins = validIsins.slice(i, i + BATCH_SIZE);
+        await Promise.all(batchIsins.map(async (isin) => {
+          try {
+            const prices = await StockData.find({ isin, date: { $gte: oneYearAgoDate, $lte: today } })
+              .sort({ date: 1 }).select('isin date open high low close volume').lean();
+            if (prices.length > 0) {
+              priceDataMap.set(isin, prices.map((p: any) => ({
+                date: p.date, open: p.open, high: p.high, low: p.low, close: p.close, volume: p.volume
+              })));
+            }
+          } catch { /* skip */ }
+        }));
+      }
+      console.log(`✅ Fallback fetch complete: ${priceDataMap.size} stocks`);
     }
-    
-    console.log(`✅ Fetched price data for ${priceDataMap.size} stocks`);
 
     let processedCount = 0;
     let skippedCount = 0;
@@ -1507,7 +1511,7 @@ export async function GET(request: NextRequest) {
       responseData.quantPredictions = [];
     }
 
-    return NextResponse.json({
+    const jsonResponse = NextResponse.json({
       success: true,
       data: responseData,
       stats: {
@@ -1526,6 +1530,9 @@ export async function GET(request: NextRequest) {
         quantPredictions: { minProbability: quantMinProbability, minPredictedReturn: quantMinPredictedReturn, minCAGR: quantMinCAGR, maxVolatility: quantMaxVolatility, minMomentum: quantMinMomentum, minPrice: quantMinPrice },
       }
     });
+    // Cache for 5 minutes at CDN/browser; stale-while-revalidate for 10 minutes
+    jsonResponse.headers.set('Cache-Control', 'public, s-maxage=300, stale-while-revalidate=600');
+    return jsonResponse;
 
   } catch (error: any) {
     console.error('Stock research error:', error);
