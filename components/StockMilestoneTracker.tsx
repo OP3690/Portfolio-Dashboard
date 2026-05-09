@@ -96,33 +96,64 @@ export default function StockMilestoneTracker({ holdings }: Props) {
   const totalNeed  = data.reduce((s, d) => s + d.needed, 0);
   const closestStk = [...data].filter(d => !d.atGoal).sort((a, b) => a.toNxt - b.toNxt)[0] ?? null;
 
-  /* ── Progress bar with tick marks ── */
+  /* ── Progress bar with tick marks + labels ── */
   const ProgBar = ({ value, pct }: { value: number; pct: number }) => {
     const col = pColorBright(pct);
+    // Decide which ticks get a visible label based on goal density
+    const labelEvery = goal <= 3_00_000 ? STEP : goal <= 5_00_000 ? 1_00_000 : 1_00_000;
+    // All ticks including ₹0 and goal
+    const allTicks = [0, ...msLines];
+
     return (
-      <div style={{ position: 'relative', height: 12, borderRadius: 999, overflow: 'visible', backgroundColor: 'var(--bg-card-alt)' }}>
-        <div style={{
-          position: 'absolute', inset: 0, borderRadius: 999, overflow: 'hidden',
-        }}>
-          <div style={{
-            height: '100%', width: `${Math.min(100, pct)}%`,
-            background: `linear-gradient(90deg, ${col}80, ${col})`,
-            borderRadius: 999, transition: 'width .3s ease',
-          }} />
-        </div>
-        {/* milestone ticks */}
-        {msLines.filter(m => m < goal).map(m => {
-          const tp = (m / goal) * 100;
-          return (
-            <div key={m} style={{
-              position: 'absolute', top: -2, bottom: -2,
-              left: `${tp}%`, transform: 'translateX(-50%)',
-              width: 2, borderRadius: 2,
-              backgroundColor: value >= m ? 'rgba(255,255,255,0.9)' : 'rgba(128,128,128,0.4)',
-              zIndex: 2,
+      <div style={{ position: 'relative', paddingBottom: 20 }}>
+        {/* track */}
+        <div style={{ position: 'relative', height: 12, borderRadius: 999, overflow: 'visible', backgroundColor: 'var(--bg-card-alt)' }}>
+          {/* fill */}
+          <div style={{ position: 'absolute', inset: 0, borderRadius: 999, overflow: 'hidden' }}>
+            <div style={{
+              height: '100%', width: `${Math.min(100, pct)}%`,
+              background: `linear-gradient(90deg, ${col}80, ${col})`,
+              borderRadius: 999, transition: 'width .3s ease',
             }} />
-          );
-        })}
+          </div>
+          {/* ticks */}
+          {msLines.filter(m => m < goal).map(m => {
+            const tp = (m / goal) * 100;
+            return (
+              <div key={m} style={{
+                position: 'absolute', top: -2, bottom: -2,
+                left: `${tp}%`, transform: 'translateX(-50%)',
+                width: 2, borderRadius: 2,
+                backgroundColor: value >= m ? 'rgba(255,255,255,0.85)' : 'rgba(128,128,128,0.35)',
+                zIndex: 2,
+              }} />
+            );
+          })}
+        </div>
+
+        {/* labels row — pinned below the track */}
+        <div style={{ position: 'absolute', left: 0, right: 0, top: 16 }}>
+          {allTicks.filter(m => m % labelEvery === 0 || m === 0).map(m => {
+            const lp  = (m / goal) * 100;
+            const passed = value >= m;
+            const isFirst = m === 0;
+            const isLast  = m === goal;
+            return (
+              <span key={m} style={{
+                position: 'absolute',
+                left: `${lp}%`,
+                transform: isFirst ? 'translateX(0)' : isLast ? 'translateX(-100%)' : 'translateX(-50%)',
+                fontSize: 9,
+                fontWeight: 600,
+                whiteSpace: 'nowrap',
+                color: passed ? col : 'var(--text-lo)',
+                lineHeight: 1,
+              }}>
+                {fmtS(m)}
+              </span>
+            );
+          })}
+        </div>
       </div>
     );
   };
@@ -276,10 +307,6 @@ export default function StockMilestoneTracker({ holdings }: Props) {
                 {/* Progress bar */}
                 <div>
                   <ProgBar value={d.value} pct={d.pct} />
-                  <div className="flex justify-between mt-1.5">
-                    <span className="text-lo" style={{ fontSize: 10 }}>₹0</span>
-                    <span className="text-lo" style={{ fontSize: 10 }}>₹{GL[goal]}</span>
-                  </div>
                 </div>
 
                 {/* Done % */}
