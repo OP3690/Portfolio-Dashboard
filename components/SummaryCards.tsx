@@ -33,9 +33,9 @@ function useCountUp(target: number, duration = 1100) {
   return value;
 }
 
-function MetricCard({ label, value, isPercent = false, isPositive, icon, accentVar, delay = 0 }: {
+function MetricCard({ label, value, isPercent = false, isPositive, icon, accentVar, delay = 0, subBadge }: {
   label: string; value: number; isPercent?: boolean; isPositive: boolean;
-  icon: React.ReactNode; accentVar: string; delay?: number;
+  icon: React.ReactNode; accentVar: string; delay?: number; subBadge?: React.ReactNode;
 }) {
   const animated  = useCountUp(Math.abs(value));
   const hasSign   = label !== 'Current Value' && label !== 'Total Invested';
@@ -82,13 +82,38 @@ function MetricCard({ label, value, isPercent = false, isPositive, icon, accentV
         {displayVal}
       </p>
 
-      <div className="mt-4 h-[2px] rounded-full"
+      {subBadge && (
+        <div className="mt-2.5">{subBadge}</div>
+      )}
+
+      <div className={subBadge ? 'mt-3 h-[2px] rounded-full' : 'mt-4 h-[2px] rounded-full'}
         style={{ background: `linear-gradient(90deg, var(${accentVar}) 0%, transparent 100%)`, opacity: 0.6 }} />
     </div>
   );
 }
 
 export default function SummaryCards({ summary }: SummaryCardsProps) {
+  // Years to double = ln(2) / ln(1 + XIRR/100)  [exact Rule-of-72 equivalent]
+  const xirr = summary.xirr ?? 0;
+  const doublingYears = xirr > 0 ? Math.log(2) / Math.log(1 + xirr / 100) : null;
+
+  const DoublingBadge = doublingYears ? (
+    <span
+      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold tracking-wide"
+      style={{
+        background: 'color-mix(in srgb, var(--info) 12%, transparent)',
+        border: '1px solid color-mix(in srgb, var(--info) 28%, transparent)',
+        color: 'var(--info)',
+      }}
+    >
+      {/* mini clock icon */}
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+      </svg>
+      Double in: {doublingYears.toFixed(1)} Yrs
+    </span>
+  ) : null;
+
   const cards = [
     {
       label: 'Current Value', value: summary.currentValue, isPercent: false, isPositive: true,
@@ -100,6 +125,7 @@ export default function SummaryCards({ summary }: SummaryCardsProps) {
     {
       label: 'Total Invested', value: summary.totalInvested, isPercent: false, isPositive: true,
       accentVar: '--info',
+      subBadge: DoublingBadge,
       icon: <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z" />
       </svg>,
@@ -142,7 +168,7 @@ export default function SummaryCards({ summary }: SummaryCardsProps) {
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 stagger">
       {cards.map((card, i) => (
-        <MetricCard key={card.label} {...card} delay={i * 55} />
+        <MetricCard key={card.label} {...(card as any)} delay={i * 55} />
       ))}
     </div>
   );
