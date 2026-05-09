@@ -6,7 +6,7 @@ import {
   ResponsiveContainer, ReferenceLine, Cell,
 } from 'recharts';
 
-interface Holding { stockName?: string; isin?: string; sectorName?: string; marketValue?: number; }
+interface Holding { stockName?: string; isin?: string; sectorName?: string; marketValue?: number; xirr?: number; }
 interface Props    { holdings: Holding[]; }
 
 const STEP  = 50_000;
@@ -46,6 +46,7 @@ function ChartTip({ active, payload }: any) {
         <div className="flex justify-between gap-4"><span className="text-lo">Progress</span><span className="font-bold" style={{ color: pColorBright(d.pct) }}>{d.pct.toFixed(1)}%</span></div>
         <div className="flex justify-between gap-4"><span className="text-lo">Next MS</span><span className="font-bold text-hi">{fmtV(d.nxt)}</span></div>
         <div className="flex justify-between gap-4"><span className="text-lo">To Goal</span><span className="font-bold" style={{ color: d.atGoal ? '#4ade80' : '#f87171' }}>{d.atGoal ? '✓ Done' : fmtV(d.needed)}</span></div>
+        {d.xirr != null && <div className="flex justify-between gap-4"><span className="text-lo">XIRR</span><span className="font-bold" style={{ color: d.xirr >= 0 ? '#4ade80' : '#f87171' }}>{d.xirr >= 0 ? '+' : ''}{d.xirr.toFixed(1)}% p.a.</span></div>}
       </div>
     </div>
   );
@@ -74,6 +75,7 @@ export default function StockMilestoneTracker({ holdings }: Props) {
         name:     (h.stockName || h.isin || '?').slice(0, 22),
         fullName:  h.stockName || h.isin || '?',
         sector:    h.sectorName || '',
+        xirr:      h.xirr ?? null,
         value: v, pct,
         nxt,
         toNxt:   Math.max(0, nxt > goal ? 0 : nxt - v),
@@ -260,11 +262,12 @@ export default function StockMilestoneTracker({ holdings }: Props) {
 
           {/* thead */}
           <div className="grid items-center px-4 py-3 text-xs font-bold uppercase tracking-wide text-lo"
-            style={{ gridTemplateColumns: '2fr 1fr 3fr 1fr 1fr 1fr', background: 'var(--bg-card-alt)', borderBottom: '1px solid var(--border)', gap: 12 }}>
+            style={{ gridTemplateColumns: '2fr 1fr 3fr 1fr 80px 1fr 1fr', background: 'var(--bg-card-alt)', borderBottom: '1px solid var(--border)', gap: 12 }}>
             <div>Stock</div>
             <div>Value</div>
             <div>Milestone Progress</div>
             <div>Done</div>
+            <div>XIRR</div>
             <div>Next</div>
             <div>Remaining</div>
           </div>
@@ -276,7 +279,7 @@ export default function StockMilestoneTracker({ holdings }: Props) {
               <div key={d.fullName}
                 className="grid items-center px-4 py-3 transition-colors hover:bg-black/5 dark:hover:bg-white/5"
                 style={{
-                  gridTemplateColumns: '2fr 1fr 3fr 1fr 1fr 1fr',
+                  gridTemplateColumns: '2fr 1fr 3fr 1fr 80px 1fr 1fr',
                   gap: 12,
                   background: i % 2 === 0 ? 'transparent' : 'var(--bg-card-alt)',
                   borderBottom: i < data.length - 1 ? '1px solid var(--border)' : 'none',
@@ -312,6 +315,22 @@ export default function StockMilestoneTracker({ holdings }: Props) {
                 {/* Done % */}
                 <div className="flex items-center gap-2">
                   <div className="font-bold" style={{ color: bc, fontSize: 14 }}>{d.pct.toFixed(0)}%</div>
+                </div>
+
+                {/* XIRR */}
+                <div>
+                  {d.xirr != null
+                    ? <>
+                        <p className="font-bold" style={{
+                          fontSize: 13,
+                          color: d.xirr >= 20 ? '#4ade80' : d.xirr >= 10 ? '#34d399' : d.xirr >= 0 ? '#fbbf24' : '#f87171',
+                        }}>
+                          {d.xirr >= 0 ? '+' : ''}{d.xirr.toFixed(1)}%
+                        </p>
+                        <p className="text-lo" style={{ fontSize: 10, marginTop: 1 }}>XIRR p.a.</p>
+                      </>
+                    : <p className="text-lo" style={{ fontSize: 12 }}>—</p>
+                  }
                 </div>
 
                 {/* Next milestone */}
