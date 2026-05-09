@@ -816,9 +816,10 @@ function QuantSection({
             )}
             <table className="tbl">
               <thead>
-                <tr style={{ background: 'linear-gradient(135deg, var(--brand) 0%, #7c3aed 100%)' }}>
+                <tr>
                   {['Rank', 'Stock', 'Price', 'p12', 'Exp 3M Ret', 'Regime %', 'Hurst', 'Kalman SNR', 'RSRS z', 'VolSpike', 'Donchian%', 'KAMA ER', 'VWAP/ATR', 'Filters', 'Action'].map(h => (
-                    <th key={h} className="px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-center" style={{ color: 'rgba(255,255,255,0.9)' }}>{h}</th>
+                    <th key={h} className="px-3 py-2.5 text-xs font-semibold uppercase tracking-wide text-center"
+                      style={{ background: 'linear-gradient(135deg, var(--brand) 0%, #7c3aed 100%)', color: '#fff' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
