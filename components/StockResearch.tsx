@@ -234,8 +234,8 @@ export default function StockResearch() {
       const regimeScore = (s.regimeBull || 0);
       return retScore * 0.4 + probScore * 0.3 + hurstScore * 0.15 + regimeScore * 0.15;
     };
+    // No hard threshold — always show top 6 by composite score so cards always appear
     return [...quant]
-      .filter(s => (s.exp3MReturn || 0) >= 12 && (s.p12 || s.probability || 0) >= 0.5)
       .sort((a, b) => score(b) - score(a))
       .slice(0, 6)
       .map(s => ({
@@ -243,11 +243,11 @@ export default function StockResearch() {
         doublerScore: Math.round(score(s) * 100),
         annualEst: Math.round(((1 + (s.exp3MReturn || 0) / 100) ** 4 - 1) * 100),
         signals: [
-          s.hurst > 0.55 ? `Hurst ${s.hurst} (trending)` : null,
-          s.regimeBull > 0.55 ? `Bull regime ${Math.round(s.regimeBull * 100)}%` : null,
-          s.kamaER > 0.5 ? `KAMA ER ${s.kamaER}` : null,
-          s.rsrsZ > 0.5 ? `RSRS +${s.rsrsZ?.toFixed(1)}` : null,
-          s.donchianPercent > 0.7 ? `Donchian ${Math.round(s.donchianPercent * 100)}%` : null,
+          (s.hurst || 0) > 0.55 ? `Hurst ${(s.hurst||0).toFixed(2)} (trending)` : null,
+          (s.regimeBull || 0) > 0.45 ? `Bull regime ${Math.round((s.regimeBull||0) * 100)}%` : null,
+          (s.kamaER || 0) > 0.4 ? `KAMA ER ${(s.kamaER||0).toFixed(2)}` : null,
+          (s.rsrsZ || 0) > 0.3 ? `RSRS +${(s.rsrsZ||0).toFixed(1)}` : null,
+          (s.donchianPercent || 0) > 0.6 ? `Donchian ${Math.round((s.donchianPercent||0) * 100)}%` : null,
         ].filter(Boolean).slice(0, 2),
       }));
   }, [signals.quantPredictions]);
@@ -319,13 +319,13 @@ export default function StockResearch() {
           </div>
         )}
 
-        {/* no data */}
+        {/* no data — only when quantPredictions API returned nothing */}
         {!loadingMap.quantPredictions && potentialDoublers.length === 0 && (
           <div className="flex flex-col items-center justify-center py-8 text-center">
             <span className="text-3xl mb-2">📊</span>
-            <p className="text-sm font-medium text-hi">No strong doublers found yet</p>
+            <p className="text-sm font-medium text-hi">Quant data not available yet</p>
             <p className="text-xs mt-1" style={{ color: 'var(--text-lo)' }}>
-              Quant model requires ≥12% 3M expected return + ≥50% probability. Try adjusting Quant filters above.
+              Waiting for the Quantitative Screening section to load. Results will appear automatically.
             </p>
           </div>
         )}
