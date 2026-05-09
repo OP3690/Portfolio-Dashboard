@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  Legend, ResponsiveContainer, ReferenceLine, Cell, LabelList,
+  Legend, ResponsiveContainer, ReferenceLine, Cell,
 } from 'recharts';
 
 /* ─── types ─── */
@@ -266,18 +266,18 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
     return (
       <div className="flex items-center gap-1.5">
         <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={safePage === 1}
-          className="px-2.5 py-1 rounded-lg text-xs font-medium transition-colors disabled:opacity-30"
+          className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-30"
           style={{ background: 'var(--bg-card-alt)', border: '1px solid var(--border)', color: 'var(--text-lo)' }}>‹ Prev</button>
         {pageNums.map((n, i) => n === '…'
           ? <span key={`e${i}`} className="text-lo text-xs px-1">…</span>
           : <button key={n} onClick={() => setPage(n as number)}
-              className="w-7 h-7 rounded-lg text-xs font-medium transition-all"
+              className="w-8 h-8 rounded-lg text-xs font-medium transition-all"
               style={{ background: safePage === n ? 'var(--brand)' : 'var(--bg-card-alt)', border: `1px solid ${safePage === n ? 'var(--brand)' : 'var(--border)'}`, color: safePage === n ? '#fff' : 'var(--text-lo)' }}>
               {n}
             </button>
         )}
         <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={safePage === totalPages}
-          className="px-2.5 py-1 rounded-lg text-xs font-medium transition-colors disabled:opacity-30"
+          className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors disabled:opacity-30"
           style={{ background: 'var(--bg-card-alt)', border: '1px solid var(--border)', color: 'var(--text-lo)' }}>Next ›</button>
       </div>
     );
@@ -331,32 +331,45 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
               <p className="text-sm font-bold text-hi">CMP vs Avg Buy Price · P&L Trend</p>
               <p className="text-xs text-lo">Bars = price levels · Right axis = P&L% · Dashed = regression trend</p>
             </div>
-            <div className="flex flex-wrap gap-3 text-xs">
-              <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: '#38bdf8' }} />Avg Buy</span>
-              <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-3 rounded-sm" style={{ background: '#a78bfa' }} />CMP</span>
-              <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-1" style={{ background: '#facc15' }} />P&L %</span>
-              <span className="flex items-center gap-1.5"><span className="inline-block w-3 h-1 border-dashed border-t-2" style={{ borderColor: '#fb923c' }} />Trend</span>
+            {/* Legend */}
+            <div className="flex flex-wrap gap-4 text-xs">
+              <span className="flex items-center gap-1.5 text-lo">
+                <span className="inline-block w-3 h-3 rounded-sm flex-shrink-0" style={{ background: '#38bdf8' }} />
+                Avg Buy
+              </span>
+              <span className="flex items-center gap-1.5 text-lo">
+                <span className="inline-block w-3 h-3 rounded-sm flex-shrink-0" style={{ background: '#a78bfa' }} />
+                CMP
+              </span>
+              <span className="flex items-center gap-1.5 text-lo">
+                <span className="inline-block w-3 h-0.5 flex-shrink-0 rounded" style={{ background: '#facc15' }} />
+                P&L %
+              </span>
+              <span className="flex items-center gap-1.5 text-lo">
+                <span className="inline-block w-3 flex-shrink-0 border-dashed border-t-2" style={{ borderColor: '#fb923c' }} />
+                Trend
+              </span>
             </div>
           </div>
 
-          <ResponsiveContainer width="100%" height={360}>
-            <ComposedChart data={trendData} margin={{ top: 40, right: 55, left: 10, bottom: 60 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" vertical={false} />
+          <ResponsiveContainer width="100%" height={300}>
+            <ComposedChart data={trendData} margin={{ top: 10, right: 55, left: 10, bottom: 40 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke={'var(--border)' as any} vertical={false} />
               <XAxis
                 dataKey="name"
-                tick={{ fill: 'rgba(255,255,255,0.6)', fontSize: 10 }}
+                tick={{ fill: 'var(--text-lo)' as any, fontSize: 10 }}
                 tickLine={false}
-                axisLine={{ stroke: 'rgba(255,255,255,0.1)' }}
+                axisLine={{ stroke: 'var(--border)' as any }}
                 angle={-40}
                 textAnchor="end"
                 interval={0}
-                height={64}
+                height={56}
               />
               {/* Left Y — price */}
               <YAxis
                 yAxisId="price"
                 orientation="left"
-                tick={{ fill: 'rgba(255,255,255,0.5)', fontSize: 10 }}
+                tick={{ fill: 'var(--text-lo)' as any, fontSize: 10 }}
                 tickLine={false}
                 axisLine={false}
                 tickFormatter={v => v >= 1000 ? `₹${(v / 1000).toFixed(0)}k` : `₹${v}`}
@@ -366,14 +379,14 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
               <YAxis
                 yAxisId="pl"
                 orientation="right"
-                tick={{ fill: 'rgba(255,255,255,0.5)', fontSize: 10 }}
+                tick={{ fill: 'var(--text-lo)' as any, fontSize: 10 }}
                 tickLine={false}
                 axisLine={false}
                 tickFormatter={v => `${v > 0 ? '+' : ''}${v}%`}
                 width={52}
               />
               <Tooltip
-                contentStyle={{ background: '#0f1117', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 10, fontSize: 12 }}
+                contentStyle={{ background: '#0f1117', border: '1px solid var(--border)', borderRadius: 10, fontSize: 12 }}
                 labelStyle={{ color: '#ffffff', fontWeight: 700, marginBottom: 6 }}
                 formatter={(value: number, name: string) => {
                   if (name === 'avgBuy') return [`₹${value.toFixed(2)}`, 'Avg Buy Price'];
@@ -384,33 +397,16 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
                 }}
                 labelFormatter={(_: any, payload: any) => payload?.[0]?.payload?.fullName ?? ''}
               />
-              <ReferenceLine yAxisId="pl" y={0} stroke="rgba(255,255,255,0.2)" strokeDasharray="4 4" />
+              <ReferenceLine yAxisId="pl" y={0} stroke={'var(--border)' as any} strokeDasharray="4 4" />
 
               {/* Avg Buy bars */}
-              <Bar yAxisId="price" dataKey="avgBuy" name="avgBuy" barSize={14} radius={[3, 3, 0, 0]} fill="#38bdf8" opacity={0.75}>
-                <LabelList
-                  dataKey="avgBuy"
-                  position="top"
-                  formatter={((v: number) => v >= 1000 ? `₹${(v / 1000).toFixed(1)}k` : `₹${v}`) as any}
-                  style={{ fill: 'rgba(255,255,255,0.7)', fontSize: 8, fontWeight: 600 }}
-                  angle={-55}
-                  offset={14}
-                />
-              </Bar>
+              <Bar yAxisId="price" dataKey="avgBuy" name="avgBuy" barSize={14} radius={[3, 3, 0, 0]} fill="#38bdf8" opacity={0.75} />
 
               {/* CMP bars — green if above avgBuy, red if below */}
               <Bar yAxisId="price" dataKey="cmp" name="cmp" barSize={14} radius={[3, 3, 0, 0]}>
                 {trendData.map((entry, i) => (
                   <Cell key={i} fill={entry.cmp >= entry.avgBuy ? '#4ade80' : '#f87171'} opacity={0.85} />
                 ))}
-                <LabelList
-                  dataKey="cmp"
-                  position="top"
-                  formatter={((v: number) => v >= 1000 ? `₹${(v / 1000).toFixed(1)}k` : `₹${v}`) as any}
-                  style={{ fill: 'rgba(255,255,255,0.85)', fontSize: 8, fontWeight: 700 }}
-                  angle={-55}
-                  offset={14}
-                />
               </Bar>
 
               {/* P&L % line */}
@@ -458,10 +454,10 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
                 })(),
               },
             ].map(s => (
-              <div key={s.label} className="rounded-lg p-2.5 text-center" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)' }}>
-                <p className="text-xs mb-0.5" style={{ color: 'rgba(255,255,255,0.5)' }}>{s.label}</p>
+              <div key={s.label} className="rounded-lg p-2.5 text-center" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+                <p className="text-xs text-lo mb-0.5">{s.label}</p>
                 <p className="text-base font-bold" style={{ color: s.color }}>{s.value}</p>
-                <p className="text-xs" style={{ color: 'rgba(255,255,255,0.4)' }}>{s.sub}</p>
+                <p className="text-xs text-lo">{s.sub}</p>
               </div>
             ))}
           </div>
@@ -473,7 +469,7 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
         <div className="flex items-center gap-2">
           <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
             placeholder="Search stock or sector…"
-            className="text-xs px-3 py-1.5 rounded-lg outline-none"
+            className="text-xs px-3 py-2 rounded-lg outline-none focus:ring-2 focus:ring-[var(--brand)] transition-shadow"
             style={{ background: 'var(--bg-card-alt)', border: '1px solid var(--border)', color: 'var(--text-hi)', width: 200 }} />
           {search && (
             <button onClick={() => { setSearch(''); setPage(1); }} className="text-lo text-xs hover:text-hi transition-colors">✕ Clear</button>
@@ -502,8 +498,8 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
       <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--border)' }}>
 
         {/* thead */}
-        <div className="grid items-center text-xs font-semibold text-lo uppercase tracking-wide px-4 py-3"
-          style={{ gridTemplateColumns: '32px minmax(140px,1fr) 80px 90px 88px 92px 100px', background: 'var(--bg-card-alt)', borderBottom: '2px solid var(--border)' }}>
+        <div className="grid items-center text-xs font-semibold text-lo uppercase tracking-widest px-4 py-3.5"
+          style={{ gridTemplateColumns: '32px minmax(140px,1fr) 80px 90px 88px 92px 100px', background: 'var(--bg-card-alt)', borderBottom: '3px solid var(--border)' }}>
           <div />
           <button className="flex items-center text-left gap-0.5 hover:text-hi transition-colors" onClick={() => applySort('name')}>Stock <SortIcon k="name" /></button>
           <button className="flex items-center text-left gap-0.5 hover:text-hi transition-colors" onClick={() => applySort('cycles')}>Cycles <SortIcon k="cycles" /></button>
@@ -520,23 +516,33 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
         {pageRows.map((row, ri) => {
           const isExp   = expanded.has(row.isin);
           const lastBuy = new Date(Math.max(...row.cycles.map(c => c.buyDate.getTime())));
+          const daysSinceLastBuy = Math.round((today.getTime() - lastBuy.getTime()) / 86400000);
           const isLast  = ri === pageRows.length - 1;
-          /* row color coding */
+          /* row left-border accent */
+          const rowBorderColor = row.hasOpen
+            ? (row.openPct ?? 0) >= 0 ? '#4ade80' : '#f87171'
+            : 'var(--border)';
+          /* row background */
           const rowAccent = row.hasOpen
             ? (row.openPct ?? 0) >= 0 ? 'rgba(74,222,128,0.04)' : 'rgba(248,113,113,0.04)'
             : 'transparent';
+          /* dot color for stock column */
+          const dotColor = row.hasOpen
+            ? (row.openPct ?? 0) >= 0 ? '#4ade80' : '#f87171'
+            : 'var(--text-lo)';
           const openBadge = row.hasOpen
             ? { bg: (row.openPct ?? 0) >= 0 ? '#052e16' : '#2d0a0a', color: (row.openPct ?? 0) >= 0 ? '#4ade80' : '#f87171', dot: true }
-            : { bg: 'rgba(255,255,255,0.05)', color: 'var(--text-lo)', dot: false };
+            : { bg: 'var(--bg-card-alt)', color: 'var(--text-lo)', dot: false };
 
           return (
             <div key={row.isin}>
               {/* main row */}
               <div
-                className="grid items-center px-4 py-3 cursor-pointer transition-all"
+                className="grid items-center px-4 py-3.5 cursor-pointer transition-all"
                 style={{
                   gridTemplateColumns: '32px minmax(140px,1fr) 80px 90px 88px 92px 100px',
                   borderBottom: !isLast || isExp ? '1px solid var(--border)' : 'none',
+                  borderLeft: `3px solid ${rowBorderColor}`,
                   background: isExp ? 'var(--bg-card-alt)' : rowAccent,
                 }}
                 onClick={() => toggle(row.isin)}>
@@ -549,8 +555,11 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
 
                 {/* stock */}
                 <div className="min-w-0 pr-2">
-                  <p className="text-sm font-semibold text-hi truncate leading-tight">{row.name}</p>
-                  <div className="flex items-center gap-1.5 mt-0.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: dotColor }} />
+                    <p className="text-sm font-semibold text-hi truncate leading-tight">{row.name}</p>
+                  </div>
+                  <div className="flex items-center gap-1.5 mt-0.5 pl-3.5">
                     {row.sector && <span className="text-lo truncate" style={{ fontSize: 10 }}>{row.sector}</span>}
                     <span className="shrink-0 text-lo" style={{ fontSize: 10 }}>· {row.totalBuys} buy{row.totalBuys !== 1 ? 's' : ''}</span>
                   </div>
@@ -566,7 +575,7 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
 
                 {/* status */}
                 <div>
-                  <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full whitespace-nowrap"
+                  <span className="inline-flex items-center gap-1 text-xs font-bold px-2.5 py-1 rounded-full whitespace-nowrap"
                     style={{ background: openBadge.bg, color: openBadge.color }}>
                     {openBadge.dot && <span className="w-1.5 h-1.5 rounded-full animate-pulse inline-block" style={{ background: openBadge.color }} />}
                     {row.hasOpen ? 'HOLDING' : 'EXITED'}
@@ -574,18 +583,23 @@ export default function PortfolioTimeline({ holdings, transactions, realizedStoc
                 </div>
 
                 {/* best % */}
-                <div className="text-sm font-bold" style={{ color: plCol(row.bestPct) }}>
-                  {plSign(row.bestPct)}{row.bestPct.toFixed(1)}%
+                <div>
+                  <span className="inline-block text-sm font-bold px-2 py-0.5 rounded" style={{ color: plCol(row.bestPct), background: row.bestPct >= 0 ? 'rgba(74,222,128,0.08)' : 'rgba(248,113,113,0.08)' }}>
+                    {plSign(row.bestPct)}{row.bestPct.toFixed(1)}%
+                  </span>
                 </div>
 
                 {/* total P&L */}
                 <div>
-                  <p className="text-sm font-bold" style={{ color: plCol(row.totalPL) }}>{plSign(row.totalPL)}{fmtAmt(row.totalPL)}</p>
-                  {row.openPct !== null && <p className="text-lo" style={{ fontSize: 10 }}>{plSign(row.openPct)}{row.openPct.toFixed(1)}% now</p>}
+                  <p className="font-bold" style={{ color: plCol(row.totalPL), fontSize: 14 }}>{plSign(row.totalPL)}{fmtAmt(row.totalPL)}</p>
+                  {row.openPct !== null && <p className="text-lo" style={{ fontSize: 11 }}>{plSign(row.openPct)}{row.openPct.toFixed(1)}% now</p>}
                 </div>
 
                 {/* last buy */}
-                <div className="text-xs text-hi">{fmtDate(lastBuy)}</div>
+                <div>
+                  <p className="text-xs text-hi">{fmtDate(lastBuy)}</p>
+                  <p className="text-lo" style={{ fontSize: 10 }}>{holdLabel(daysSinceLastBuy)} ago</p>
+                </div>
               </div>
 
               {/* expanded */}
