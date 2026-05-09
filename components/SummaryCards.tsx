@@ -77,16 +77,15 @@ function MetricCard({ label, value, isPercent = false, isPositive, icon, accentV
         </div>
       </div>
 
-      <p className="text-2xl font-black tracking-tight metric-value leading-none"
-        style={{ color: hasSign ? (isPositive ? 'var(--gain)' : 'var(--loss)') : 'var(--text-hi)' }}>
-        {displayVal}
-      </p>
+      <div className="flex items-baseline gap-2 flex-wrap">
+        <p className="text-2xl font-black tracking-tight metric-value leading-none"
+          style={{ color: hasSign ? (isPositive ? 'var(--gain)' : 'var(--loss)') : 'var(--text-hi)' }}>
+          {displayVal}
+        </p>
+        {subBadge}
+      </div>
 
-      {subBadge && (
-        <div className="mt-2.5">{subBadge}</div>
-      )}
-
-      <div className={subBadge ? 'mt-3 h-[2px] rounded-full' : 'mt-4 h-[2px] rounded-full'}
+      <div className="mt-4 h-[2px] rounded-full"
         style={{ background: `linear-gradient(90deg, var(${accentVar}) 0%, transparent 100%)`, opacity: 0.6 }} />
     </div>
   );
@@ -98,48 +97,18 @@ export default function SummaryCards({ summary }: SummaryCardsProps) {
   const doublingYears = xirr > 0 ? Math.log(2) / Math.log(1 + xirr / 100) : null;
 
   const DoublingBadge = doublingYears ? (
-    <div
-      className="flex items-center gap-2.5 px-3 py-2 rounded-xl"
-      style={{
-        background: 'color-mix(in srgb, var(--info) 9%, transparent)',
-        border: '1px solid color-mix(in srgb, var(--info) 22%, transparent)',
-      }}
-    >
-      {/* 2× chip */}
-      <span
-        className="text-[11px] font-black leading-none px-1.5 py-0.5 rounded-md"
-        style={{
-          background: 'color-mix(in srgb, var(--info) 20%, transparent)',
-          color: 'var(--info)',
-          letterSpacing: '0.02em',
-        }}
-      >
-        2×
+    <span className="inline-flex items-baseline gap-1.5 leading-none">
+      {/* pipe separator */}
+      <span className="text-xl font-thin select-none" style={{ color: 'var(--border-md)' }}>|</span>
+      {/* label */}
+      <span className="text-[11px] font-bold uppercase tracking-[0.08em]" style={{ color: 'var(--text-lo)' }}>
+        Doubles in:
       </span>
-
-      {/* label + value */}
-      <div className="flex flex-col leading-none gap-0.5">
-        <span className="text-[9px] font-semibold uppercase tracking-[0.1em]" style={{ color: 'var(--text-lo)' }}>
-          Doubles in
-        </span>
-        <span className="text-[13px] font-black" style={{ color: 'var(--info)' }}>
-          {doublingYears.toFixed(1)} Yrs
-        </span>
-      </div>
-
-      {/* divider */}
-      <div className="w-px self-stretch mx-0.5 rounded-full" style={{ background: 'color-mix(in srgb, var(--info) 25%, transparent)' }} />
-
-      {/* XIRR context */}
-      <div className="flex flex-col leading-none gap-0.5">
-        <span className="text-[9px] font-semibold uppercase tracking-[0.1em]" style={{ color: 'var(--text-lo)' }}>
-          At XIRR
-        </span>
-        <span className="text-[11px] font-bold" style={{ color: 'var(--text-hi)' }}>
-          {xirr.toFixed(1)}%
-        </span>
-      </div>
-    </div>
+      {/* value */}
+      <span className="text-[15px] font-black" style={{ color: 'var(--info)' }}>
+        {doublingYears.toFixed(1)} Yrs
+      </span>
+    </span>
   ) : null;
 
   const cards = [
