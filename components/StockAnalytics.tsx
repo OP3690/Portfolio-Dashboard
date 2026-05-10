@@ -9,6 +9,7 @@ import StockScorecard from './StockScorecard';
 import CapitalEfficiency from './CapitalEfficiency';
 import PortfolioTimeline from './PortfolioTimeline';
 import StockMilestoneTracker from './StockMilestoneTracker';
+import DividendInsights from './DividendInsights';
 
 interface StockAnalyticsProps {
   holdings: Array<{
@@ -36,9 +37,12 @@ interface StockAnalyticsProps {
     isin?: string;
     stockName?: string;
   }>;
+  monthlyDividends?: Array<{ month: string; amount: number; sortKey?: number; stockDetails: Array<{ stockName: string; amount: number }> }>;
+  avgMonthlyDividendsLast12M?: number;
+  medianMonthlyDividendsLast12M?: number;
 }
 
-export default function StockAnalytics({ holdings, transactions, realizedStocks = [] }: StockAnalyticsProps) {
+export default function StockAnalytics({ holdings, transactions, realizedStocks = [], monthlyDividends = [], avgMonthlyDividendsLast12M = 0, medianMonthlyDividendsLast12M = 0 }: StockAnalyticsProps) {
   // ── Base calculations ────────────────────────────────────────
   const totalStocks = holdings.length;
   const totalCurrentValue = holdings.reduce((sum, h) => sum + (h.marketValue || 0), 0);
@@ -440,6 +444,17 @@ export default function StockAnalytics({ holdings, transactions, realizedStocks 
       <div>
         <SectionTitle>Stock Milestone Tracker</SectionTitle>
         <StockMilestoneTracker holdings={holdings} />
+      </div>
+
+      {/* ── Dividend Insights ─────────────────────────────────── */}
+      <div>
+        <SectionTitle>Dividend Income Insights · Last 12 Months</SectionTitle>
+        <DividendInsights
+          monthlyDividends={monthlyDividends}
+          avgMonthlyDividendsLast12M={avgMonthlyDividendsLast12M}
+          medianMonthlyDividendsLast12M={medianMonthlyDividendsLast12M}
+          totalInvested={totalInvested}
+        />
       </div>
 
       {/* ── Capital Allocation Efficiency ────────────────────── */}
