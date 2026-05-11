@@ -108,7 +108,21 @@ export default function MonthlyCharts({
       returnAmount: Number(item.returnAmount || 0),
     }))
     .sort((a, b) => parseMonthStr(a.month) - parseMonthStr(b.month));
-  
+
+  // Median helper
+  const computeMedian = (arr: number[]) => {
+    if (!arr.length) return 0;
+    const sorted = [...arr].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  };
+  const medianLast6M = computeMedian(safeMonthlyDividends.slice(-6).map(d => d.amount));
+  const medianLast3M = computeMedian(safeMonthlyDividends.slice(-3).map(d => d.amount));
+
+  // Cross-chart hover sync
+  const [activeMonth, setActiveMonth]   = useState<string | null>(null);
+  const [activeChart, setActiveChart]   = useState<string | null>(null);
+
   // Background animation state
   const [animationFrame, setAnimationFrame] = useState(0);
   const animationRef = useRef<number>();
@@ -204,11 +218,31 @@ export default function MonthlyCharts({
           </div>
         </div>
         <div style={{ position: 'relative', zIndex: 10, width: '100%', height: '300px' }}>
+          {/* Cross-chart companion overlay */}
+          {activeMonth && activeChart !== 'investments' && (() => {
+            const md = safeMonthlyInvestments.find(d => d.month === activeMonth);
+            return (
+              <div className="absolute top-2 right-2 z-30 rounded-xl px-3 py-2 text-xs shadow-lg animate-fadeIn"
+                style={{ background: 'var(--bg-card)', border: '1px solid var(--brand-glow)', minWidth: 190 }}>
+                <p className="font-bold mb-1.5 pb-1" style={{ color: 'var(--brand)', borderBottom: '1px solid var(--border-sm)' }}>
+                  📅 {activeMonth}
+                </p>
+                {md ? (
+                  <>
+                    <p className="text-lo mb-0.5">Invested: <span className="font-bold" style={{ color: 'var(--brand)' }}>{formatCurrency(md.investments)}</span></p>
+                    <p className="text-lo">Withdrew: <span className="font-bold" style={{ color: 'var(--loss)' }}>{formatCurrency(md.withdrawals)}</span></p>
+                  </>
+                ) : <p className="text-lo italic">No data for this month</p>}
+              </div>
+            );
+          })()}
           <ResponsiveContainer width="100%" height={300}>
-            <ComposedChart 
+            <ComposedChart
               data={safeMonthlyInvestments}
               syncId="dashboard-charts"
               margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+              onMouseMove={(e: any) => { if (e?.activeLabel) { setActiveMonth(e.activeLabel); setActiveChart('investments'); } }}
+              onMouseLeave={() => { setActiveMonth(null); setActiveChart(null); }}
             >
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
             <XAxis
@@ -365,6 +399,22 @@ export default function MonthlyCharts({
                 </p>
               </div>
             )}
+            {safeMonthlyDividends.length >= 6 && (
+              <div className="px-4 py-2 rounded-xl" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-md)' }}>
+                <p className="text-xs text-lo font-medium mb-0.5">Median (Last 6M)</p>
+                <p className="text-base font-bold metric-value" style={{ color: 'var(--gain)' }}>
+                  {formatCurrency(medianLast6M)}
+                </p>
+              </div>
+            )}
+            {safeMonthlyDividends.length >= 3 && (
+              <div className="px-4 py-2 rounded-xl" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-md)' }}>
+                <p className="text-xs text-lo font-medium mb-0.5">Median (Last 3M)</p>
+                <p className="text-base font-bold metric-value" style={{ color: 'var(--gain)' }}>
+                  {formatCurrency(medianLast3M)}
+                </p>
+              </div>
+            )}
           </div>
         </div>
         {safeMonthlyDividends.length === 0 ? (
@@ -380,11 +430,28 @@ export default function MonthlyCharts({
           </div>
         ) : (
         <div style={{ position: 'relative', zIndex: 10, width: '100%', height: '300px' }}>
+          {/* Cross-chart companion overlay */}
+          {activeMonth && activeChart !== 'dividends' && (() => {
+            const md = safeMonthlyDividends.find(d => d.month === activeMonth);
+            return (
+              <div className="absolute top-2 right-2 z-30 rounded-xl px-3 py-2 text-xs shadow-lg animate-fadeIn"
+                style={{ background: 'var(--bg-card)', border: '1px solid color-mix(in srgb,var(--gain) 40%,transparent)', minWidth: 180 }}>
+                <p className="font-bold mb-1.5 pb-1" style={{ color: 'var(--gain)', borderBottom: '1px solid var(--border-sm)' }}>
+                  📅 {activeMonth}
+                </p>
+                {md ? (
+                  <p className="text-lo">Dividend: <span className="font-bold" style={{ color: 'var(--gain)' }}>{formatCurrency(md.amount)}</span></p>
+                ) : <p className="text-lo italic">No dividend this month</p>}
+              </div>
+            );
+          })()}
           <ResponsiveContainer width="100%" height={300}>
             <ComposedChart
               data={safeMonthlyDividends}
               syncId="dashboard-charts"
               margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+              onMouseMove={(e: any) => { if (e?.activeLabel) { setActiveMonth(e.activeLabel); setActiveChart('dividends'); } }}
+              onMouseLeave={() => { setActiveMonth(null); setActiveChart(null); }}
             >
             <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
             <XAxis
@@ -548,11 +615,31 @@ export default function MonthlyCharts({
           )}
         </div>
         <div style={{ position: 'relative', zIndex: 10, width: '100%', height: '400px', backgroundColor: '#f9fafb' }}>
+          {/* Cross-chart companion overlay */}
+          {activeMonth && activeChart !== 'returns' && (() => {
+            const md = safeMonthlyReturns.find(d => d.month === activeMonth);
+            return (
+              <div className="absolute top-2 right-2 z-30 rounded-xl px-3 py-2 text-xs shadow-lg animate-fadeIn"
+                style={{ background: 'var(--bg-card)', border: '1px solid color-mix(in srgb,var(--brand) 40%,transparent)', minWidth: 190 }}>
+                <p className="font-bold mb-1.5 pb-1" style={{ color: 'var(--brand)', borderBottom: '1px solid var(--border-sm)' }}>
+                  📅 {activeMonth}
+                </p>
+                {md ? (
+                  <>
+                    <p className="text-lo mb-0.5">Return: <span className="font-bold" style={{ color: md.returnPercent >= 0 ? 'var(--gain)' : 'var(--loss)' }}>{md.returnPercent >= 0 ? '+' : ''}{md.returnPercent.toFixed(2)}%</span></p>
+                    <p className="text-lo">Amount: <span className="font-bold" style={{ color: md.returnAmount >= 0 ? 'var(--gain)' : 'var(--loss)' }}>{formatCurrency(md.returnAmount)}</span></p>
+                  </>
+                ) : <p className="text-lo italic">No return data for this month</p>}
+              </div>
+            );
+          })()}
           <ResponsiveContainer width="100%" height={400}>
-            <LineChart 
+            <LineChart
               data={safeMonthlyReturns}
               syncId="dashboard-charts"
               margin={{ top: 20, right: 40, left: 20, bottom: 20 }}
+              onMouseMove={(e: any) => { if (e?.activeLabel) { setActiveMonth(e.activeLabel); setActiveChart('returns'); } }}
+              onMouseLeave={() => { setActiveMonth(null); setActiveChart(null); }}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" opacity={0.5} />
               <XAxis 
