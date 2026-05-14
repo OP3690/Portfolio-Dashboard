@@ -196,65 +196,8 @@ export default function Dashboard() {
       return <StockResearch />;
     }
 
-    /* ── Hero banner (dashboard only) ── */
-    const s = dashboardData.summary ?? {};
-    const now = new Date();
-    const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
-    const dateStr = now.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
-    const isPortfolioUp = (s.totalProfitLoss ?? 0) >= 0;
-    const activeCount = (dashboardData.holdings || []).filter((h: any) => (h.openQty || 0) > 0).length;
-    const hour = now.getHours();
-    const greeting = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
-
     return (
       <div className="space-y-5 animate-fadeIn">
-
-        {/* ── Hero banner ── */}
-        <div
-          className="rounded-2xl px-5 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
-          style={{
-            background: 'linear-gradient(135deg, var(--brand-bg) 0%, color-mix(in srgb,var(--bg-surface) 55%,var(--brand-bg)) 100%)',
-            border: '1px solid var(--brand-glow)',
-          }}
-        >
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.14em]" style={{ color: 'var(--brand)' }}>
-              Portfolio Overview
-            </p>
-            <p className="text-lg font-extrabold tracking-tight mt-0.5" style={{ color: 'var(--text-hi)' }}>
-              {greeting} 👋
-            </p>
-            <p className="text-xs mt-0.5 font-medium" style={{ color: 'var(--text-lo)' }}>
-              {dateStr} · Last updated {timeStr}
-            </p>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <div
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold"
-              style={{
-                background: isPortfolioUp ? 'var(--gain-bg)' : 'var(--loss-bg)',
-                border: `1px solid ${isPortfolioUp ? 'var(--gain-border)' : 'var(--loss-border)'}`,
-                color: isPortfolioUp ? 'var(--gain)' : 'var(--loss)',
-              }}
-            >
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                {isPortfolioUp
-                  ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 15l7-7 7 7" />
-                  : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />
-                }
-              </svg>
-              {isPortfolioUp ? 'Portfolio Profitable' : 'Portfolio in Loss'}
-            </div>
-            {activeCount > 0 && (
-              <div
-                className="px-3 py-1.5 rounded-full text-xs font-bold"
-                style={{ background: 'var(--brand-bg)', border: '1px solid var(--brand-glow)', color: 'var(--brand)' }}
-              >
-                {activeCount} Active Holdings
-              </div>
-            )}
-          </div>
-        </div>
 
         {/* Summary cards */}
         <SummaryCards summary={dashboardData.summary} />
