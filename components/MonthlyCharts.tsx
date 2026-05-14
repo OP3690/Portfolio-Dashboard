@@ -258,54 +258,98 @@ export default function MonthlyCharts({
               tick={{ fill: '#6b7280', fontSize: 12 }}
               stroke="#9ca3af"
             />
-            <Tooltip 
+            <Tooltip
               content={({ active, payload, label }) => {
                 if (!active || !payload || !payload.length) return null;
-                
-                // Find the current month's data point to get stock details
-                const currentMonthData = safeMonthlyInvestments.find(r => r.month === label);
-                const investmentDetails = currentMonthData?.investmentDetails || [];
-                const withdrawalDetails = currentMonthData?.withdrawalDetails || [];
-                
-                return (
-                  <div className="card p-3 max-w-md text-sm">
-                    <p className="font-semibold text-hi mb-2">Month: {label}</p>
-                    {payload.map((entry: any, index: number) => {
-                      const value = entry.value;
-                      const name = entry.name || entry.dataKey;
+                const d = safeMonthlyInvestments.find(r => r.month === label);
+                const investDetails  = d?.investmentDetails  || [];
+                const withdrawDetails = d?.withdrawalDetails || [];
+                const investAmt  = d?.investments  || 0;
+                const withdrawAmt = d?.withdrawals || 0;
+                const net = investAmt - withdrawAmt;
 
-                      // Hide trendlines from tooltip
-                      if (name === 'Investments Trend' || name === 'Withdrawals Trend') {
-                        return null;
-                      }
-                      
-                      const isInvestment = name === 'Investments (Buy)' || name === 'investments';
-                      const details = isInvestment ? investmentDetails : withdrawalDetails;
-                      const colorClass = isInvestment ? '' : '';
-                      
-                      return (
-                        <div key={index} className="mb-3 last:mb-0">
-                          <p className="text-sm font-medium text-hi mb-1">
-                            {name}: <span className="font-semibold">{formatCurrency(value)}</span>
-                          </p>
-                          {details.length > 0 && (
-                            <div className="mt-1 ml-2">
-                              <div className="max-h-40 overflow-y-auto">
-                                {details.map((detail: any, idx: number) => (
-                                  <p key={idx} className="text-xs text-mid py-0.5" style={{ borderBottom: '1px solid var(--border-sm)' }}>
-                                    <span className="font-medium text-hi">{detail.stockName}</span>
-                                    {' • '}
-                                    <span className="text-lo">{detail.qty.toLocaleString()} shares</span>
-                                    {' • '}
-                                    <span className="text-hi">{formatCurrency(detail.amount)}</span>
-                                  </p>
-                                ))}
-                              </div>
-                            </div>
-                          )}
+                const StockRows = ({ rows, color }: { rows: any[]; color: string }) => (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 130, overflowY: 'auto' }}>
+                    {rows.map((r: any, i: number) => (
+                      <div key={i} style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        padding: '3px 8px', borderRadius: 6,
+                        background: 'var(--bg-raised)',
+                      }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-hi)', marginRight: 8 }}>{r.stockName}</span>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                          <span style={{ fontSize: 10, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{r.qty?.toLocaleString()} sh</span>
+                          <span style={{ fontSize: 11, fontWeight: 800, color, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(r.amount)}</span>
                         </div>
-                      );
-                    })}
+                      </div>
+                    ))}
+                  </div>
+                );
+
+                return (
+                  <div style={{
+                    background: 'var(--bg-surface)', border: '1px solid var(--border-md)',
+                    borderRadius: 16, boxShadow: 'var(--shadow-lg)', minWidth: 300, maxWidth: 360, overflow: 'hidden',
+                  }}>
+                    {/* Header */}
+                    <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-md)', background: 'var(--bg-raised)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <svg width="13" height="13" fill="none" stroke="var(--text-muted)" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-hi)', letterSpacing: '-0.01em' }}>{label}</span>
+                      </div>
+                    </div>
+
+                    <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      {/* Investments block */}
+                      {investAmt > 0 && (
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                              <div style={{ width: 8, height: 8, borderRadius: 2, background: 'var(--brand)', flexShrink: 0 }} />
+                              <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Investments (Buy)</span>
+                            </div>
+                            <span style={{ fontSize: 14, fontWeight: 900, color: 'var(--brand)', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(investAmt)}</span>
+                          </div>
+                          {investDetails.length > 0 && <StockRows rows={investDetails} color="var(--brand)" />}
+                        </div>
+                      )}
+
+                      {/* Divider */}
+                      {investAmt > 0 && withdrawAmt > 0 && (
+                        <div style={{ height: 1, background: 'var(--border-md)' }} />
+                      )}
+
+                      {/* Withdrawals block */}
+                      {withdrawAmt > 0 && (
+                        <div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                              <div style={{ width: 8, height: 8, borderRadius: 2, background: 'var(--loss)', flexShrink: 0 }} />
+                              <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Withdrawals (Sell)</span>
+                            </div>
+                            <span style={{ fontSize: 14, fontWeight: 900, color: 'var(--loss)', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(withdrawAmt)}</span>
+                          </div>
+                          {withdrawDetails.length > 0 && <StockRows rows={withdrawDetails} color="var(--loss)" />}
+                        </div>
+                      )}
+
+                      {/* Net cashflow footer */}
+                      {(investAmt > 0 || withdrawAmt > 0) && (
+                        <div style={{
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          padding: '6px 10px', borderRadius: 8, marginTop: 2,
+                          background: net >= 0 ? 'var(--brand-bg)' : 'var(--loss-bg)',
+                          border: `1px solid ${net >= 0 ? 'var(--brand-glow)' : 'var(--loss-border)'}`,
+                        }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-lo)' }}>Net Cashflow</span>
+                          <span style={{ fontSize: 13, fontWeight: 900, fontVariantNumeric: 'tabular-nums', color: net >= 0 ? 'var(--brand)' : 'var(--loss)' }}>
+                            {net >= 0 ? '+' : '−'}{formatCurrency(Math.abs(net))}
+                          </span>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 );
               }}
@@ -435,36 +479,58 @@ export default function MonthlyCharts({
             <Tooltip
               content={({ active, payload, label }) => {
                 if (!active || !payload || !payload.length) return null;
-                const currentMonthData = safeMonthlyDividends.find(r => r.month === label);
-                const stockDetails = currentMonthData?.stockDetails || [];
+                const d = safeMonthlyDividends.find(r => r.month === label);
+                const stocks = d?.stockDetails || [];
+                const total  = d?.amount || 0;
+                const sorted = [...stocks].sort((a: any, b: any) => b.amount - a.amount);
+                const maxAmt = sorted[0]?.amount || 1;
+
                 return (
-                  <div className="card p-3 text-sm">
-                    <p className="font-semibold text-hi mb-2">Month: {label}</p>
-                    {payload.map((entry: any, index: number) => {
-                      const value = entry.value;
-                      const name = entry.name || entry.dataKey;
-                      if (name === 'Dividends Trend') return null;
-                      return (
-                        <div key={index}>
-                          <p className="text-sm text-hi font-medium mb-2">
-                            {name}: <span className="font-semibold" style={{ color: 'var(--gain)' }}>{formatCurrency(value)}</span>
-                          </p>
-                          {stockDetails.length > 0 && (
-                            <div className="mt-2 pt-2" style={{ borderTop: '1px solid var(--border-sm)' }}>
-                              <p className="text-xs font-bold text-lo mb-1">By Stock:</p>
-                              <div className="max-h-40 overflow-y-auto">
-                                {stockDetails.map((stock: any, idx: number) => (
-                                  <p key={idx} className="text-xs text-mid py-0.5">
-                                    <span className="font-medium text-hi">{stock.stockName}:</span>{' '}
-                                    <span style={{ color: 'var(--gain)' }}>{formatCurrency(stock.amount)}</span>
-                                  </p>
-                                ))}
-                              </div>
-                            </div>
-                          )}
+                  <div style={{
+                    background: 'var(--bg-surface)', border: '1px solid var(--border-md)',
+                    borderRadius: 16, boxShadow: 'var(--shadow-lg)', minWidth: 280, maxWidth: 340, overflow: 'hidden',
+                  }}>
+                    {/* Header */}
+                    <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-md)', background: 'var(--bg-raised)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <svg width="13" height="13" fill="none" stroke="var(--gain)" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-hi)' }}>{label}</span>
                         </div>
-                      );
-                    })}
+                        <span style={{
+                          fontSize: 15, fontWeight: 900, color: 'var(--gain)', fontVariantNumeric: 'tabular-nums',
+                          background: 'var(--gain-bg)', padding: '2px 10px', borderRadius: 99,
+                          border: '1px solid var(--gain-border)',
+                        }}>{formatCurrency(total)}</span>
+                      </div>
+                    </div>
+
+                    {/* Stock breakdown */}
+                    {sorted.length > 0 && (
+                      <div style={{ padding: '10px 14px' }}>
+                        <p style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: 7 }}>
+                          By Stock ({sorted.length})
+                        </p>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 180, overflowY: 'auto' }}>
+                          {sorted.map((s: any, i: number) => {
+                            const barPct = Math.round((s.amount / maxAmt) * 100);
+                            return (
+                              <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-hi)' }}>{s.stockName}</span>
+                                  <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--gain)', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(s.amount)}</span>
+                                </div>
+                                <div style={{ height: 3, borderRadius: 99, background: 'var(--border-md)', overflow: 'hidden' }}>
+                                  <div style={{ height: '100%', width: `${barPct}%`, borderRadius: 99, background: 'linear-gradient(90deg, var(--gain), var(--gain-mid))' }} />
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               }}
@@ -654,38 +720,82 @@ export default function MonthlyCharts({
               <Tooltip
                 content={({ active, payload, label }) => {
                   if (!active || !payload || !payload.length) return null;
-                  
+                  const pctEntry    = payload.find((e: any) => e.name === 'Return %' || e.dataKey === 'returnPercent');
+                  const amtEntry    = payload.find((e: any) => e.name === 'Return Amount' || e.dataKey === 'returnAmount');
+                  const pct         = pctEntry?.value ?? 0;
+                  const amt         = amtEntry?.value ?? 0;
+                  const isUp        = pct >= 0;
+                  const accentColor = isUp ? 'var(--gain)' : 'var(--loss)';
+                  const accentBg    = isUp ? 'var(--gain-bg)' : 'var(--loss-bg)';
+                  const accentBorder= isUp ? 'var(--gain-border)' : 'var(--loss-border)';
+
                   return (
-                    <div className="card p-4 min-w-[200px]">
-                      <p className="font-bold text-hi mb-3 text-base pb-2" style={{ borderBottom: '1px solid var(--border-sm)' }}>
-                        {label}
-                      </p>
-                      {payload.map((entry: any, index: number) => {
-                        const value = entry.value;
-                        const name = entry.name || entry.dataKey;
-                        let displayValue = '';
-                        let itemColor = 'var(--text-hi)';
+                    <div style={{
+                      background: 'var(--bg-surface)', border: '1px solid var(--border-md)',
+                      borderRadius: 16, boxShadow: 'var(--shadow-lg)', minWidth: 240, overflow: 'hidden',
+                    }}>
+                      {/* Colored accent header */}
+                      <div style={{
+                        padding: '10px 14px', borderBottom: '1px solid var(--border-md)',
+                        background: accentBg, borderTop: `3px solid ${accentColor}`,
+                      }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <svg width="13" height="13" fill="none" stroke={accentColor} viewBox="0 0 24 24">
+                              {isUp
+                                ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                                : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6" />
+                              }
+                            </svg>
+                            <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-hi)' }}>{label}</span>
+                          </div>
+                          <span style={{
+                            fontSize: 10, fontWeight: 700, textTransform: 'uppercase',
+                            letterSpacing: '0.08em', color: accentColor,
+                            background: accentBorder, padding: '2px 7px', borderRadius: 99,
+                          }}>
+                            {isUp ? '▲ Gain' : '▼ Loss'}
+                          </span>
+                        </div>
+                      </div>
 
-                        if (name === 'Return %' || name === 'returnPercent') {
-                          displayValue = `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
-                          itemColor = value >= 0 ? 'var(--gain)' : 'var(--loss)';
-                        } else if (name === 'Return Amount' || name === 'returnAmount') {
-                          displayValue = formatCurrency(value);
-                          itemColor = value >= 0 ? 'var(--gain)' : 'var(--loss)';
-                        } else {
-                          displayValue = String(value);
-                        }
-
-                        return (
-                          <div key={index} className="rounded-lg p-2 mb-2 last:mb-0"
-                            style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-sm)' }}>
-                            <p className="text-xs font-medium text-lo mb-1">{name}</p>
-                            <p className="text-base font-bold metric-value" style={{ color: itemColor }}>
-                              {displayValue}
+                      {/* Metrics */}
+                      <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {/* Return % */}
+                        <div style={{
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          padding: '8px 12px', borderRadius: 10,
+                          background: accentBg, border: `1px solid ${accentBorder}`,
+                        }}>
+                          <div>
+                            <p style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: 2 }}>Return %</p>
+                            <p style={{ fontSize: 22, fontWeight: 900, color: accentColor, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
+                              {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
                             </p>
                           </div>
-                        );
-                      })}
+                          <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+                            <circle cx="16" cy="16" r="15" stroke={accentColor} strokeWidth="1.5" strokeOpacity="0.3" />
+                            <text x="16" y="20" textAnchor="middle" fontSize="13" fontWeight="900" fill={accentColor}>%</text>
+                          </svg>
+                        </div>
+
+                        {/* Return Amount */}
+                        <div style={{
+                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                          padding: '8px 12px', borderRadius: 10,
+                          background: 'var(--bg-raised)', border: '1px solid var(--border-md)',
+                        }}>
+                          <div>
+                            <p style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: 2 }}>Return Amount</p>
+                            <p style={{ fontSize: 16, fontWeight: 900, color: accentColor, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>
+                              {amt >= 0 ? '+' : '−'}{formatCurrency(Math.abs(amt))}
+                            </p>
+                          </div>
+                          <svg width="28" height="28" fill="none" stroke={accentColor} viewBox="0 0 24 24" opacity="0.5">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                        </div>
+                      </div>
                     </div>
                   );
                 }}
