@@ -238,7 +238,6 @@ export default function MonthlyCharts({
           <ResponsiveContainer width="100%" height={300}>
             <ComposedChart
               data={safeMonthlyInvestments}
-              syncId="dashboard-charts"
               margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
               onMouseMove={(e: any) => { if (e?.activeLabel) { setActiveMonth(e.activeLabel); setActiveChart('investments'); } }}
               onMouseLeave={() => { setActiveMonth(null); setActiveChart(null); }}
@@ -456,7 +455,6 @@ export default function MonthlyCharts({
           <ResponsiveContainer width="100%" height={300}>
             <ComposedChart
               data={safeMonthlyDividends}
-              syncId="dashboard-charts"
               margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
               onMouseMove={(e: any) => { if (e?.activeLabel) { setActiveMonth(e.activeLabel); setActiveChart('dividends'); } }}
               onMouseLeave={() => { setActiveMonth(null); setActiveChart(null); }}
@@ -666,7 +664,6 @@ export default function MonthlyCharts({
           <ResponsiveContainer width="100%" height={400}>
             <LineChart
               data={safeMonthlyReturns}
-              syncId="dashboard-charts"
               margin={{ top: 20, right: 40, left: 20, bottom: 20 }}
               onMouseMove={(e: any) => { if (e?.activeLabel) { setActiveMonth(e.activeLabel); setActiveChart('returns'); } }}
               onMouseLeave={() => { setActiveMonth(null); setActiveChart(null); }}
