@@ -10,6 +10,7 @@ import CapitalEfficiency from './CapitalEfficiency';
 import PortfolioTimeline from './PortfolioTimeline';
 import StockMilestoneTracker from './StockMilestoneTracker';
 import DividendInsights from './DividendInsights';
+import PortfolioInsights from './PortfolioInsights';
 
 interface StockAnalyticsProps {
   holdings: Array<{
@@ -426,6 +427,12 @@ export default function StockAnalytics({ holdings, transactions, realizedStocks 
             infoDescription={`WHAT IT MEANS:\nMeasures volatility of ONLY the losing stocks — the "bad" side of volatility used in the Sortino Ratio calculation.\n\nFORMULA:\nDownside Dev = √(Σ(negative returns²) ÷ total stocks)\n• Negative return stocks: ${downsideReturns.length}\n• Total stocks: ${returns.length}\n• Downside Deviation: ${downsideDeviation.toFixed(2)}%\n\nLower downside deviation = better downside protection\n(Unlike regular volatility, upside moves don't increase this.)`}
           />
         </div>
+      </div>
+
+      {/* ── Portfolio Deep Insights ──────────────────────────── */}
+      <div>
+        <SectionTitle>Portfolio Deep Insights</SectionTitle>
+        <PortfolioInsights holdings={holdings} />
       </div>
 
       {/* ── Performance Analytics Charts ─────────────────────── */}
