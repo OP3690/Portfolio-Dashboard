@@ -261,84 +261,87 @@ export default function MonthlyCharts({
               content={({ active, payload, label }) => {
                 if (!active || !payload || !payload.length) return null;
                 const d = safeMonthlyInvestments.find(r => r.month === label);
-                const investDetails  = d?.investmentDetails  || [];
-                const withdrawDetails = d?.withdrawalDetails || [];
-                const investAmt  = d?.investments  || 0;
-                const withdrawAmt = d?.withdrawals || 0;
+                const investDetails   = d?.investmentDetails  || [];
+                const withdrawDetails = d?.withdrawalDetails  || [];
+                const investAmt   = d?.investments  || 0;
+                const withdrawAmt = d?.withdrawals  || 0;
                 const net = investAmt - withdrawAmt;
+                const hasBoth = investAmt > 0 && withdrawAmt > 0;
 
-                const StockRows = ({ rows, color }: { rows: any[]; color: string }) => (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 130, overflowY: 'auto' }}>
-                    {rows.map((r: any, i: number) => (
-                      <div key={i} style={{
-                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                        padding: '3px 8px', borderRadius: 6,
-                        background: 'var(--bg-raised)',
-                      }}>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-hi)', marginRight: 8 }}>{r.stockName}</span>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                          <span style={{ fontSize: 10, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{r.qty?.toLocaleString()} sh</span>
-                          <span style={{ fontSize: 11, fontWeight: 800, color, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(r.amount)}</span>
-                        </div>
+                /* One stock row — narrower for side-by-side columns */
+                const StockRow = ({ r, color, compact }: { r: any; color: string; compact?: boolean }) => (
+                  <div style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: compact ? '2px 6px' : '3px 8px', borderRadius: 6,
+                    background: 'var(--bg-raised)', gap: 4,
+                  }}>
+                    <span style={{ fontSize: compact ? 10 : 11, fontWeight: 600, color: 'var(--text-hi)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: compact ? 90 : 140 }}>{r.stockName}</span>
+                    <div style={{ display: 'flex', flexDirection: compact ? 'column' : 'row', alignItems: compact ? 'flex-end' : 'center', gap: compact ? 0 : 6, flexShrink: 0 }}>
+                      <span style={{ fontSize: 9.5, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{r.qty?.toLocaleString()} sh</span>
+                      <span style={{ fontSize: compact ? 10 : 11, fontWeight: 800, color, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(r.amount)}</span>
+                    </div>
+                  </div>
+                );
+
+                /* Column section — used in the two-column layout */
+                const ColSection = ({ title, amt, rows, color, dotColor }: { title: string; amt: number; rows: any[]; color: string; dotColor: string }) => (
+                  <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {/* Section header */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <div style={{ width: 7, height: 7, borderRadius: 2, background: dotColor, flexShrink: 0 }} />
+                      <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{title}</span>
+                    </div>
+                    {/* Amount badge */}
+                    <div style={{
+                      padding: '4px 8px', borderRadius: 8, textAlign: 'center',
+                      background: `color-mix(in srgb, ${dotColor} 10%, transparent)`,
+                      border: `1px solid color-mix(in srgb, ${dotColor} 25%, transparent)`,
+                    }}>
+                      <span style={{ fontSize: 13, fontWeight: 900, color, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(amt)}</span>
+                    </div>
+                    {/* Stock rows */}
+                    {rows.length > 0 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 160, overflowY: 'auto' }}>
+                        {rows.map((r: any, i: number) => <StockRow key={i} r={r} color={color} compact />)}
                       </div>
-                    ))}
+                    )}
                   </div>
                 );
 
                 return (
                   <div style={{
                     background: 'var(--bg-surface)', border: '1px solid var(--border-md)',
-                    borderRadius: 16, boxShadow: 'var(--shadow-lg)', minWidth: 300, maxWidth: 360, overflow: 'hidden',
+                    borderRadius: 16, boxShadow: 'var(--shadow-lg)',
+                    width: hasBoth ? 520 : 300,
+                    overflow: 'hidden',
                   }}>
                     {/* Header */}
-                    <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-md)', background: 'var(--bg-raised)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <svg width="13" height="13" fill="none" stroke="var(--text-muted)" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                        </svg>
-                        <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-hi)', letterSpacing: '-0.01em' }}>{label}</span>
-                      </div>
+                    <div style={{ padding: '9px 14px', borderBottom: '1px solid var(--border-md)', background: 'var(--bg-raised)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <svg width="13" height="13" fill="none" stroke="var(--text-muted)" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                      </svg>
+                      <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-hi)', letterSpacing: '-0.01em' }}>{label}</span>
                     </div>
 
+                    {/* Body — 2 columns when both sides present, 1 column otherwise */}
                     <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                      {/* Investments block */}
-                      {investAmt > 0 && (
-                        <div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                              <div style={{ width: 8, height: 8, borderRadius: 2, background: 'var(--brand)', flexShrink: 0 }} />
-                              <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Investments (Buy)</span>
-                            </div>
-                            <span style={{ fontSize: 14, fontWeight: 900, color: 'var(--brand)', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(investAmt)}</span>
-                          </div>
-                          {investDetails.length > 0 && <StockRows rows={investDetails} color="var(--brand)" />}
-                        </div>
-                      )}
-
-                      {/* Divider */}
-                      {investAmt > 0 && withdrawAmt > 0 && (
-                        <div style={{ height: 1, background: 'var(--border-md)' }} />
-                      )}
-
-                      {/* Withdrawals block */}
-                      {withdrawAmt > 0 && (
-                        <div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 5 }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                              <div style={{ width: 8, height: 8, borderRadius: 2, background: 'var(--loss)', flexShrink: 0 }} />
-                              <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Withdrawals (Sell)</span>
-                            </div>
-                            <span style={{ fontSize: 14, fontWeight: 900, color: 'var(--loss)', fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(withdrawAmt)}</span>
-                          </div>
-                          {withdrawDetails.length > 0 && <StockRows rows={withdrawDetails} color="var(--loss)" />}
-                        </div>
-                      )}
+                      <div style={{ display: 'flex', gap: 12 }}>
+                        {investAmt > 0 && (
+                          <ColSection title="Investments (Buy)" amt={investAmt} rows={investDetails} color="var(--brand)" dotColor="var(--brand)" />
+                        )}
+                        {hasBoth && (
+                          <div style={{ width: 1, background: 'var(--border-md)', alignSelf: 'stretch', flexShrink: 0 }} />
+                        )}
+                        {withdrawAmt > 0 && (
+                          <ColSection title="Withdrawals (Sell)" amt={withdrawAmt} rows={withdrawDetails} color="var(--loss)" dotColor="var(--loss)" />
+                        )}
+                      </div>
 
                       {/* Net cashflow footer */}
                       {(investAmt > 0 || withdrawAmt > 0) && (
                         <div style={{
                           display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                          padding: '6px 10px', borderRadius: 8, marginTop: 2,
+                          padding: '6px 10px', borderRadius: 8,
                           background: net >= 0 ? 'var(--brand-bg)' : 'var(--loss-bg)',
                           border: `1px solid ${net >= 0 ? 'var(--brand-glow)' : 'var(--loss-border)'}`,
                         }}>
