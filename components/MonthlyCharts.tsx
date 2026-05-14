@@ -200,7 +200,7 @@ export default function MonthlyCharts({
             <div className="w-1 h-5 rounded-full" style={{ background: 'var(--brand)' }}></div>
             Month on Month Investments & Withdrawals
           </h2>
-          <div className="flex flex-wrap gap-3">
+          <div className="flex flex-wrap gap-2.5">
             {[
               { label: 'Gross Total Invested', val: safeMonthlyInvestments.reduce((s, i) => s + (i.investments || 0), 0), color: 'var(--brand)' },
               { label: 'Total Withdrawal', val: safeMonthlyInvestments.reduce((s, i) => s + (i.withdrawals || 0), 0), color: 'var(--loss)' },
@@ -209,10 +209,9 @@ export default function MonthlyCharts({
                 { label: 'Avg Monthly Withdrawal', val: monthlyInvestmentAverages.avgMonthlyWithdrawal || 0, color: 'var(--loss)' },
               ] : []),
             ].map(({ label, val, color }) => (
-              <div key={label} className="px-4 py-2 rounded-xl"
-                style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-md)' }}>
-                <p className="text-xs text-lo font-medium mb-0.5">{label}</p>
-                <p className="text-base font-bold metric-value" style={{ color }}>{formatCurrency(val)}</p>
+              <div key={label} className="stat-pill">
+                <p className="stat-pill-label">{label}</p>
+                <p className="stat-pill-value metric-value" style={{ color }}>{formatCurrency(val)}</p>
               </div>
             ))}
           </div>
@@ -366,55 +365,20 @@ export default function MonthlyCharts({
             <div className="w-1 h-5 rounded-full" style={{ background: 'var(--gain)' }}></div>
             Month on Month Dividends Earned
           </h2>
-          <div className="flex flex-wrap gap-3">
-            <div className="px-4 py-2 rounded-xl" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-md)' }}>
-              <p className="text-xs text-lo font-medium mb-0.5">Total Dividend Earned</p>
-              <p className="text-base font-bold metric-value" style={{ color: 'var(--gain)' }}>
-                {formatCurrency(
-                  safeMonthlyDividends.reduce((sum, item) => sum + (item.amount || 0), 0)
-                )}
-              </p>
-            </div>
-            {avgMonthlyDividends !== undefined && (
-              <div className="px-4 py-2 rounded-xl" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-md)' }}>
-                <p className="text-xs text-lo font-medium mb-0.5">Avg. Monthly Dividends</p>
-                <p className="text-base font-bold metric-value" style={{ color: 'var(--gain)' }}>
-                  {formatCurrency(avgMonthlyDividends || 0)}
-                </p>
+          <div className="flex flex-wrap gap-2.5">
+            {[
+              { label: 'Total Earned',      val: safeMonthlyDividends.reduce((s, i) => s + (i.amount || 0), 0), show: true },
+              { label: 'Avg. Monthly',      val: avgMonthlyDividends ?? 0,          show: avgMonthlyDividends !== undefined },
+              { label: 'Avg. (Last 12M)',   val: avgMonthlyDividendsLast12M ?? 0,   show: avgMonthlyDividendsLast12M !== undefined },
+              { label: 'Median (Last 12M)', val: medianMonthlyDividendsLast12M ?? 0,show: medianMonthlyDividendsLast12M !== undefined },
+              { label: 'Median (Last 6M)',  val: medianLast6M,                       show: safeMonthlyDividends.length >= 6 },
+              { label: 'Median (Last 3M)',  val: medianLast3M,                       show: safeMonthlyDividends.length >= 3 },
+            ].filter(p => p.show).map(({ label, val }) => (
+              <div key={label} className="stat-pill">
+                <p className="stat-pill-label">{label}</p>
+                <p className="stat-pill-value metric-value" style={{ color: 'var(--gain)' }}>{formatCurrency(val)}</p>
               </div>
-            )}
-            {avgMonthlyDividendsLast12M !== undefined && (
-              <div className="px-4 py-2 rounded-xl" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-md)' }}>
-                <p className="text-xs text-lo font-medium mb-0.5">Avg. (Last 12M)</p>
-                <p className="text-base font-bold metric-value" style={{ color: 'var(--gain)' }}>
-                  {formatCurrency(avgMonthlyDividendsLast12M || 0)}
-                </p>
-              </div>
-            )}
-            {medianMonthlyDividendsLast12M !== undefined && (
-              <div className="px-4 py-2 rounded-xl" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-md)' }}>
-                <p className="text-xs text-lo font-medium mb-0.5">Median (Last 12M)</p>
-                <p className="text-base font-bold metric-value" style={{ color: 'var(--gain)' }}>
-                  {formatCurrency(medianMonthlyDividendsLast12M || 0)}
-                </p>
-              </div>
-            )}
-            {safeMonthlyDividends.length >= 6 && (
-              <div className="px-4 py-2 rounded-xl" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-md)' }}>
-                <p className="text-xs text-lo font-medium mb-0.5">Median (Last 6M)</p>
-                <p className="text-base font-bold metric-value" style={{ color: 'var(--gain)' }}>
-                  {formatCurrency(medianLast6M)}
-                </p>
-              </div>
-            )}
-            {safeMonthlyDividends.length >= 3 && (
-              <div className="px-4 py-2 rounded-xl" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-md)' }}>
-                <p className="text-xs text-lo font-medium mb-0.5">Median (Last 3M)</p>
-                <p className="text-base font-bold metric-value" style={{ color: 'var(--gain)' }}>
-                  {formatCurrency(medianLast3M)}
-                </p>
-              </div>
-            )}
+            ))}
           </div>
         </div>
         {safeMonthlyDividends.length === 0 ? (
