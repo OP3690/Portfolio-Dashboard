@@ -300,74 +300,302 @@ export default function StockAnalytics({ holdings, transactions, realizedStocks 
       {/* ── Portfolio Overview ──────────────────────────────── */}
       <div>
         <SectionTitle>Portfolio Overview</SectionTitle>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-          <StatCard title="Total Stocks" value={totalStocks} subtitle={formatCurrency(totalCurrentValue)} isNeutral
-            infoDescription="WHAT IT MEANS:\nTotal number of unique stocks in your portfolio and their combined current market value.\n\nREPRESENTS:\nThe breadth of your investment holdings across different companies." />
-          <StatCard title="Positive Stocks" value={positiveCount} subtitle={formatCurrency(positiveCurrentValue)} isPositive={true}
-            infoDescription="WHAT IT MEANS:\nNumber of stocks with positive returns (profit) and their combined current market value.\n\nCALCULATION:\nCounts all stocks where Profit/Loss Percentage > 0%" />
-          <StatCard title="Negative Stocks" value={negativeCount} subtitle={formatCurrency(negativeCurrentValue)} isPositive={false}
-            infoDescription="WHAT IT MEANS:\nNumber of stocks with negative returns (loss) and their combined current market value.\n\nCALCULATION:\nCounts all stocks where Profit/Loss Percentage < 0%" />
-          <StatCard title="Dividend Stocks" value={dividendCount} subtitle={formatCurrency(annualDividendPayout)} isNeutral
-            infoDescription="WHAT IT MEANS:\nStocks that have provided dividends at least 3 times in any calendar year.\n\nCALCULATION:\n• Identifies stocks with 3+ dividend transactions in a single year\n• Shows count of qualifying stocks\n• Displays total dividend payout from actual transactions" />
-          <StatCard
-            title="Health Score"
-            value={`${healthScore}/100`}
-            subtitle={healthLabel}
-            isPositive={healthScore >= 60}
-            infoDescription={`WHAT IT MEANS:\nComposite metric (0-100) combining multiple portfolio health factors.\n\nCALCULATION BREAKDOWN:\n• Positive Ratio (40%): Percentage of positive-return stocks\n• Return Score (40%): Normalized average return performance\n• Volatility Score (20%): Lower volatility = higher score\n\nYOUR VALUES:\n• Positive Ratio: ${positiveRatio.toFixed(1)}%\n• Return Score: ${returnScore.toFixed(1)}/100\n• Volatility Score: ${volatilityScore.toFixed(1)}/100`}
-          />
-          <StatCard
-            title="Diversification"
-            value={`${diversificationScore}/10`}
-            subtitle={diversificationLabel}
-            isPositive={parseFloat(diversificationScore) >= 5}
-            infoDescription={`WHAT IT MEANS:\nMeasures how well your portfolio is spread across stocks and sectors.\n\nCALCULATION:\n• Stock Count: ${totalStocks} stocks (full score at 30+)\n• Sector Spread: ${uniqueSectors} sectors (full score at 5+)\n\nFORMULA:\nScore = (Stock Count Score + Sector Score) ÷ 2\n\nYOUR BREAKDOWN:\n• Stock Count Score: ${stockCountScore.toFixed(1)}/10\n• Sector Score: ${sectorScore.toFixed(1)}/10`}
-          />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+
+          {/* Card 1 – Composition */}
+          <div className="card p-5 flex flex-col gap-4 relative overflow-visible">
+            {/* header */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                  style={{ background: 'color-mix(in srgb,var(--brand) 12%,transparent)', border: '1px solid color-mix(in srgb,var(--brand) 22%,transparent)' }}>
+                  <svg className="w-4 h-4" style={{ color: 'var(--brand)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Composition</p>
+                  <p className="text-2xl font-black metric-value leading-none" style={{ color: 'var(--text-hi)' }}>{totalStocks} <span className="text-sm font-semibold" style={{ color: 'var(--text-lo)' }}>stocks</span></p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>Current Value</p>
+                <p className="text-sm font-bold metric-value" style={{ color: 'var(--text-hi)' }}>{formatShort(totalCurrentValue)}</p>
+              </div>
+            </div>
+
+            {/* Win/Loss split bar */}
+            <div>
+              <div className="flex justify-between text-[10px] font-semibold mb-1.5" style={{ color: 'var(--text-muted)' }}>
+                <span style={{ color: 'var(--gain)' }}>▲ {positiveCount} Profitable</span>
+                <span style={{ color: 'var(--loss)' }}>{negativeCount} In Loss ▼</span>
+              </div>
+              <div className="h-2 rounded-full overflow-hidden flex" style={{ background: 'var(--bg-sunken)' }}>
+                <div style={{ width: `${totalStocks > 0 ? (positiveCount / totalStocks) * 100 : 0}%`, background: 'linear-gradient(90deg,var(--gain),var(--gain-mid))', borderRadius: '999px 0 0 999px', transition: 'width .5s ease' }} />
+                <div style={{ width: `${totalStocks > 0 ? (negativeCount / totalStocks) * 100 : 0}%`, background: 'linear-gradient(90deg,var(--loss-mid),var(--loss))', borderRadius: '0 999px 999px 0', transition: 'width .5s ease' }} />
+              </div>
+            </div>
+
+            {/* 3-col breakdown */}
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { label: 'Profitable', count: positiveCount, val: formatShort(positiveCurrentValue), color: 'var(--gain)', bg: 'color-mix(in srgb,var(--gain) 10%,transparent)' },
+                { label: 'Dividend', count: dividendCount, val: formatShort(annualDividendPayout), color: 'var(--brand)', bg: 'color-mix(in srgb,var(--brand) 10%,transparent)' },
+                { label: 'In Loss', count: negativeCount, val: formatShort(negativeCurrentValue), color: 'var(--loss)', bg: 'color-mix(in srgb,var(--loss) 10%,transparent)' },
+              ].map(({ label, count, val, color, bg }) => (
+                <div key={label} className="rounded-xl p-2.5 text-center" style={{ background: bg }}>
+                  <p className="text-lg font-black metric-value leading-none" style={{ color }}>{count}</p>
+                  <p className="text-[9px] font-semibold uppercase tracking-wide mt-0.5" style={{ color: 'var(--text-muted)' }}>{label}</p>
+                  <p className="text-[10px] font-semibold mt-1 metric-value" style={{ color }}>{val}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Card 2 – Health Score */}
+          <div className="card p-5 flex flex-col gap-4 relative overflow-visible">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                style={{ background: `color-mix(in srgb,${healthScore >= 75 ? 'var(--gain)' : healthScore >= 45 ? 'var(--brand)' : 'var(--loss)'} 12%,transparent)`, border: `1px solid color-mix(in srgb,${healthScore >= 75 ? 'var(--gain)' : healthScore >= 45 ? 'var(--brand)' : 'var(--loss)'} 22%,transparent)` }}>
+                <svg className="w-4 h-4" style={{ color: healthScore >= 75 ? 'var(--gain)' : healthScore >= 45 ? 'var(--brand)' : 'var(--loss)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Portfolio Health <InfoTooltip description={`WHAT IT MEANS:\nComposite metric (0-100) combining multiple portfolio health factors.\n\nCALCULATION BREAKDOWN:\n• Positive Ratio (40%): Percentage of positive-return stocks\n• Return Score (40%): Normalized average return performance\n• Volatility Score (20%): Lower volatility = higher score\n\nYOUR VALUES:\n• Positive Ratio: ${positiveRatio.toFixed(1)}%\n• Return Score: ${returnScore.toFixed(1)}/100\n• Volatility Score: ${volatilityScore.toFixed(1)}/100`} /></p>
+                <div className="flex items-baseline gap-2">
+                  <p className="text-2xl font-black metric-value leading-none" style={{ color: healthScore >= 75 ? 'var(--gain)' : healthScore >= 45 ? 'var(--brand)' : 'var(--loss)' }}>{healthScore}</p>
+                  <p className="text-sm font-semibold" style={{ color: 'var(--text-lo)' }}>/100</p>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: `color-mix(in srgb,${healthScore >= 75 ? 'var(--gain)' : healthScore >= 45 ? 'var(--brand)' : 'var(--loss)'} 15%,transparent)`, color: healthScore >= 75 ? 'var(--gain)' : healthScore >= 45 ? 'var(--brand)' : 'var(--loss)' }}>{healthLabel}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Overall bar */}
+            <div>
+              <div className="h-3 rounded-full overflow-hidden" style={{ background: 'var(--bg-sunken)' }}>
+                <div style={{ width: `${healthScore}%`, height: '100%', background: healthScore >= 75 ? 'linear-gradient(90deg,var(--gain),var(--gain-mid))' : healthScore >= 45 ? 'linear-gradient(90deg,var(--brand),#818cf8)' : 'linear-gradient(90deg,var(--loss),var(--loss-mid))', borderRadius: '999px', transition: 'width .5s ease' }} />
+              </div>
+            </div>
+
+            {/* Component breakdown */}
+            <div className="space-y-2.5">
+              {[
+                { label: 'Win Rate (40%)', val: positiveRatio, max: 100, color: 'var(--gain)' },
+                { label: 'Return Score (40%)', val: returnScore, max: 100, color: 'var(--brand)' },
+                { label: 'Stability Score (20%)', val: volatilityScore, max: 100, color: '#f59e0b' },
+              ].map(({ label, val, max, color }) => (
+                <div key={label}>
+                  <div className="flex justify-between text-[10px] font-semibold mb-1" style={{ color: 'var(--text-muted)' }}>
+                    <span>{label}</span>
+                    <span style={{ color }}>{val.toFixed(0)}%</span>
+                  </div>
+                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--bg-sunken)' }}>
+                    <div style={{ width: `${(val / max) * 100}%`, height: '100%', background: color, borderRadius: '999px', transition: 'width .5s ease' }} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Card 3 – Diversification */}
+          <div className="card p-5 flex flex-col gap-4 relative overflow-visible">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                style={{ background: 'color-mix(in srgb,#f59e0b 12%,transparent)', border: '1px solid color-mix(in srgb,#f59e0b 22%,transparent)' }}>
+                <svg className="w-4 h-4" style={{ color: '#f59e0b' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" />
+                </svg>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Diversification <InfoTooltip description={`WHAT IT MEANS:\nMeasures how well your portfolio is spread across stocks and sectors.\n\nCALCULATION:\n• Stock Count: ${totalStocks} stocks (full score at 30+)\n• Sector Spread: ${uniqueSectors} sectors (full score at 5+)\n\nFORMULA:\nScore = (Stock Count Score + Sector Score) ÷ 2\n\nYOUR BREAKDOWN:\n• Stock Count Score: ${stockCountScore.toFixed(1)}/10\n• Sector Score: ${sectorScore.toFixed(1)}/10`} /></p>
+                <div className="flex items-baseline gap-2">
+                  <p className="text-2xl font-black metric-value leading-none" style={{ color: parseFloat(diversificationScore) >= 7.5 ? 'var(--gain)' : parseFloat(diversificationScore) >= 5 ? '#f59e0b' : 'var(--loss)' }}>{diversificationScore}</p>
+                  <p className="text-sm font-semibold" style={{ color: 'var(--text-lo)' }}>/10</p>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: `color-mix(in srgb,${parseFloat(diversificationScore) >= 7.5 ? 'var(--gain)' : parseFloat(diversificationScore) >= 5 ? '#f59e0b' : 'var(--loss)'} 15%,transparent)`, color: parseFloat(diversificationScore) >= 7.5 ? 'var(--gain)' : parseFloat(diversificationScore) >= 5 ? '#f59e0b' : 'var(--loss)' }}>{diversificationLabel}</span>
+                </div>
+              </div>
+            </div>
+
+            <div>
+              <div className="h-3 rounded-full overflow-hidden" style={{ background: 'var(--bg-sunken)' }}>
+                <div style={{ width: `${(parseFloat(diversificationScore) / 10) * 100}%`, height: '100%', background: 'linear-gradient(90deg,#f59e0b,#fcd34d)', borderRadius: '999px', transition: 'width .5s ease' }} />
+              </div>
+            </div>
+
+            <div className="space-y-2.5">
+              {[
+                { label: `Stock Breadth — ${totalStocks} stocks`, val: stockCountScore, max: 10, color: 'var(--brand)', caption: `${totalStocks}/30 target` },
+                { label: `Sector Spread — ${uniqueSectors} sectors`, val: sectorScore, max: 10, color: '#f59e0b', caption: `${uniqueSectors}/5 target` },
+              ].map(({ label, val, max, color, caption }) => (
+                <div key={label}>
+                  <div className="flex justify-between text-[10px] font-semibold mb-1" style={{ color: 'var(--text-muted)' }}>
+                    <span>{label}</span>
+                    <span style={{ color }}>{val.toFixed(1)}/10</span>
+                  </div>
+                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--bg-sunken)' }}>
+                    <div style={{ width: `${(val / max) * 100}%`, height: '100%', background: color, borderRadius: '999px', transition: 'width .5s ease' }} />
+                  </div>
+                  <p className="text-[9px] mt-0.5" style={{ color: 'var(--text-muted)' }}>{caption}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
         </div>
       </div>
 
       {/* ── Performance Metrics ──────────────────────────────── */}
       <div>
         <SectionTitle>Performance Metrics</SectionTitle>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-          <StatCard
-            title="Weighted Avg Return"
-            value={`${averageReturn >= 0 ? '+' : ''}${averageReturn.toFixed(1)}%`}
-            isPositive={averageReturn >= 0}
-            infoDescription={`WHAT IT MEANS:\nWeighted average return across all stocks, weighted by investment amount.\n\nCALCULATION:\nWeighted Avg = Σ(Return × Investment Weight)\nInvestment Weight = Stock Investment ÷ Total Investment\n\nYOUR VALUES:\n• Weighted Average: ${averageReturn.toFixed(1)}%\n• Simple Average: ${simpleAvgReturn.toFixed(1)}%\n• Total Invested: ${formatCurrency(totalInvested)}`}
-          />
-          <StatCard
-            title="Median Return"
-            value={`${medianReturn >= 0 ? '+' : ''}${medianReturn.toFixed(1)}%`}
-            isPositive={medianReturn >= 0}
-            infoDescription={`WHAT IT MEANS:\nMiddle return value when all stocks are sorted — less sensitive to outliers than the weighted average.\n\nYOUR VALUES:\n• Median: ${medianReturn.toFixed(1)}%\n• Weighted Avg: ${averageReturn.toFixed(1)}%\n\nNOTE: When Median > Average, most stocks perform well but large positions may pull the average down.`}
-          />
-          <StatCard
-            title="Best / Worst"
-            value={`${maxReturn >= 0 ? '+' : ''}${maxReturn.toFixed(0)}% / ${minReturn.toFixed(0)}%`}
-            subtitle={`${spread.toFixed(0)}% spread`}
-            isNeutral
-            infoDescription={`WHAT IT MEANS:\nBest and worst performing stocks with their return spread.\n\nCURRENT VALUES:\n• Best: ${maxReturn >= 0 ? '+' : ''}${maxReturn.toFixed(1)}%${maxReturnStock ? ` (${maxReturnStock.stockName})` : ''}\n• Worst: ${minReturn.toFixed(1)}%${minReturnStock ? ` (${minReturnStock.stockName})` : ''}\n• Spread: ${spread.toFixed(1)}%`}
-          />
-          <StatCard
-            title="Consistency Index"
-            value={`${consistencyIndex.toFixed(0)}%`}
-            isPositive={consistencyIndex >= 60}
-            infoDescription={`WHAT IT MEANS:\nRatio of positive-return stocks to total — how consistently your picks are working.\n\nCALCULATION:\n• Positive Stocks: ${positiveReturnsCount}\n• Total Stocks: ${returns.length}\n• Formula: (Positive ÷ Total) × 100 = ${consistencyIndex.toFixed(0)}%`}
-          />
-          <StatCard
-            title="Volatility Index"
-            value={`${volatilityIdx.toFixed(1)}%`}
-            isPositive={volatilityIdx < 30}
-            infoDescription={`WHAT IT MEANS:\nStandard deviation of all stock returns — measures how widely returns vary from the mean.\n\nFORMULA:\nVolatility = √(Σ(Return - Mean)² ÷ N)\n• Mean Return: ${averageReturn.toFixed(1)}%\n• Volatility: ${volatilityIdx.toFixed(1)}%\n\nLower = more consistent returns`}
-          />
-          <StatCard
-            title="Risk Ratio"
-            value={`${Math.min(riskRatio, 99).toFixed(1)}:1`}
-            subtitle={`${formatShort(positiveInvested)} vs ${formatShort(negativeInvested)}`}
-            isPositive={riskRatio >= 2}
-            infoDescription={`WHAT IT MEANS:\nCapital in positive stocks vs negative stocks — measures how your investment is distributed by outcome.\n\nVALUES:\n• Positive Invested: ${formatCurrency(positiveInvested)}\n• Negative Invested: ${formatCurrency(negativeInvested)}\n• Ratio: ${riskRatio.toFixed(1)}:1\n\nHigher ratio (e.g. 3:1+) = more capital in winning positions`}
-          />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+
+          {/* Weighted Avg Return */}
+          <div className="card p-5 flex flex-col gap-3 relative overflow-visible">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1" style={{ color: 'var(--text-muted)' }}>Weighted Avg Return <InfoTooltip description={`WHAT IT MEANS:\nWeighted average return across all stocks, weighted by investment amount.\n\nCALCULATION:\nWeighted Avg = Σ(Return × Investment Weight)\nInvestment Weight = Stock Investment ÷ Total Investment\n\nYOUR VALUES:\n• Weighted Average: ${averageReturn.toFixed(1)}%\n• Simple Average: ${simpleAvgReturn.toFixed(1)}%\n• Total Invested: ${formatCurrency(totalInvested)}`} /></p>
+                <p className="text-3xl font-black metric-value mt-1 leading-none" style={{ color: averageReturn >= 0 ? 'var(--gain)' : 'var(--loss)' }}>{averageReturn >= 0 ? '+' : ''}{averageReturn.toFixed(1)}%</p>
+              </div>
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: `color-mix(in srgb,${averageReturn >= 0 ? 'var(--gain)' : 'var(--loss)'} 12%,transparent)`, border: `1px solid color-mix(in srgb,${averageReturn >= 0 ? 'var(--gain)' : 'var(--loss)'} 22%,transparent)` }}>
+                <svg className="w-5 h-5" style={{ color: averageReturn >= 0 ? 'var(--gain)' : 'var(--loss)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  {averageReturn >= 0
+                    ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+                    : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 17h8m0 0V9m0 8l-8-8-4 4-6-6" />}
+                </svg>
+              </div>
+            </div>
+            <div className="flex gap-3 text-xs" style={{ color: 'var(--text-lo)' }}>
+              <span>Simple avg: <span className="font-semibold metric-value" style={{ color: simpleAvgReturn >= 0 ? 'var(--gain)' : 'var(--loss)' }}>{simpleAvgReturn >= 0 ? '+' : ''}{simpleAvgReturn.toFixed(1)}%</span></span>
+              <span className="opacity-40">·</span>
+              <span>Invested: <span className="font-semibold" style={{ color: 'var(--text-mid)' }}>{formatShort(totalInvested)}</span></span>
+            </div>
+            <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--bg-sunken)' }}>
+              <div style={{ width: `${Math.min(100, Math.max(0, 50 + averageReturn))}%`, height: '100%', background: averageReturn >= 0 ? 'linear-gradient(90deg,var(--gain),var(--gain-mid))' : 'linear-gradient(90deg,var(--loss),var(--loss-mid))', borderRadius: '999px' }} />
+            </div>
+          </div>
+
+          {/* Median Return */}
+          <div className="card p-5 flex flex-col gap-3 relative overflow-visible">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1" style={{ color: 'var(--text-muted)' }}>Median Return <InfoTooltip description={`WHAT IT MEANS:\nMiddle return value when all stocks are sorted — less sensitive to outliers than the weighted average.\n\nYOUR VALUES:\n• Median: ${medianReturn.toFixed(1)}%\n• Weighted Avg: ${averageReturn.toFixed(1)}%\n\nNOTE: When Median > Average, most stocks perform well but large positions may pull the average down.`} /></p>
+                <p className="text-3xl font-black metric-value mt-1 leading-none" style={{ color: medianReturn >= 0 ? 'var(--gain)' : 'var(--loss)' }}>{medianReturn >= 0 ? '+' : ''}{medianReturn.toFixed(1)}%</p>
+              </div>
+              <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'color-mix(in srgb,var(--brand) 12%,transparent)', border: '1px solid color-mix(in srgb,var(--brand) 22%,transparent)' }}>
+                <svg className="w-5 h-5" style={{ color: 'var(--brand)' }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+              </div>
+            </div>
+            <div className="text-xs" style={{ color: 'var(--text-lo)' }}>
+              {medianReturn > averageReturn
+                ? <span style={{ color: 'var(--gain)' }}>↑ Median &gt; Avg — majority outperform</span>
+                : <span style={{ color: 'var(--text-lo)' }}>Median ≤ Avg — outliers lift average</span>}
+            </div>
+            <div className="h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--bg-sunken)' }}>
+              <div style={{ width: `${Math.min(100, Math.max(0, 50 + medianReturn))}%`, height: '100%', background: medianReturn >= 0 ? 'linear-gradient(90deg,var(--gain),var(--gain-mid))' : 'linear-gradient(90deg,var(--loss),var(--loss-mid))', borderRadius: '999px' }} />
+            </div>
+          </div>
+
+          {/* Best / Worst */}
+          <div className="card p-5 flex flex-col gap-3 relative overflow-visible">
+            <p className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1" style={{ color: 'var(--text-muted)' }}>Best & Worst Stock <InfoTooltip description={`WHAT IT MEANS:\nBest and worst performing stocks with their return spread.\n\nCURRENT VALUES:\n• Best: ${maxReturn >= 0 ? '+' : ''}${maxReturn.toFixed(1)}%${maxReturnStock ? ` (${maxReturnStock.stockName})` : ''}\n• Worst: ${minReturn.toFixed(1)}%${minReturnStock ? ` (${minReturnStock.stockName})` : ''}\n• Spread: ${spread.toFixed(1)}%`} /></p>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-xl p-3" style={{ background: 'color-mix(in srgb,var(--gain) 8%,transparent)', border: '1px solid color-mix(in srgb,var(--gain) 18%,transparent)' }}>
+                <p className="text-[9px] font-bold uppercase tracking-wide mb-1" style={{ color: 'var(--gain)' }}>Best</p>
+                <p className="text-xl font-black metric-value leading-none" style={{ color: 'var(--gain)' }}>+{maxReturn.toFixed(0)}%</p>
+                <p className="text-[10px] truncate mt-1" style={{ color: 'var(--text-lo)' }}>{maxReturnStock?.stockName?.split(' ')[0] || 'N/A'}</p>
+              </div>
+              <div className="rounded-xl p-3" style={{ background: 'color-mix(in srgb,var(--loss) 8%,transparent)', border: '1px solid color-mix(in srgb,var(--loss) 18%,transparent)' }}>
+                <p className="text-[9px] font-bold uppercase tracking-wide mb-1" style={{ color: 'var(--loss)' }}>Worst</p>
+                <p className="text-xl font-black metric-value leading-none" style={{ color: 'var(--loss)' }}>{minReturn.toFixed(0)}%</p>
+                <p className="text-[10px] truncate mt-1" style={{ color: 'var(--text-lo)' }}>{minReturnStock?.stockName?.split(' ')[0] || 'N/A'}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex-1 h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--bg-sunken)' }}>
+                <div style={{ width: `${Math.min(100, (spread / 200) * 100)}%`, height: '100%', background: 'linear-gradient(90deg,var(--gain),var(--loss))', borderRadius: '999px' }} />
+              </div>
+              <span className="text-[10px] font-bold shrink-0" style={{ color: 'var(--text-muted)' }}>{spread.toFixed(0)}% spread</span>
+            </div>
+          </div>
+
+          {/* Consistency Index */}
+          <div className="card p-5 flex flex-col gap-3 relative overflow-visible">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1" style={{ color: 'var(--text-muted)' }}>Consistency Index <InfoTooltip description={`WHAT IT MEANS:\nRatio of positive-return stocks to total — how consistently your picks are working.\n\nCALCULATION:\n• Positive Stocks: ${positiveReturnsCount}\n• Total Stocks: ${returns.length}\n• Formula: (Positive ÷ Total) × 100 = ${consistencyIndex.toFixed(0)}%`} /></p>
+                <p className="text-3xl font-black metric-value mt-1 leading-none" style={{ color: consistencyIndex >= 60 ? 'var(--gain)' : consistencyIndex >= 40 ? '#f59e0b' : 'var(--loss)' }}>{consistencyIndex.toFixed(0)}%</p>
+              </div>
+              <span className="text-[10px] font-bold px-2.5 py-1 rounded-full" style={{ background: `color-mix(in srgb,${consistencyIndex >= 60 ? 'var(--gain)' : consistencyIndex >= 40 ? '#f59e0b' : 'var(--loss)'} 15%,transparent)`, color: consistencyIndex >= 60 ? 'var(--gain)' : consistencyIndex >= 40 ? '#f59e0b' : 'var(--loss)' }}>
+                {consistencyIndex >= 60 ? 'Consistent' : consistencyIndex >= 40 ? 'Mixed' : 'Weak'}
+              </span>
+            </div>
+            <div>
+              <div className="flex justify-between text-[10px] mb-1" style={{ color: 'var(--text-muted)' }}>
+                <span>{positiveReturnsCount} profitable</span><span>{returns.length - positiveReturnsCount} in loss</span>
+              </div>
+              <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--bg-sunken)' }}>
+                <div style={{ width: `${consistencyIndex}%`, height: '100%', background: consistencyIndex >= 60 ? 'linear-gradient(90deg,var(--gain),var(--gain-mid))' : consistencyIndex >= 40 ? 'linear-gradient(90deg,#f59e0b,#fcd34d)' : 'linear-gradient(90deg,var(--loss),var(--loss-mid))', borderRadius: '999px' }} />
+              </div>
+            </div>
+          </div>
+
+          {/* Volatility Index */}
+          <div className="card p-5 flex flex-col gap-3 relative overflow-visible">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1" style={{ color: 'var(--text-muted)' }}>Volatility Index <InfoTooltip description={`WHAT IT MEANS:\nStandard deviation of all stock returns — measures how widely returns vary from the mean.\n\nFORMULA:\nVolatility = √(Σ(Return - Mean)² ÷ N)\n• Mean Return: ${averageReturn.toFixed(1)}%\n• Volatility: ${volatilityIdx.toFixed(1)}%\n\nLower = more consistent returns`} /></p>
+                <p className="text-3xl font-black metric-value mt-1 leading-none" style={{ color: volatilityIdx < 20 ? 'var(--gain)' : volatilityIdx < 40 ? '#f59e0b' : 'var(--loss)' }}>{volatilityIdx.toFixed(1)}%</p>
+              </div>
+              <span className="text-[10px] font-bold px-2.5 py-1 rounded-full" style={{ background: `color-mix(in srgb,${volatilityIdx < 20 ? 'var(--gain)' : volatilityIdx < 40 ? '#f59e0b' : 'var(--loss)'} 15%,transparent)`, color: volatilityIdx < 20 ? 'var(--gain)' : volatilityIdx < 40 ? '#f59e0b' : 'var(--loss)' }}>
+                {volatilityIdx < 20 ? 'Low Risk' : volatilityIdx < 40 ? 'Moderate' : 'High Risk'}
+              </span>
+            </div>
+            <div>
+              <div className="flex justify-between text-[10px] mb-1" style={{ color: 'var(--text-muted)' }}>
+                <span>Low &lt;20%</span><span>High &gt;40%</span>
+              </div>
+              <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--bg-sunken)' }}>
+                <div style={{ width: `${Math.min(100, (volatilityIdx / 60) * 100)}%`, height: '100%', background: volatilityIdx < 20 ? 'linear-gradient(90deg,var(--gain),var(--gain-mid))' : volatilityIdx < 40 ? 'linear-gradient(90deg,#f59e0b,#fcd34d)' : 'linear-gradient(90deg,var(--loss-mid),var(--loss))', borderRadius: '999px' }} />
+              </div>
+            </div>
+            <p className="text-xs" style={{ color: 'var(--text-lo)' }}>Mean: {averageReturn.toFixed(1)}% | σ = {volatilityIdx.toFixed(1)}%</p>
+          </div>
+
+          {/* Risk Ratio */}
+          <div className="card p-5 flex flex-col gap-3 relative overflow-visible">
+            <div className="flex items-start justify-between">
+              <div>
+                <p className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1" style={{ color: 'var(--text-muted)' }}>Risk Ratio <InfoTooltip description={`WHAT IT MEANS:\nCapital in positive stocks vs negative stocks — measures how your investment is distributed by outcome.\n\nVALUES:\n• Positive Invested: ${formatCurrency(positiveInvested)}\n• Negative Invested: ${formatCurrency(negativeInvested)}\n• Ratio: ${riskRatio.toFixed(1)}:1\n\nHigher ratio (e.g. 3:1+) = more capital in winning positions`} /></p>
+                <p className="text-3xl font-black metric-value mt-1 leading-none" style={{ color: riskRatio >= 2 ? 'var(--gain)' : riskRatio >= 1 ? '#f59e0b' : 'var(--loss)' }}>{Math.min(riskRatio, 99).toFixed(1)}<span className="text-lg">:1</span></p>
+              </div>
+              <span className="text-[10px] font-bold px-2.5 py-1 rounded-full" style={{ background: `color-mix(in srgb,${riskRatio >= 2 ? 'var(--gain)' : riskRatio >= 1 ? '#f59e0b' : 'var(--loss)'} 15%,transparent)`, color: riskRatio >= 2 ? 'var(--gain)' : riskRatio >= 1 ? '#f59e0b' : 'var(--loss)' }}>
+                {riskRatio >= 3 ? 'Excellent' : riskRatio >= 2 ? 'Good' : riskRatio >= 1 ? 'Fair' : 'Poor'}
+              </span>
+            </div>
+            <div>
+              <div className="flex justify-between text-[10px] mb-1" style={{ color: 'var(--text-muted)' }}>
+                <span style={{ color: 'var(--gain)' }}>+ {formatShort(positiveInvested)}</span>
+                <span style={{ color: 'var(--loss)' }}>{formatShort(negativeInvested)} −</span>
+              </div>
+              <div className="h-2 rounded-full overflow-hidden flex" style={{ background: 'var(--bg-sunken)' }}>
+                {(() => {
+                  const tot = positiveInvested + negativeInvested;
+                  const posPct = tot > 0 ? (positiveInvested / tot) * 100 : 50;
+                  return (
+                    <>
+                      <div style={{ width: `${posPct}%`, height: '100%', background: 'linear-gradient(90deg,var(--gain),var(--gain-mid))', borderRadius: '999px 0 0 999px' }} />
+                      <div style={{ width: `${100 - posPct}%`, height: '100%', background: 'linear-gradient(90deg,var(--loss-mid),var(--loss))', borderRadius: '0 999px 999px 0' }} />
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
 
@@ -380,52 +608,125 @@ export default function StockAnalytics({ holdings, transactions, realizedStocks 
           </svg>
         }>Risk Intelligence</SectionTitle>
 
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
 
           {/* Sortino Ratio */}
-          <StatCard
-            title="Sortino Ratio"
-            value={sortinoRatio > 50 ? '>50' : sortinoRatio.toFixed(2)}
-            subtitle={sortinoRatio > 2 ? 'Excellent downside mgmt' : sortinoRatio > 1 ? 'Good' : sortinoRatio > 0 ? 'Acceptable' : 'Below benchmark'}
-            isPositive={sortinoRatio > 1}
-            infoDescription={`WHAT IT MEANS:\nLike Sharpe Ratio but only penalises DOWNSIDE volatility. Better for portfolios where "upside volatility" (big gains) is welcome.\n\nFORMULA:\nSortino = (Portfolio Return - Risk Free Rate) ÷ Downside Deviation\n• Portfolio Return: ${averageReturn.toFixed(1)}%\n• Risk Free Rate: ${RISK_FREE_RATE}% (Indian govt. bonds)\n• Downside Deviation: ${downsideDeviation.toFixed(2)}%\n• Your Sortino: ${sortinoRatio.toFixed(2)}\n\nINTERPRETATION:\n• < 1.0: Below average risk adjustment\n• 1.0 - 2.0: Good\n• 2.0 - 3.0: Very good\n• > 3.0: Excellent`}
-          />
+          {(() => {
+            const sRating = sortinoRatio > 3 ? 'Excellent' : sortinoRatio > 2 ? 'Very Good' : sortinoRatio > 1 ? 'Good' : sortinoRatio > 0 ? 'Acceptable' : 'Below Avg';
+            const sColor  = sortinoRatio > 2 ? 'var(--gain)' : sortinoRatio > 1 ? '#f59e0b' : 'var(--loss)';
+            const sBarW   = Math.min(100, (Math.min(sortinoRatio, 5) / 5) * 100);
+            return (
+              <div className="card p-5 flex flex-col gap-3 relative overflow-visible">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1" style={{ color: 'var(--text-muted)' }}>
+                    Sortino Ratio <InfoTooltip description={`WHAT IT MEANS:\nLike Sharpe Ratio but only penalises DOWNSIDE volatility. Better for portfolios where "upside volatility" (big gains) is welcome.\n\nFORMULA:\nSortino = (Portfolio Return - Risk Free Rate) ÷ Downside Deviation\n• Portfolio Return: ${averageReturn.toFixed(1)}%\n• Risk Free Rate: ${RISK_FREE_RATE}% (Indian govt. bonds)\n• Downside Deviation: ${downsideDeviation.toFixed(2)}%\n• Your Sortino: ${sortinoRatio.toFixed(2)}\n\nINTERPRETATION:\n• < 1.0: Below average risk adjustment\n• 1.0 - 2.0: Good\n• 2.0 - 3.0: Very good\n• > 3.0: Excellent`} />
+                  </p>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: `color-mix(in srgb,${sColor} 15%,transparent)`, color: sColor }}>{sRating}</span>
+                </div>
+                <p className="text-3xl font-black metric-value leading-none" style={{ color: sColor }}>{sortinoRatio > 50 ? '>50' : sortinoRatio.toFixed(2)}</p>
+                <div>
+                  <div className="flex justify-between text-[9px] mb-1" style={{ color: 'var(--text-muted)' }}><span>0</span><span>1 Good</span><span>3+ Exc.</span></div>
+                  <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--bg-sunken)' }}>
+                    <div style={{ width: `${sBarW}%`, height: '100%', background: `linear-gradient(90deg,var(--loss),#f59e0b,var(--gain))`, borderRadius: '999px' }} />
+                  </div>
+                </div>
+                <p className="text-[10px]" style={{ color: 'var(--text-lo)' }}>Downside dev: {downsideDeviation.toFixed(1)}% · RFR: {RISK_FREE_RATE}%</p>
+              </div>
+            );
+          })()}
 
           {/* Concentration Risk */}
-          <StatCard
-            title="Concentration Risk"
-            value={concentrationRisk}
-            subtitle={`Top: ${top1Stock?.stockName?.split(' ')[0] || 'N/A'} = ${top1Pct.toFixed(1)}%`}
-            isPositive={concentrationRisk === 'Low'}
-            infoDescription={`WHAT IT MEANS:\nHow much capital is concentrated in a single stock. High concentration increases single-company risk.\n\nYOUR VALUES:\n• Top stock (${top1Stock?.stockName || 'N/A'}): ${top1Pct.toFixed(1)}% of portfolio\n• Top 5 stocks combined: ${top5Pct.toFixed(1)}% of portfolio\n\nRISK THRESHOLDS:\n• Low Risk: Top stock < 12% of portfolio\n• Moderate Risk: 12–20%\n• High Risk: > 20%`}
-          />
+          {(() => {
+            const crColor = concentrationRisk === 'Low' ? 'var(--gain)' : concentrationRisk === 'Moderate' ? '#f59e0b' : 'var(--loss)';
+            return (
+              <div className="card p-5 flex flex-col gap-3 relative overflow-visible">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1" style={{ color: 'var(--text-muted)' }}>
+                    Concentration Risk <InfoTooltip description={`WHAT IT MEANS:\nHow much capital is concentrated in a single stock. High concentration increases single-company risk.\n\nYOUR VALUES:\n• Top stock (${top1Stock?.stockName || 'N/A'}): ${top1Pct.toFixed(1)}% of portfolio\n• Top 5 stocks combined: ${top5Pct.toFixed(1)}% of portfolio\n\nRISK THRESHOLDS:\n• Low Risk: Top stock < 12% of portfolio\n• Moderate Risk: 12–20%\n• High Risk: > 20%`} />
+                  </p>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: `color-mix(in srgb,${crColor} 15%,transparent)`, color: crColor }}>{concentrationRisk}</span>
+                </div>
+                <p className="text-3xl font-black metric-value leading-none" style={{ color: crColor }}>{top1Pct.toFixed(1)}%</p>
+                <div>
+                  <div className="flex justify-between text-[9px] mb-1" style={{ color: 'var(--text-muted)' }}><span>Low &lt;12%</span><span>Mod 12–20%</span><span>High &gt;20%</span></div>
+                  <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--bg-sunken)' }}>
+                    <div style={{ width: `${Math.min(100, (top1Pct / 30) * 100)}%`, height: '100%', background: `linear-gradient(90deg,var(--gain),#f59e0b,var(--loss))`, borderRadius: '999px' }} />
+                  </div>
+                </div>
+                <p className="text-[10px] truncate" style={{ color: 'var(--text-lo)' }}>Top: {top1Stock?.stockName?.split(' ')[0] || 'N/A'} — {top1Pct.toFixed(1)}% of portfolio</p>
+              </div>
+            );
+          })()}
 
           {/* Top 5 Concentration */}
-          <StatCard
-            title="Top 5 Concentration"
-            value={`${top5Pct.toFixed(1)}%`}
-            subtitle={`${sortedByValue.slice(0, 5).map(h => h.stockName.split(' ')[0]).join(', ')}`}
-            isPositive={top5Pct < 50}
-            infoDescription={`WHAT IT MEANS:\nPercentage of total portfolio value held in your 5 largest positions. High concentration in top-5 amplifies both gains and losses.\n\nYOUR TOP 5:\n${sortedByValue.slice(0, 5).map((h, i) => `• #${i+1} ${h.stockName}: ${totalCurrentValue > 0 ? ((h.marketValue / totalCurrentValue) * 100).toFixed(1) : 0}%`).join('\n')}\n\nTotal Top-5: ${top5Pct.toFixed(1)}%\n\nBest practice: Keep top-5 below 50% for moderate risk`}
-          />
+          {(() => {
+            const t5Color = top5Pct < 40 ? 'var(--gain)' : top5Pct < 60 ? '#f59e0b' : 'var(--loss)';
+            return (
+              <div className="card p-5 flex flex-col gap-3 relative overflow-visible">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1" style={{ color: 'var(--text-muted)' }}>
+                    Top 5 Concentration <InfoTooltip description={`WHAT IT MEANS:\nPercentage of total portfolio value held in your 5 largest positions.\n\nYOUR TOP 5:\n${sortedByValue.slice(0, 5).map((h, i) => `• #${i+1} ${h.stockName}: ${totalCurrentValue > 0 ? ((h.marketValue / totalCurrentValue) * 100).toFixed(1) : 0}%`).join('\n')}\n\nTotal Top-5: ${top5Pct.toFixed(1)}%\n\nBest practice: Keep top-5 below 50% for moderate risk`} />
+                  </p>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: `color-mix(in srgb,${t5Color} 15%,transparent)`, color: t5Color }}>{top5Pct < 40 ? 'Diversified' : top5Pct < 60 ? 'Moderate' : 'Concentrated'}</span>
+                </div>
+                <p className="text-3xl font-black metric-value leading-none" style={{ color: t5Color }}>{top5Pct.toFixed(1)}%</p>
+                <div>
+                  <div className="flex justify-between text-[9px] mb-1" style={{ color: 'var(--text-muted)' }}><span>Good &lt;40%</span><span>Moderate</span><span>&gt;60%</span></div>
+                  <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--bg-sunken)' }}>
+                    <div style={{ width: `${Math.min(100, top5Pct)}%`, height: '100%', background: `linear-gradient(90deg,var(--gain),#f59e0b,var(--loss))`, borderRadius: '999px' }} />
+                  </div>
+                </div>
+                <p className="text-[10px] truncate" style={{ color: 'var(--text-lo)' }}>{sortedByValue.slice(0, 3).map(h => h.stockName.split(' ')[0]).join(' · ')}</p>
+              </div>
+            );
+          })()}
 
-          {/* Sector Concentration */}
-          <StatCard
-            title="Top Sector Exposure"
-            value={topSector ? `${topSectorPct.toFixed(1)}%` : 'N/A'}
-            subtitle={topSector ? topSector[0] : 'No sector data'}
-            isPositive={topSectorPct < 40}
-            infoDescription={`WHAT IT MEANS:\nYour largest sector allocation as a % of total portfolio value. High sector concentration means sector-specific risk.\n\nYOUR BREAKDOWN:\n${Object.entries(sectorMap).sort((a,b) => b[1]-a[1]).slice(0,5).map(([s,v]) => `• ${s}: ${totalCurrentValue > 0 ? ((v/totalCurrentValue)*100).toFixed(1) : 0}%`).join('\n')}\n\nBest practice: Keep any single sector below 40%`}
-          />
+          {/* Top Sector Exposure */}
+          {(() => {
+            const tsColor = topSectorPct < 30 ? 'var(--gain)' : topSectorPct < 50 ? '#f59e0b' : 'var(--loss)';
+            return (
+              <div className="card p-5 flex flex-col gap-3 relative overflow-visible">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1" style={{ color: 'var(--text-muted)' }}>
+                    Top Sector Exposure <InfoTooltip description={`WHAT IT MEANS:\nYour largest sector allocation as a % of total portfolio value.\n\nYOUR BREAKDOWN:\n${Object.entries(sectorMap).sort((a,b) => b[1]-a[1]).slice(0,5).map(([s,v]) => `• ${s}: ${totalCurrentValue > 0 ? ((v/totalCurrentValue)*100).toFixed(1) : 0}%`).join('\n')}\n\nBest practice: Keep any single sector below 40%`} />
+                  </p>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: `color-mix(in srgb,${tsColor} 15%,transparent)`, color: tsColor }}>{topSectorPct < 30 ? 'Balanced' : topSectorPct < 50 ? 'Watch' : 'High'}</span>
+                </div>
+                <p className="text-3xl font-black metric-value leading-none" style={{ color: tsColor }}>{topSector ? `${topSectorPct.toFixed(1)}%` : 'N/A'}</p>
+                <div>
+                  <div className="flex justify-between text-[9px] mb-1" style={{ color: 'var(--text-muted)' }}><span>Good &lt;30%</span><span>Watch 30–50%</span><span>&gt;50%</span></div>
+                  <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--bg-sunken)' }}>
+                    <div style={{ width: `${Math.min(100, topSectorPct)}%`, height: '100%', background: `linear-gradient(90deg,var(--gain),#f59e0b,var(--loss))`, borderRadius: '999px' }} />
+                  </div>
+                </div>
+                <p className="text-[10px] font-semibold truncate" style={{ color: 'var(--text-lo)' }}>{topSector ? topSector[0] : 'No sector data'} · {uniqueSectors} sectors total</p>
+              </div>
+            );
+          })()}
 
           {/* Downside Deviation */}
-          <StatCard
-            title="Downside Deviation"
-            value={`${downsideDeviation.toFixed(1)}%`}
-            subtitle={`${downsideReturns.length} stocks in loss`}
-            isPositive={downsideDeviation < 20}
-            infoDescription={`WHAT IT MEANS:\nMeasures volatility of ONLY the losing stocks — the "bad" side of volatility used in the Sortino Ratio calculation.\n\nFORMULA:\nDownside Dev = √(Σ(negative returns²) ÷ total stocks)\n• Negative return stocks: ${downsideReturns.length}\n• Total stocks: ${returns.length}\n• Downside Deviation: ${downsideDeviation.toFixed(2)}%\n\nLower downside deviation = better downside protection\n(Unlike regular volatility, upside moves don't increase this.)`}
-          />
+          {(() => {
+            const ddColor = downsideDeviation < 15 ? 'var(--gain)' : downsideDeviation < 30 ? '#f59e0b' : 'var(--loss)';
+            return (
+              <div className="card p-5 flex flex-col gap-3 relative overflow-visible">
+                <div className="flex items-center justify-between">
+                  <p className="text-[10px] font-bold uppercase tracking-wider flex items-center gap-1" style={{ color: 'var(--text-muted)' }}>
+                    Downside Deviation <InfoTooltip description={`WHAT IT MEANS:\nMeasures volatility of ONLY the losing stocks — the "bad" side of volatility used in the Sortino Ratio calculation.\n\nFORMULA:\nDownside Dev = √(Σ(negative returns²) ÷ total stocks)\n• Negative return stocks: ${downsideReturns.length}\n• Total stocks: ${returns.length}\n• Downside Deviation: ${downsideDeviation.toFixed(2)}%\n\nLower = better downside protection`} />
+                  </p>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ background: `color-mix(in srgb,${ddColor} 15%,transparent)`, color: ddColor }}>{downsideDeviation < 15 ? 'Protected' : downsideDeviation < 30 ? 'Moderate' : 'Exposed'}</span>
+                </div>
+                <p className="text-3xl font-black metric-value leading-none" style={{ color: ddColor }}>{downsideDeviation.toFixed(1)}%</p>
+                <div>
+                  <div className="flex justify-between text-[9px] mb-1" style={{ color: 'var(--text-muted)' }}><span>Low &lt;15%</span><span>Mod 15–30%</span><span>High &gt;30%</span></div>
+                  <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--bg-sunken)' }}>
+                    <div style={{ width: `${Math.min(100, (downsideDeviation / 45) * 100)}%`, height: '100%', background: `linear-gradient(90deg,var(--gain),#f59e0b,var(--loss))`, borderRadius: '999px' }} />
+                  </div>
+                </div>
+                <p className="text-[10px]" style={{ color: 'var(--text-lo)' }}>{downsideReturns.length} stocks in loss · σ↓ = {downsideDeviation.toFixed(1)}%</p>
+              </div>
+            );
+          })()}
+
         </div>
       </div>
 
