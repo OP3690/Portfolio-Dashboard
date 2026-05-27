@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import DailyTrackingTable from './DailyTrackingTable';
 
 /* ─── Types ──────────────────────────────────────────────────────────────── */
 type PredictionStatus = 'Active' | 'Achieved' | 'OverAchieved' | 'MissedSlightly' | 'Missed' | 'Expired';
@@ -774,6 +775,9 @@ export default function StockPredictions() {
           </div>
         )}
       </div>
+
+      {/* ── Daily Performance Tracking Table ─────────────────────────────── */}
+      <DailyTrackingTable />
 
       {/* ── Model Weights ────────────────────────────────────────────────── */}
       {data?.modelWeights && (
