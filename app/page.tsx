@@ -11,6 +11,7 @@ import RealizedStocksTable from '@/components/RealizedStocksTable';
 import IndustryPieChart from '@/components/IndustryPieChart';
 import StockAnalytics from '@/components/StockAnalytics';
 import StockResearch from '@/components/StockResearch';
+import StockPredictions from '@/components/StockPredictions';
 import PortfolioGrowthChart from '@/components/PortfolioGrowthChart';
 import StockPLContribution from '@/components/StockPLContribution';
 import PortfolioTreemap from '@/components/PortfolioTreemap';
@@ -100,7 +101,7 @@ export default function Dashboard() {
   const [loading,    setLoading]    = useState(true);
   const [authLoading,setAuthLoading]= useState(true);
   const [error,      setError]      = useState<string | null>(null);
-  const [activeTab,  setActiveTab]  = useState<'dashboard' | 'stock-analytics' | 'stock-research'>('dashboard');
+  const [activeTab,  setActiveTab]  = useState<'dashboard' | 'stock-analytics' | 'stock-research' | 'predictions'>('dashboard');
   const [redirecting,setRedirecting]= useState(false);
 
   useEffect(() => { checkAuthentication(); }, []);
@@ -194,6 +195,9 @@ export default function Dashboard() {
     }
     if (activeTab === 'stock-research') {
       return <StockResearch />;
+    }
+    if (activeTab === 'predictions') {
+      return <StockPredictions />;
     }
 
     return (
