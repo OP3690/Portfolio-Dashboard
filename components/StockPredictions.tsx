@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import DailyTrackingTable from './DailyTrackingTable';
-import PredictionTrades from './PredictionTrades';
+import PredictionTrades, { BuyModal, SellModal, Trade as PTrade, TradePrediction } from './PredictionTrades';
 
 /* ─── Types ──────────────────────────────────────────────────────────────── */
 type PredictionStatus = 'Active' | 'Achieved' | 'OverAchieved' | 'MissedSlightly' | 'Missed' | 'Expired';
@@ -320,6 +320,26 @@ export default function StockPredictions() {
   const [sortDir,     setSortDir]     = useState<SortDir>('desc');
   const [expandedId,  setExpandedId]  = useState<string | null>(null);
 
+  // ── Trade modal state (Buy / Sell from the prediction table) ─────────────
+  const [buyForPred,   setBuyForPred]   = useState<TradePrediction | null>(null);
+  const [sellForTrade, setSellForTrade] = useState<PTrade | null>(null);
+  // Map predictionId → open trade (holding/partial) for the Sell button
+  const [openTradesMap, setOpenTradesMap] = useState<Map<string, PTrade>>(new Map());
+
+  const fetchOpenTrades = useCallback(async () => {
+    try {
+      const res  = await fetch('/api/prediction-trades');
+      const data = await res.json();
+      if (data.success) {
+        const map = new Map<string, PTrade>();
+        for (const t of data.trades as PTrade[]) {
+          if (t.status !== 'closed') map.set(t.predictionId, t);
+        }
+        setOpenTradesMap(map);
+      }
+    } catch {}
+  }, []);
+
   const showToast = (msg: string, ok: boolean) => {
     setToast({ msg, ok });
     setTimeout(() => setToast(null), 4500);
@@ -336,6 +356,7 @@ export default function StockPredictions() {
   }, [filter]);
 
   useEffect(() => { fetchPredictions(filter); }, [filter]);
+  useEffect(() => { fetchOpenTrades(); }, [fetchOpenTrades]);
 
   const handleAction = async (action: 'predict' | 'track' | 'recalibrate') => {
     const ep = action === 'predict' ? '/api/ai-predict' : action === 'track' ? '/api/ai-track' : '/api/ai-recalibrate';
@@ -395,6 +416,22 @@ export default function StockPredictions() {
   /* ── Render ──────────────────────────────────────────────────────────────*/
   return (
     <div className="space-y-5 animate-fadeIn">
+
+      {/* ── Buy / Sell modals triggered from prediction table ─────────────── */}
+      {buyForPred  && (
+        <BuyModal
+          prediction={buyForPred}
+          onClose={() => setBuyForPred(null)}
+          onSuccess={() => { fetchOpenTrades(); }}
+        />
+      )}
+      {sellForTrade && (
+        <SellModal
+          trade={sellForTrade}
+          onClose={() => setSellForTrade(null)}
+          onSuccess={() => { fetchOpenTrades(); }}
+        />
+      )}
 
       {/* Toast */}
       {toast && (
@@ -567,6 +604,13 @@ export default function StockPredictions() {
                   <Th label="Target"            sortKey="totalReturn"          current={sortKey} dir={sortDir} onSort={handleSort} right hint="Target return" />
                   <Th label="Days Active"       sortKey="daysActive"           current={sortKey} dir={sortDir} onSort={handleSort} right />
                   <Th label="Status"            sortKey="status"               current={sortKey} dir={sortDir} onSort={handleSort} />
+                  <th style={{
+                    padding: '10px 12px', fontSize: 11, fontWeight: 700, letterSpacing: '0.04em',
+                    textTransform: 'uppercase', textAlign: 'center',
+                    color: 'var(--text-muted)', background: 'var(--bg-raised)',
+                    borderBottom: '1px solid var(--border-md)', whiteSpace: 'nowrap',
+                    position: 'sticky', top: 0, zIndex: 2,
+                  }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -701,12 +745,45 @@ export default function StockPredictions() {
                         <td className="px-3 py-3">
                           <StatusBadge status={p.status} />
                         </td>
+
+                        {/* Actions */}
+                        <td className="px-3 py-3" onClick={e => e.stopPropagation()}>
+                          <div className="flex items-center gap-1.5 justify-center">
+                            {/* Buy button — always available */}
+                            <button
+                              onClick={() => setBuyForPred({ _id: p._id, stockSymbol: p.stockSymbol, stockName: p.stockName, entryPrice: p.entryPrice, status: p.status })}
+                              className="px-2.5 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 whitespace-nowrap"
+                              style={{ background: 'rgba(99,102,241,0.12)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.25)' }}
+                              title="Record a buy for this prediction"
+                            >
+                              <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
+                              </svg>
+                              Buy
+                            </button>
+
+                            {/* Sell button — only if there's an open trade */}
+                            {openTradesMap.has(p._id) && (
+                              <button
+                                onClick={() => setSellForTrade(openTradesMap.get(p._id)!)}
+                                className="px-2.5 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 whitespace-nowrap"
+                                style={{ background: 'rgba(248,113,113,0.12)', color: '#f87171', border: '1px solid rgba(248,113,113,0.25)' }}
+                                title={`Sell — ${openTradesMap.get(p._id)!.remainingQuantity} shares remaining`}
+                              >
+                                <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M20 12H4" />
+                                </svg>
+                                Sell {openTradesMap.get(p._id)!.remainingQuantity}
+                              </button>
+                            )}
+                          </div>
+                        </td>
                       </tr>
 
                       {/* Expanded indicator row */}
                       {isExpanded && (
                         <tr key={`${p._id}-exp`} style={{ background: 'var(--bg-raised)', borderBottom: '1px solid var(--border-md)' }}>
-                          <td colSpan={11} className="px-6 py-4">
+                          <td colSpan={12} className="px-6 py-4">
                             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                               {/* Indicators */}
                               <div>

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 
 /* ─── Types ──────────────────────────────────────────────────────────────── */
-type TradeStatus = 'holding' | 'partial' | 'closed';
+export type TradeStatus = 'holding' | 'partial' | 'closed';
 type PredStatus  = 'Active' | 'Achieved' | 'OverAchieved' | 'MissedSlightly' | 'Missed' | 'Expired';
 
 interface SellLot {
@@ -16,7 +16,7 @@ interface SellLot {
   notes?:         string;
 }
 
-interface Trade {
+export interface Trade {
   _id:                  string;
   predictionId:         string;
   stockSymbol:          string;
@@ -44,8 +44,8 @@ interface Trade {
   lastTracked:          string | null;
 }
 
-interface Prediction {
-  _id:       string;
+export interface TradePrediction {
+  _id:         string;
   stockSymbol: string;
   stockName:   string;
   entryPrice:  number;
@@ -144,12 +144,12 @@ function Input({ ...props }: React.InputHTMLAttributes<HTMLInputElement>) {
 }
 
 /* ─── BuyModal ───────────────────────────────────────────────────────────── */
-function BuyModal({
+export function BuyModal({
   prediction,
   onClose,
   onSuccess,
 }: {
-  prediction: Prediction;
+  prediction: TradePrediction;
   onClose: () => void;
   onSuccess: () => void;
 }) {
@@ -246,7 +246,7 @@ function BuyModal({
 }
 
 /* ─── SellModal ──────────────────────────────────────────────────────────── */
-function SellModal({
+export function SellModal({
   trade,
   onClose,
   onSuccess,
@@ -462,13 +462,13 @@ export default function PredictionTrades({
   predictions,
   onBuySuccess,
 }: {
-  predictions: Prediction[];
+  predictions: TradePrediction[];
   onBuySuccess?: () => void;
 }) {
   const [trades, setTrades]         = useState<Trade[]>([]);
   const [loading, setLoading]       = useState(true);
   const [expanded, setExpanded]     = useState<string | null>(null);
-  const [buyFor, setBuyFor]         = useState<Prediction | null>(null);
+  const [buyFor, setBuyFor]         = useState<TradePrediction | null>(null);
   const [sellFor, setSellFor]       = useState<Trade | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | TradeStatus>('all');
 
