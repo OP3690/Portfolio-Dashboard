@@ -388,11 +388,13 @@ export default function DailyTrackingTable() {
                         </td>
                       );
                     }
-                    // Day-0 entry (recommendation date)
+                    // Day-0 entry (recommendation date — not real tracking data)
                     if (cell.synthetic) {
                       return (
-                        <td key={dateStr} style={{ ...tdStyle, textAlign: 'center', borderLeft: '1px solid var(--border-sm)' }}>
-                          <span className="text-[10px] font-bold" style={{ color: 'var(--text-muted)' }}>0%</span>
+                        <td key={dateStr}
+                          title={`${row.stockSymbol} · Entry day (${fmtShortDate(dateStr)})\nEntry price: ${fmtPrice(cell.closingPrice)}\nTracking starts next trading day`}
+                          style={{ ...tdStyle, textAlign: 'center', borderLeft: '1px solid var(--border-sm)', background: 'rgba(148,163,184,0.06)', cursor: 'default' }}>
+                          <span className="text-[9px] font-black tracking-wider" style={{ color: 'var(--text-muted)', opacity: 0.7 }}>D₀</span>
                         </td>
                       );
                     }

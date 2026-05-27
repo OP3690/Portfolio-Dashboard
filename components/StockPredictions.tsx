@@ -343,8 +343,12 @@ export default function StockPredictions() {
       const res  = await fetch(ep, { method: 'POST' });
       const body = await res.json();
       if (body.success) {
+        // After running predictions, auto-run tracking so today's prices appear immediately
+        if (action === 'predict') {
+          await fetch('/api/ai-track', { method: 'POST' });
+        }
         const msgs: Record<string, string> = {
-          predict:     `Prediction run complete — ${body.count ?? 0} stocks selected`,
+          predict:     `Prediction run complete — ${body.count ?? 0} stocks selected · tracking updated`,
           track:       `Tracking updated — ${body.updatedCount ?? 0} predictions refreshed`,
           recalibrate: body.message || 'Recalibration complete',
         };
