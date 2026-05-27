@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import DailyTrackingTable from './DailyTrackingTable';
+import PredictionTrades from './PredictionTrades';
 
 /* ─── Types ──────────────────────────────────────────────────────────────── */
 type PredictionStatus = 'Active' | 'Achieved' | 'OverAchieved' | 'MissedSlightly' | 'Missed' | 'Expired';
@@ -782,6 +783,18 @@ export default function StockPredictions() {
 
       {/* ── Daily Performance Tracking Table ─────────────────────────────── */}
       <DailyTrackingTable />
+
+      {/* ── My Trades (Buy / Sell / Analytics) ───────────────────────────── */}
+      <PredictionTrades
+        predictions={(data?.predictions ?? []).map(p => ({
+          _id:        p._id,
+          stockSymbol: p.stockSymbol,
+          stockName:   p.stockName,
+          entryPrice:  p.entryPrice,
+          status:      p.status,
+        }))}
+        onBuySuccess={() => fetchPredictions(filter)}
+      />
 
       {/* ── Model Weights ────────────────────────────────────────────────── */}
       {data?.modelWeights && (
