@@ -20,10 +20,18 @@ export interface IPerformance {
   avgReturn: number;
 }
 
+export interface IEnsembleWeights {
+  technical:   number;
+  advanced:    number;
+  monteCarlo:  number;
+  backtest:    number;
+}
+
 export interface IModelWeights extends Document {
   version: string;
   date: Date;
   weights: IWeights;
+  ensembleWeights?: IEnsembleWeights;
   performance: IPerformance;
   isActive: boolean;
 }
@@ -54,13 +62,24 @@ const PerformanceSchema = new Schema<IPerformance>(
   { _id: false }
 );
 
+const EnsembleWeightsSchema = new Schema<IEnsembleWeights>(
+  {
+    technical:   { type: Number, default: 0.30 },
+    advanced:    { type: Number, default: 0.30 },
+    monteCarlo:  { type: Number, default: 0.20 },
+    backtest:    { type: Number, default: 0.20 },
+  },
+  { _id: false }
+);
+
 const ModelWeightsSchema = new Schema<IModelWeights>(
   {
-    version: { type: String, required: true, unique: true },
-    date: { type: Date, required: true },
-    weights: { type: WeightsSchema, required: true },
-    performance: { type: PerformanceSchema, required: true },
-    isActive: { type: Boolean, default: false, index: true },
+    version:         { type: String, required: true, unique: true },
+    date:            { type: Date, required: true },
+    weights:         { type: WeightsSchema, required: true },
+    ensembleWeights: { type: EnsembleWeightsSchema },
+    performance:     { type: PerformanceSchema, required: true },
+    isActive:        { type: Boolean, default: false, index: true },
   },
   {
     timestamps: true,

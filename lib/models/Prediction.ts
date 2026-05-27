@@ -36,6 +36,13 @@ export interface IPrediction extends Document {
   modelVersion: string;
   indicatorSnapshot: IIndicatorSnapshot;
   expiresAt: Date;
+  // Ensemble fields (added by advanced engine)
+  ensembleScore?:    number;
+  regime?:           string;
+  mcProbability?:    number;
+  backtestWinRate?:  number;
+  backtestSamples?:  number;
+  scoreBreakdown?:   Record<string, number>;
 }
 
 const IndicatorSnapshotSchema = new Schema<IIndicatorSnapshot>(
@@ -53,6 +60,12 @@ const IndicatorSnapshotSchema = new Schema<IIndicatorSnapshot>(
 
 const PredictionSchema = new Schema<IPrediction>(
   {
+    ensembleScore:   { type: Number },
+    regime:          { type: String },
+    mcProbability:   { type: Number },
+    backtestWinRate: { type: Number },
+    backtestSamples: { type: Number },
+    scoreBreakdown:  { type: Schema.Types.Mixed },
     stockSymbol: { type: String, required: true, index: true },
     stockName: { type: String, required: true },
     exchange: { type: String, required: true, default: 'NSE' },

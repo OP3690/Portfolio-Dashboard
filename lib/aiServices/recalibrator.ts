@@ -1,6 +1,12 @@
 import dbConnect from '../mongodb';
 import Prediction, { IPrediction, PredictionStatus } from '../models/Prediction';
 import ModelWeights, { IWeights, IPerformance } from '../models/ModelWeights';
+import {
+  recalibrateEnsembleWeights,
+  DEFAULT_ENSEMBLE_WEIGHTS,
+  EnsembleWeights,
+  EnsembleOutcome,
+} from './ensembleScorer';
 
 const DEFAULT_WEIGHTS: IWeights = {
   rsi: 0.15, macd: 0.20, bbPosition: 0.10,
@@ -62,11 +68,12 @@ function computeCorrelation(
 }
 
 export interface RecalibrationResult {
-  newWeights: IWeights;
-  version: string;
-  performance: IPerformance;
-  message: string;
-  weightChanges: Record<string, { old: number; new: number; delta: number }>;
+  newWeights:         IWeights;
+  newEnsembleWeights: EnsembleWeights;
+  version:            string;
+  performance:        IPerformance;
+  message:            string;
+  weightChanges:      Record<string, { old: number; new: number; delta: number }>;
 }
 
 export async function recalibrateWeights(): Promise<RecalibrationResult> {
@@ -80,9 +87,10 @@ export async function recalibrateWeights(): Promise<RecalibrationResult> {
     evaluationDate: { $gte: thirtyDaysAgo },
   });
 
-  const activeDoc       = await ModelWeights.findOne({ isActive: true }).sort({ date: -1 });
-  const currentWeights  = activeDoc?.weights ?? DEFAULT_WEIGHTS;
-  const currentVersion  = activeDoc?.version ?? 'v1.0';
+  const activeDoc           = await ModelWeights.findOne({ isActive: true }).sort({ date: -1 });
+  const currentWeights      = activeDoc?.weights ?? DEFAULT_WEIGHTS;
+  const currentVersion      = activeDoc?.version ?? 'v1.0';
+  const currentEnsemble     = (activeDoc as any)?.ensembleWeights ?? DEFAULT_ENSEMBLE_WEIGHTS;
 
   const totalEvaluated       = evaluated.length;
   const achievedCount        = evaluated.filter((p) => p.status === 'Achieved').length;
@@ -98,7 +106,8 @@ export async function recalibrateWeights(): Promise<RecalibrationResult> {
 
   if (totalEvaluated < MIN_EVALUATED) {
     return {
-      newWeights: currentWeights, version: currentVersion, performance,
+      newWeights: currentWeights, newEnsembleWeights: currentEnsemble,
+      version: currentVersion, performance,
       message: `Insufficient data: need ${MIN_EVALUATED}, have ${totalEvaluated}. Weights unchanged.`,
       weightChanges: {},
     };
@@ -138,14 +147,25 @@ export async function recalibrateWeights(): Promise<RecalibrationResult> {
   const vNum       = parseFloat(currentVersion.replace('v', '')) + 0.1;
   const newVersion = `v${vNum.toFixed(1)}`;
 
+  // ── Recalibrate ensemble layer weights using EnsembleOutcome data ─────────
+  const ensembleOutcomes: EnsembleOutcome[] = evaluated.map((p: any) => ({
+    technicalScore:  p.scoreBreakdown?.technicalScore  ?? 0.5,
+    advancedScore:   p.scoreBreakdown?.advancedScore   ?? 0.5,
+    monteCarloScore: p.scoreBreakdown?.monteCarloScore ?? 0.5,
+    backtestScore:   p.scoreBreakdown?.backtestScore   ?? 0.5,
+    outcomeScore:    statusToScore(p.status as PredictionStatus),
+  }));
+  const newEnsembleWeights = recalibrateEnsembleWeights(ensembleOutcomes, currentEnsemble);
+
   if (activeDoc) { activeDoc.isActive = false; await activeDoc.save(); }
 
   await ModelWeights.create({
-    version: newVersion, date: new Date(), weights: normalizedWeights, performance, isActive: true,
+    version: newVersion, date: new Date(), weights: normalizedWeights,
+    ensembleWeights: newEnsembleWeights, performance, isActive: true,
   });
 
   return {
-    newWeights: normalizedWeights, version: newVersion, performance,
+    newWeights: normalizedWeights, newEnsembleWeights, version: newVersion, performance,
     message: `Recalibrated on ${totalEvaluated} predictions. New version: ${newVersion}`,
     weightChanges,
   };
