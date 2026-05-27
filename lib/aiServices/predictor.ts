@@ -267,13 +267,22 @@ export async function runDailyPrediction(): Promise<PredictionResult[]> {
     const existing = await Prediction.findOne({ stockSymbol: stock.symbol, status: 'Active' });
 
     if (existing) {
-      existing.recommendationCount   += 1;
-      existing.latestRecommendedDate  = now;
-      existing.recommendationDates.push(now);
-      // Update live ensemble fields on the existing doc
-      (existing as any).ensembleScore  = sc.finalScore;
-      (existing as any).regime         = sc.regime;
-      (existing as any).mcProbability  = sc.mcProbability;
+      // Only count as a new recommendation if it's a different calendar day (IST)
+      const todayIST = new Date(now.toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }));
+      const latestIST = new Date(
+        new Date(existing.latestRecommendedDate).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' })
+      );
+      const isNewDay = todayIST.getTime() !== latestIST.getTime();
+
+      if (isNewDay) {
+        existing.recommendationCount  += 1;
+        existing.latestRecommendedDate = now;
+        existing.recommendationDates.push(now);
+      }
+      // Always refresh live ensemble fields
+      (existing as any).ensembleScore   = sc.finalScore;
+      (existing as any).regime          = sc.regime;
+      (existing as any).mcProbability   = sc.mcProbability;
       (existing as any).backtestWinRate = sc.backtestWinRate;
       await existing.save();
 
