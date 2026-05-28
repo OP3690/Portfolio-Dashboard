@@ -461,9 +461,11 @@ function AnalyticsCards({ trades }: { trades: Trade[] }) {
 export default function PredictionTrades({
   predictions,
   onBuySuccess,
+  refreshKey,
 }: {
   predictions: TradePrediction[];
   onBuySuccess?: () => void;
+  refreshKey?: number;
 }) {
   const [trades, setTrades]         = useState<Trade[]>([]);
   const [loading, setLoading]       = useState(true);
@@ -481,6 +483,8 @@ export default function PredictionTrades({
   }, []);
 
   useEffect(() => { fetchTrades(); }, [fetchTrades]);
+  // Re-fetch whenever parent signals a trade was recorded externally (buy/sell from top cards or table)
+  useEffect(() => { if (refreshKey !== undefined) fetchTrades(); }, [refreshKey]);
 
   const filtered = statusFilter === 'all'
     ? trades

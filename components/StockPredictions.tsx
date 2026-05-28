@@ -47,6 +47,25 @@ const fmtPct = (n: number, sign = true) => `${sign && n > 0 ? '+' : ''}${n.toFix
 const pctColor = (n: number) => n > 0 ? 'var(--gain)' : n < 0 ? 'var(--loss)' : 'var(--text-muted)';
 const pctBg = (n: number) => n > 0 ? 'rgba(52,211,153,0.10)' : n < 0 ? 'rgba(248,113,113,0.10)' : 'var(--bg-sunken)';
 
+/** Indian compact format: ₹3.72 L / ₹1.05 Cr / ₹45,000 */
+function fmtCompact(n: number): string {
+  const abs = Math.abs(n);
+  const sign = n < 0 ? '−' : '';
+  if (abs >= 10_000_000) return `${sign}₹${(abs / 10_000_000).toFixed(2)} Cr`;
+  if (abs >= 100_000)    return `${sign}₹${(abs / 100_000).toFixed(2)} L`;
+  if (abs >= 1_000)      return `${sign}₹${(abs / 1_000).toFixed(1)}k`;
+  return `${sign}₹${abs.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+}
+/** Same but with +/- sign for P&L */
+function fmtCompactPnl(n: number): string {
+  const abs = Math.abs(n);
+  const sign = n >= 0 ? '+' : '−';
+  if (abs >= 10_000_000) return `${sign}₹${(abs / 10_000_000).toFixed(2)} Cr`;
+  if (abs >= 100_000)    return `${sign}₹${(abs / 100_000).toFixed(2)} L`;
+  if (abs >= 1_000)      return `${sign}₹${(abs / 1_000).toFixed(1)}k`;
+  return `${sign}₹${abs.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+}
+
 const STATUS_META: Record<PredictionStatus, { label: string; color: string; bg: string }> = {
   Active:         { label: 'Active',        color: '#38bdf8', bg: 'rgba(56,189,248,0.12)'  },
   Achieved:       { label: 'Achieved',      color: '#34d399', bg: 'rgba(52,211,153,0.12)'  },
@@ -252,7 +271,7 @@ function PickCard({
           <div className="text-right">
             <p className="text-[9px] font-bold" style={{ color: 'var(--text-muted)' }}>Unrealized P&L</p>
             <p className="text-xs font-black mt-0.5" style={{ color: pctColor(openTrade.unrealizedPnL) }}>
-              {openTrade.unrealizedPnL >= 0 ? '+' : ''}₹{Math.abs(openTrade.unrealizedPnL).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
+              {fmtCompactPnl(openTrade.unrealizedPnL)}
               <span className="text-[9px] ml-1">({fmtPct(openTrade.unrealizedPnLPct)})</span>
             </p>
           </div>
@@ -307,13 +326,11 @@ function OpenPositions({ trades, onSell }: { trades: PTrade[]; onSell: (t: PTrad
         <div className="flex items-center gap-4 text-right">
           <div>
             <p className="text-[9px] font-bold" style={{ color: 'var(--text-muted)' }}>INVESTED</p>
-            <p className="text-xs font-black" style={{ color: '#818cf8' }}>₹{totalInvested.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</p>
+            <p className="text-xs font-black" style={{ color: '#818cf8' }}>{fmtCompact(totalInvested)}</p>
           </div>
           <div>
             <p className="text-[9px] font-bold" style={{ color: 'var(--text-muted)' }}>UNREALIZED P&L</p>
-            <p className="text-xs font-black" style={{ color: pctColor(totalUnrealized) }}>
-              {totalUnrealized >= 0 ? '+' : ''}₹{Math.abs(totalUnrealized).toLocaleString('en-IN', { maximumFractionDigits: 0 })}
-            </p>
+            <p className="text-xs font-black" style={{ color: pctColor(totalUnrealized) }}>{fmtCompactPnl(totalUnrealized)}</p>
           </div>
         </div>
       </div>
@@ -419,9 +436,11 @@ export default function StockPredictions() {
   const [sortKey,     setSortKey]     = useState<SortKey>('firstRecommendedDate');
   const [sortDir,     setSortDir]     = useState<SortDir>('desc');
   const [expandedId,  setExpandedId]  = useState<string | null>(null);
-  const [allTrades,   setAllTrades]   = useState<PTrade[]>([]);
-  const [buyForPred,  setBuyForPred]  = useState<TradePrediction | null>(null);
-  const [sellForTrade,setSellForTrade]= useState<PTrade | null>(null);
+  const [allTrades,       setAllTrades]       = useState<PTrade[]>([]);
+  const [buyForPred,      setBuyForPred]      = useState<TradePrediction | null>(null);
+  const [sellForTrade,    setSellForTrade]    = useState<PTrade | null>(null);
+  // Incrementing this tells <PredictionTrades> to re-fetch its own list
+  const [tradeRefreshKey, setTradeRefreshKey] = useState(0);
 
   /* maps predictionId → open trade */
   const openTradesMap = useMemo(() => {
@@ -451,6 +470,12 @@ export default function StockPredictions() {
       if (d.success) setAllTrades(d.trades);
     } catch {}
   }, []);
+
+  /** Refresh both local trade state and the PredictionTrades child component */
+  const bumpTrades = useCallback(() => {
+    fetchTrades();
+    setTradeRefreshKey(k => k + 1);
+  }, [fetchTrades]);
 
   useEffect(() => { fetchPredictions(filter); }, [filter]);
   useEffect(() => { fetchTrades(); }, [fetchTrades]);
@@ -520,11 +545,11 @@ export default function StockPredictions() {
       {/* ── Modals ─────────────────────────────────────────────────────────── */}
       {buyForPred && (
         <BuyModal prediction={buyForPred} onClose={() => setBuyForPred(null)}
-          onSuccess={() => { fetchTrades(); }} />
+          onSuccess={bumpTrades} />
       )}
       {sellForTrade && (
         <SellModal trade={sellForTrade} onClose={() => setSellForTrade(null)}
-          onSuccess={() => { fetchTrades(); }} />
+          onSuccess={bumpTrades} />
       )}
 
       {/* ── Toast ──────────────────────────────────────────────────────────── */}
@@ -592,9 +617,9 @@ export default function StockPredictions() {
           { label: 'Active Picks',  val: String(activePredictions.length), sub: 'being tracked', color: '#38bdf8' },
           { label: 'Win Rate',      val: data ? `${data.stats.successRate.toFixed(0)}%` : '—', sub: `${data?.stats.successCount ?? 0}/${data?.stats.totalEvaluated ?? 0} evaluated`, color: 'var(--gain)' },
           { label: 'Avg Return',    val: data ? fmtPct(data.stats.avgReturn) : '—', sub: 'on evaluated picks', color: data && data.stats.avgReturn >= 0 ? 'var(--gain)' : 'var(--loss)' },
-          { label: 'Invested',      val: allTrades.length ? `₹${(tradeStats.invested / 1000).toFixed(0)}k` : '—', sub: `${allTrades.length} trade${allTrades.length !== 1 ? 's' : ''}`, color: '#818cf8' },
-          { label: 'Realized P&L',  val: allTrades.length ? `${tradeStats.realized >= 0 ? '+' : ''}₹${Math.abs(tradeStats.realized).toLocaleString('en-IN', { maximumFractionDigits: 0 })}` : '—', sub: 'from closed trades', color: pctColor(tradeStats.realized) },
-          { label: 'Unrealized',    val: openTrades.length ? `${tradeStats.unrealized >= 0 ? '+' : ''}₹${Math.abs(tradeStats.unrealized).toLocaleString('en-IN', { maximumFractionDigits: 0 })}` : '—', sub: `${openTrades.length} open position${openTrades.length !== 1 ? 's' : ''}`, color: pctColor(tradeStats.unrealized) },
+          { label: 'Invested',      val: allTrades.length ? fmtCompact(tradeStats.invested) : '—', sub: `${allTrades.length} trade${allTrades.length !== 1 ? 's' : ''}`, color: '#818cf8' },
+          { label: 'Realized P&L',  val: allTrades.length ? fmtCompactPnl(tradeStats.realized) : '—', sub: 'from closed trades', color: pctColor(tradeStats.realized) },
+          { label: 'Unrealized',    val: openTrades.length ? fmtCompactPnl(tradeStats.unrealized) : '—', sub: `${openTrades.length} open position${openTrades.length !== 1 ? 's' : ''}`, color: pctColor(tradeStats.unrealized) },
         ].map(({ label, val, sub, color }) => (
           <div key={label} className="card p-3.5">
             <p className="text-[9px] font-bold uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-muted)' }}>{label}</p>
@@ -888,8 +913,8 @@ export default function StockPredictions() {
                                         ['Bought', fmtDate(openTrade.buyDate)],
                                         ['Avg Buy Price', fmtPrice(openTrade.buyPrice)],
                                         ['Remaining Qty', String(openTrade.remainingQuantity)],
-                                        ['Invested', `₹${openTrade.totalInvested.toLocaleString('en-IN', { maximumFractionDigits: 0 })}`],
-                                        ['Unrealized P&L', `${openTrade.unrealizedPnL >= 0 ? '+' : ''}₹${Math.abs(openTrade.unrealizedPnL).toLocaleString('en-IN', { maximumFractionDigits: 0 })} (${fmtPct(openTrade.unrealizedPnLPct)})`],
+                                        ['Invested', fmtCompact(openTrade.totalInvested)],
+                                        ['Unrealized P&L', `${fmtCompactPnl(openTrade.unrealizedPnL)} (${fmtPct(openTrade.unrealizedPnLPct)})`],
                                       ].map(([k, v]) => (
                                         <div key={k} className="flex justify-between items-center text-xs">
                                           <span style={{ color: 'var(--text-muted)' }}>{k}</span>
@@ -926,7 +951,8 @@ export default function StockPredictions() {
           _id: p._id, stockSymbol: p.stockSymbol, stockName: p.stockName,
           entryPrice: p.entryPrice, status: p.status,
         }))}
-        onBuySuccess={() => { fetchTrades(); fetchPredictions(filter); }}
+        onBuySuccess={() => { bumpTrades(); fetchPredictions(filter); }}
+        refreshKey={tradeRefreshKey}
       />
 
       {/* ══════════════════════════════════════════════════════════════════════
