@@ -134,26 +134,33 @@ function buildPlan(predictions: AIPrediction[], investAmount: number): AllocItem
 }
 
 /* ─── Signal chip ─────────────────────────────────────────────────────────── */
-function SignalChip({ item }: { item: AllocItem }) {
+function SignalChip({ item, size = 'sm' }: { item: AllocItem; size?: 'sm' | 'lg' }) {
   const icons: Record<string, string> = { 'Strong Buy': '🚀', Buy: '📈', Watch: '👁', Avoid: '⚠️' };
   return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold"
+    <span className={`inline-flex items-center gap-1 rounded-full font-black whitespace-nowrap ${size === 'lg' ? 'px-3 py-1 text-xs' : 'px-2 py-0.5 text-[10px]'}`}
       style={{ background: item.signalBg, color: item.signalColor, border: `1px solid ${item.signalBorder}` }}>
       {icons[item.signal]} {item.signal}
     </span>
   );
 }
 
-/* ─── Projection bar ──────────────────────────────────────────────────────── */
-function ProjBar({ label, value, max, color }: { label: string; value: number; max: number; color: string }) {
+/* ─── Animated projection bar ─────────────────────────────────────────────── */
+function ProjBar({ label, value, max, color, alloc }: { label: string; value: number; max: number; color: string; alloc: number }) {
   const pct = Math.min(100, (value / max) * 100);
+  const gain = value - alloc;
   return (
-    <div className="flex items-center gap-2">
-      <span className="text-[9px] font-bold w-16 shrink-0" style={{ color: 'var(--text-muted)' }}>{label}</span>
-      <div className="flex-1 h-1.5 rounded-full" style={{ background: 'var(--bg-sunken)' }}>
-        <div className="h-full rounded-full" style={{ width: `${pct}%`, background: color }} />
+    <div className="space-y-1">
+      <div className="flex items-center justify-between">
+        <span className="text-[10px] font-bold" style={{ color: 'var(--text-muted)' }}>{label}</span>
+        <div className="flex items-center gap-2">
+          {gain > 0 && <span className="text-[9px] font-bold" style={{ color }}>{`+${fmtI(gain)}`}</span>}
+          <span className="text-[11px] font-black" style={{ color }}>{fmtI(value)}</span>
+        </div>
       </div>
-      <span className="text-[10px] font-black w-14 text-right shrink-0" style={{ color }}>{fmtI(value)}</span>
+      <div className="h-2 rounded-full overflow-hidden" style={{ background: 'var(--bg-sunken)' }}>
+        <div className="h-full rounded-full transition-all duration-700"
+          style={{ width: `${pct}%`, background: `linear-gradient(90deg,${color}80,${color})` }} />
+      </div>
     </div>
   );
 }
@@ -167,6 +174,7 @@ function AIInvestmentPlanner({ portfolioValue }: { portfolioValue: number }) {
   const [goalPreset,   setGoalPreset]   = useState<number | null>(null);
   const [plan,         setPlan]         = useState<AllocItem[] | null>(null);
   const [generated,    setGenerated]    = useState(false);
+  const [generating,   setGenerating]   = useState(false);
 
   useEffect(() => {
     fetch('/api/ai-predictions?status=Active&limit=10')
@@ -183,253 +191,389 @@ function AIInvestmentPlanner({ portfolioValue }: { portfolioValue: number }) {
     return plan.reduce((s, item) => s + (item.alloc > 0 ? item.projTarget : 0), 0);
   }, [plan]);
 
-  const totalAlloc = plan ? plan.reduce((s, i) => s + i.alloc, 0) : 0;
-  const portfolioAfter = portfolioValue + investAmount + projectedTotal - totalAlloc;
+  const totalAlloc     = plan ? plan.reduce((s, i) => s + i.alloc, 0) : 0;
+  const totalGain      = projectedTotal - totalAlloc;
+  const totalReturnPct = totalAlloc > 0 ? (totalGain / totalAlloc) * 100 : 0;
+  const portfolioAfter = portfolioValue + projectedTotal;
   const goalProgress   = goalAmount > 0 ? Math.min(100, (portfolioAfter / goalAmount) * 100) : null;
 
   function generate() {
     if (!predictions.length || investAmount <= 0) return;
-    setPlan(buildPlan(predictions, investAmount));
-    setGenerated(true);
+    setGenerating(true);
+    setTimeout(() => {
+      setPlan(buildPlan(predictions, investAmount));
+      setGenerated(true);
+      setGenerating(false);
+    }, 600);
   }
 
-  const pColor = (n: number) => n > 0 ? '#34d399' : n < 0 ? '#f87171' : 'var(--text-muted)';
+  const canGenerate = investAmount > 0 && !loadingPreds && predictions.length > 0;
 
   return (
-    <div className="rounded-2xl overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--bg-card-alt)' }}>
+    <div className="rounded-3xl overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--bg-card-alt)' }}>
 
-      {/* ── Header ─────────────────────────────────────────────────────────── */}
-      <div className="px-5 pt-5 pb-4">
-        <div className="flex items-center gap-3 mb-1">
-          <div className="w-8 h-8 rounded-xl flex items-center justify-center text-base shrink-0"
-            style={{ background: 'linear-gradient(135deg,var(--brand),#818cf8)' }}>🤖</div>
-          <div>
-            <h3 className="font-black text-sm" style={{ color: 'var(--text-hi)' }}>AI Investment Planner</h3>
-            <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
-              Enter how much you want to invest — get a smart allocation across today's AI picks with projected returns
-            </p>
+      {/* ══ HERO HEADER ══════════════════════════════════════════════════════ */}
+      <div className="relative overflow-hidden px-6 pt-6 pb-5"
+        style={{ background: 'linear-gradient(135deg,rgba(99,102,241,0.15) 0%,rgba(129,140,248,0.08) 50%,rgba(168,139,250,0.12) 100%)' }}>
+        {/* Decorative glow blobs */}
+        <div className="absolute -top-8 -right-8 w-32 h-32 rounded-full pointer-events-none"
+          style={{ background: 'radial-gradient(circle,rgba(129,140,248,0.25) 0%,transparent 70%)' }} />
+        <div className="absolute -bottom-4 left-12 w-24 h-24 rounded-full pointer-events-none"
+          style={{ background: 'radial-gradient(circle,rgba(52,211,153,0.15) 0%,transparent 70%)' }} />
+
+        <div className="relative flex items-start justify-between gap-4">
+          <div className="flex items-center gap-4">
+            {/* Icon */}
+            <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-2xl shrink-0 shadow-lg"
+              style={{ background: 'linear-gradient(135deg,#6366f1,#818cf8,#a78bfa)', boxShadow: '0 8px 24px rgba(99,102,241,0.35)' }}>
+              🤖
+            </div>
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <h3 className="font-black text-base" style={{ color: 'var(--text-hi)' }}>AI Investment Planner</h3>
+                {!loadingPreds && predictions.length > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-black"
+                    style={{ background: 'rgba(52,211,153,0.15)', color: '#34d399', border: '1px solid rgba(52,211,153,0.3)' }}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse inline-block" />
+                    {predictions.length} LIVE PICK{predictions.length !== 1 ? 'S' : ''}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)', maxWidth: 420 }}>
+                Tell me how much you want to invest → I'll score every AI pick and build a smart allocation with projected returns
+              </p>
+            </div>
           </div>
         </div>
       </div>
 
-      <div style={{ borderTop: '1px solid var(--border)' }} />
-
-      {/* ── Inputs ─────────────────────────────────────────────────────────── */}
-      <div className="px-5 py-4 space-y-4">
+      {/* ══ INPUT SECTION ════════════════════════════════════════════════════ */}
+      <div className="px-6 py-5 space-y-5" style={{ borderTop: '1px solid var(--border)' }}>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* Investment amount */}
-          <div>
-            <label className="block text-[10px] font-black uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-muted)' }}>
-              I want to invest
-            </label>
-            <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold" style={{ color: 'var(--text-muted)' }}>₹</span>
-              <input
-                type="text" inputMode="numeric" placeholder="1,00,000"
-                value={investRaw} onChange={e => { setInvestRaw(e.target.value); setGenerated(false); }}
-                className="w-full pl-8 pr-3 py-2.5 rounded-xl text-sm font-black outline-none"
-                style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-hi)' }}
-              />
+
+          {/* ── Investment Amount ── */}
+          <div className="rounded-2xl p-4 space-y-3" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded-lg flex items-center justify-center text-xs"
+                style={{ background: 'rgba(99,102,241,0.15)', color: '#818cf8' }}>₹</div>
+              <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+                I want to invest
+              </span>
             </div>
-            {/* Quick presets */}
-            <div className="flex flex-wrap gap-1 mt-1.5">
-              {[25000, 50000, 100000, 200000, 500000].map(v => (
-                <button key={v} onClick={() => { setInvestRaw(v.toLocaleString('en-IN')); setGenerated(false); }}
-                  className="px-2 py-0.5 rounded-lg text-[9px] font-bold"
-                  style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-lo)' }}>
-                  {fmtI(v)}
-                </button>
-              ))}
+            {/* Big number display */}
+            <div className="relative">
+              <input
+                type="text" inputMode="numeric" placeholder="0"
+                value={investRaw}
+                onChange={e => { setInvestRaw(e.target.value); setGenerated(false); }}
+                className="w-full bg-transparent text-3xl font-black outline-none placeholder-opacity-30"
+                style={{ color: investAmount > 0 ? '#818cf8' : 'var(--text-lo)' }}
+              />
+              {investAmount > 0 && (
+                <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                  {fmtI(investAmount)}
+                </p>
+              )}
+            </div>
+            {/* Preset pills */}
+            <div className="flex flex-wrap gap-1.5">
+              {[25000, 50000, 100000, 200000, 500000].map(v => {
+                const active = investAmount === v;
+                return (
+                  <button key={v}
+                    onClick={() => { setInvestRaw(v.toLocaleString('en-IN')); setGenerated(false); }}
+                    className="px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all"
+                    style={{
+                      background: active ? 'rgba(99,102,241,0.2)' : 'var(--bg-card-alt)',
+                      border: `1px solid ${active ? 'rgba(99,102,241,0.5)' : 'var(--border)'}`,
+                      color: active ? '#818cf8' : 'var(--text-lo)',
+                    }}>
+                    {fmtI(v)}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
-          {/* Goal */}
-          <div>
-            <label className="block text-[10px] font-black uppercase tracking-wider mb-1.5" style={{ color: 'var(--text-muted)' }}>
-              My wealth goal <span className="font-normal normal-case tracking-normal opacity-70">(optional)</span>
-            </label>
+          {/* ── Wealth Goal ── */}
+          <div className="rounded-2xl p-4 space-y-3" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded-lg flex items-center justify-center text-xs"
+                style={{ background: 'rgba(52,211,153,0.15)', color: '#34d399' }}>🎯</div>
+              <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+                Wealth goal
+              </span>
+              <span className="text-[9px] px-1.5 py-0.5 rounded" style={{ background: 'var(--bg-card-alt)', color: 'var(--text-muted)' }}>
+                optional
+              </span>
+            </div>
+            {/* Big number */}
             <div className="relative">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm font-bold" style={{ color: 'var(--text-muted)' }}>₹</span>
               <input
-                type="text" inputMode="numeric" placeholder="50,00,000"
+                type="text" inputMode="numeric" placeholder="0"
                 value={goalPreset ? goalPreset.toLocaleString('en-IN') : goalRaw}
                 onChange={e => { setGoalRaw(e.target.value); setGoalPreset(null); }}
-                className="w-full pl-8 pr-3 py-2.5 rounded-xl text-sm font-black outline-none"
-                style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text-hi)' }}
+                className="w-full bg-transparent text-3xl font-black outline-none"
+                style={{ color: goalAmount > 0 ? '#34d399' : 'var(--text-lo)' }}
               />
+              {goalAmount > 0 && (
+                <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                  {fmtI(goalAmount)}
+                </p>
+              )}
             </div>
-            <div className="flex flex-wrap gap-1 mt-1.5">
-              {GOAL_PRESETS.map(g => (
-                <button key={g.value} onClick={() => setGoalPreset(g.value === goalPreset ? null : g.value)}
-                  className="px-2 py-0.5 rounded-lg text-[9px] font-bold transition-all"
-                  style={{ background: goalPreset === g.value ? 'var(--brand)' : 'var(--bg-card)', border: '1px solid var(--border)', color: goalPreset === g.value ? '#fff' : 'var(--text-lo)' }}>
-                  {g.label}
-                </button>
-              ))}
+            {/* Goal presets */}
+            <div className="flex flex-wrap gap-1.5">
+              {GOAL_PRESETS.map(g => {
+                const active = goalPreset === g.value;
+                return (
+                  <button key={g.value}
+                    onClick={() => setGoalPreset(g.value === goalPreset ? null : g.value)}
+                    className="px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all"
+                    style={{
+                      background: active ? 'rgba(52,211,153,0.2)' : 'var(--bg-card-alt)',
+                      border: `1px solid ${active ? 'rgba(52,211,153,0.5)' : 'var(--border)'}`,
+                      color: active ? '#34d399' : 'var(--text-lo)',
+                    }}>
+                    {g.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
 
+        {/* ── Generate Button ── */}
         <button
           onClick={generate}
-          disabled={investAmount <= 0 || loadingPreds || predictions.length === 0}
-          className="w-full py-3 rounded-xl text-sm font-black flex items-center justify-center gap-2 transition-all"
+          disabled={!canGenerate || generating}
+          className="w-full py-4 rounded-2xl text-sm font-black flex items-center justify-center gap-2.5 transition-all"
           style={{
-            background: investAmount > 0 ? 'linear-gradient(135deg,var(--brand),#818cf8)' : 'var(--bg-card)',
-            color: investAmount > 0 ? '#fff' : 'var(--text-muted)',
-            border: investAmount > 0 ? 'none' : '1px solid var(--border)',
-            opacity: loadingPreds ? 0.6 : 1,
+            background: canGenerate
+              ? 'linear-gradient(135deg,#6366f1 0%,#818cf8 50%,#a78bfa 100%)'
+              : 'var(--bg-card)',
+            color: canGenerate ? '#fff' : 'var(--text-muted)',
+            border: canGenerate ? 'none' : '1px solid var(--border)',
+            boxShadow: canGenerate ? '0 4px 20px rgba(99,102,241,0.4)' : 'none',
+            opacity: generating ? 0.8 : 1,
           }}>
           {loadingPreds ? (
-            <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />Loading picks…</>
+            <><div className="w-4 h-4 border-2 border-white/60 border-t-white rounded-full animate-spin" />Loading AI picks…</>
+          ) : generating ? (
+            <><div className="w-4 h-4 border-2 border-white/60 border-t-white rounded-full animate-spin" />Calculating allocations…</>
           ) : predictions.length === 0 ? (
-            'No active AI picks — run predictions first'
+            <>⚠️ No active AI picks — go to Predictions tab first</>
+          ) : !canGenerate ? (
+            <>Enter an investment amount to get started</>
           ) : (
-            <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>Generate Allocation Plan</>
+            <>
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+              Generate Allocation Plan
+              <span className="ml-1 px-2 py-0.5 rounded-full text-[10px] bg-white/20">
+                {predictions.length} picks
+              </span>
+            </>
           )}
         </button>
       </div>
 
-      {/* ── Plan output ─────────────────────────────────────────────────────── */}
+      {/* ══ PLAN OUTPUT ══════════════════════════════════════════════════════ */}
       {generated && plan && plan.length > 0 && (
-        <>
-          <div style={{ borderTop: '1px solid var(--border)' }} />
+        <div style={{ borderTop: '1px solid var(--border)' }}>
 
-          {/* Summary bar */}
-          <div className="px-5 py-4">
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+          {/* ── Hero summary banner ── */}
+          <div className="px-6 py-5"
+            style={{ background: 'linear-gradient(135deg,rgba(52,211,153,0.08) 0%,rgba(99,102,241,0.06) 100%)' }}>
+            <p className="text-[10px] font-black uppercase tracking-widest mb-3" style={{ color: 'var(--text-muted)' }}>
+              📊 Allocation Summary
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
-                { label: 'You Invest',       val: fmtI(investAmount),      color: '#818cf8' },
-                { label: 'Projected (Target)', val: fmtI(projectedTotal),   color: '#34d399' },
-                { label: 'Gain at Target',   val: `+${fmtI(projectedTotal - totalAlloc)}`, color: pColor(projectedTotal - totalAlloc) },
-                { label: 'Total Return %',   val: totalAlloc > 0 ? `+${((projectedTotal - totalAlloc) / totalAlloc * 100).toFixed(2)}%` : '—', color: '#34d399' },
+                { label: 'You Invest',      val: fmtI(investAmount),                                                       color: '#818cf8', icon: '💰' },
+                { label: 'Projected Value', val: fmtI(projectedTotal),                                                      color: '#34d399', icon: '📈' },
+                { label: 'Expected Gain',   val: totalGain >= 0 ? `+${fmtI(totalGain)}` : fmtI(totalGain),                 color: totalGain >= 0 ? '#34d399' : '#f87171', icon: '🎯' },
+                { label: 'Return',          val: totalAlloc > 0 ? `+${totalReturnPct.toFixed(1)}%` : '—',                  color: '#a78bfa', icon: '🚀' },
               ].map(c => (
-                <div key={c.label} className="rounded-xl p-3" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+                <div key={c.label} className="rounded-2xl p-4 text-center"
+                  style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+                  <p className="text-lg mb-1">{c.icon}</p>
                   <p className="text-[9px] font-bold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>{c.label}</p>
-                  <p className="text-sm font-black" style={{ color: c.color }}>{c.val}</p>
+                  <p className="text-lg font-black" style={{ color: c.color }}>{c.val}</p>
                 </div>
               ))}
             </div>
+          </div>
 
-            {/* Goal progress */}
-            {goalAmount > 0 && portfolioValue > 0 && (
-              <div className="rounded-xl p-4 mb-4" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-                <div className="flex items-center justify-between mb-2">
+          {/* ── Goal progress ── */}
+          {goalAmount > 0 && (
+            <div className="px-6 py-4" style={{ borderTop: '1px solid var(--border)' }}>
+              <div className="rounded-2xl p-5" style={{
+                background: goalProgress! >= 100
+                  ? 'linear-gradient(135deg,rgba(52,211,153,0.1),rgba(16,185,129,0.08))'
+                  : 'linear-gradient(135deg,rgba(99,102,241,0.08),rgba(129,140,248,0.05))',
+                border: `1px solid ${goalProgress! >= 100 ? 'rgba(52,211,153,0.25)' : 'rgba(99,102,241,0.2)'}`,
+              }}>
+                <div className="flex items-start justify-between gap-4 mb-4">
                   <div>
-                    <p className="text-xs font-black" style={{ color: 'var(--text-hi)' }}>Progress toward {fmtI(goalAmount)} goal</p>
-                    <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
-                      Current portfolio {fmtI(portfolioValue)} + this plan → {fmtI(portfolioAfter)}
+                    <p className="text-sm font-black" style={{ color: 'var(--text-hi)' }}>
+                      {goalProgress! >= 100 ? '🎯 Goal Achieved!' : 'Wealth Goal Progress'}
+                    </p>
+                    <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                      {portfolioValue > 0
+                        ? `Portfolio ${fmtI(portfolioValue)} + this plan → ${fmtI(portfolioAfter)}`
+                        : `This plan projects ${fmtI(projectedTotal)} toward your ${fmtI(goalAmount)} goal`}
                     </p>
                   </div>
-                  <span className="text-lg font-black" style={{ color: goalProgress! >= 100 ? '#34d399' : 'var(--brand)' }}>
-                    {goalProgress!.toFixed(1)}%
-                  </span>
+                  <div className="text-right shrink-0">
+                    <p className="text-2xl font-black" style={{ color: goalProgress! >= 100 ? '#34d399' : '#818cf8' }}>
+                      {goalProgress!.toFixed(1)}%
+                    </p>
+                    <p className="text-[9px]" style={{ color: 'var(--text-muted)' }}>of {fmtI(goalAmount)}</p>
+                  </div>
                 </div>
-                <div className="h-2.5 rounded-full overflow-hidden" style={{ background: 'var(--bg-sunken)' }}>
-                  <div className="h-full rounded-full transition-all"
-                    style={{ width: `${goalProgress}%`, background: goalProgress! >= 100 ? '#34d399' : 'linear-gradient(90deg,var(--brand),#818cf8)' }} />
+                {/* Progress track */}
+                <div className="h-3 rounded-full overflow-hidden mb-2" style={{ background: 'var(--bg-sunken)' }}>
+                  <div className="h-full rounded-full transition-all duration-1000"
+                    style={{
+                      width: `${goalProgress}%`,
+                      background: goalProgress! >= 100
+                        ? 'linear-gradient(90deg,#10b981,#34d399)'
+                        : 'linear-gradient(90deg,#6366f1,#818cf8,#a78bfa)',
+                    }} />
                 </div>
-                <div className="flex justify-between mt-1">
-                  <span className="text-[9px]" style={{ color: 'var(--text-muted)' }}>Current</span>
-                  <span className="text-[9px] font-bold" style={{ color: goalProgress! >= 100 ? '#34d399' : 'var(--brand)' }}>
-                    {goalProgress! >= 100 ? '🎯 Goal reached!' : `${fmtI(goalAmount - portfolioAfter)} more needed`}
+                <div className="flex justify-between">
+                  <span className="text-[9px] font-bold" style={{ color: 'var(--text-muted)' }}>₹0</span>
+                  <span className="text-[10px] font-black"
+                    style={{ color: goalProgress! >= 100 ? '#34d399' : '#818cf8' }}>
+                    {goalProgress! >= 100
+                      ? `🎉 ${fmtI(portfolioAfter - goalAmount)} over goal`
+                      : `${fmtI(goalAmount - portfolioAfter)} more needed`}
                   </span>
-                  <span className="text-[9px]" style={{ color: 'var(--text-muted)' }}>Goal {fmtI(goalAmount)}</span>
+                  <span className="text-[9px] font-bold" style={{ color: 'var(--text-muted)' }}>{fmtI(goalAmount)}</span>
                 </div>
               </div>
-            )}
+            </div>
+          )}
 
-            {/* Stock allocation cards */}
-            <p className="text-[10px] font-black uppercase tracking-wider mb-3" style={{ color: 'var(--text-muted)' }}>
-              Allocation Breakdown — {predictions.length} active pick{predictions.length !== 1 ? 's' : ''}
+          {/* ── Allocation cards ── */}
+          <div className="px-6 pb-6" style={{ borderTop: goalAmount > 0 ? '1px solid var(--border)' : undefined }}>
+            {goalAmount === 0 && <div style={{ borderTop: '1px solid var(--border)', marginBottom: 20, marginTop: 0 }} />}
+            <p className="text-[10px] font-black uppercase tracking-widest mb-4 pt-4" style={{ color: 'var(--text-muted)' }}>
+              Stock Allocation — {plan.filter(i => i.signal !== 'Avoid').length} recommended · {plan.filter(i => i.signal === 'Avoid').length} to avoid
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {plan.map(item => {
                 const isAvoid = item.signal === 'Avoid';
-                const maxProj = item.projBest;
+                const allocPct = investAmount > 0 ? (item.alloc / investAmount) * 100 : 0;
+                const multiplier = item.alloc > 0 ? (item.projTarget / item.alloc) : 1;
                 return (
-                  <div key={item.prediction._id}
-                    className="rounded-2xl overflow-hidden"
+                  <div key={item.prediction._id} className="rounded-2xl overflow-hidden"
                     style={{
                       background: 'var(--bg-card)',
                       border: `1px solid ${isAvoid ? 'var(--border)' : item.signalBorder}`,
-                      opacity: isAvoid ? 0.65 : 1,
+                      opacity: isAvoid ? 0.6 : 1,
                     }}>
-                    {/* Top accent */}
-                    <div className="h-0.5" style={{ background: isAvoid ? 'var(--border)' : `linear-gradient(90deg,${item.signalColor},transparent)` }} />
 
-                    <div className="p-4">
-                      {/* Stock header */}
-                      <div className="flex items-start justify-between gap-2 mb-3">
-                        <div className="min-w-0">
-                          <p className="text-sm font-black leading-tight" style={{ color: 'var(--text-hi)' }}>{item.prediction.stockSymbol}</p>
-                          <p className="text-[10px] truncate mt-0.5" style={{ color: 'var(--text-muted)' }}>{item.prediction.stockName}</p>
+                    {/* Gradient header strip */}
+                    <div className="h-1.5" style={{
+                      background: isAvoid
+                        ? 'var(--bg-sunken)'
+                        : `linear-gradient(90deg,${item.signalColor},${item.signalColor}50,transparent)`,
+                    }} />
+
+                    <div className="p-4 space-y-3">
+                      {/* Stock name + signal */}
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <p className="text-base font-black leading-none" style={{ color: 'var(--text-hi)' }}>
+                              {item.prediction.stockSymbol}
+                            </p>
+                            {!isAvoid && (
+                              <span className="text-[9px] font-black px-1.5 py-0.5 rounded-md"
+                                style={{ background: `${item.signalColor}18`, color: item.signalColor, border: `1px solid ${item.signalBorder}` }}>
+                                {allocPct.toFixed(0)}% of corpus
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[10px] mt-0.5 truncate" style={{ color: 'var(--text-muted)' }}>
+                            {item.prediction.stockName}
+                          </p>
                         </div>
                         <SignalChip item={item} />
                       </div>
 
-                      {/* Main allocation display */}
                       {isAvoid ? (
-                        <div className="rounded-xl p-3 text-center mb-3"
+                        /* ── Avoid state ── */
+                        <div className="rounded-xl p-3"
                           style={{ background: 'rgba(248,113,113,0.06)', border: '1px solid rgba(248,113,113,0.15)' }}>
-                          <p className="text-xs font-bold" style={{ color: '#f87171' }}>⚠️ Not recommended</p>
-                          <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>{item.whyAvoid}</p>
+                          <p className="text-xs font-black mb-1" style={{ color: '#f87171' }}>⚠️ Not Recommended</p>
+                          <p className="text-[10px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                            {item.whyAvoid || 'Signal score below threshold'}
+                          </p>
                         </div>
                       ) : (
                         <>
-                          {/* Invest → projected arrow */}
-                          <div className="flex items-center gap-2 mb-3 px-3 py-2.5 rounded-xl"
-                            style={{ background: `color-mix(in srgb,${item.signalColor} 6%,var(--bg-card-alt))`, border: `1px solid ${item.signalBorder}` }}>
-                            <div className="text-center flex-1">
-                              <p className="text-[9px] font-bold uppercase" style={{ color: 'var(--text-muted)' }}>Invest</p>
-                              <p className="text-base font-black" style={{ color: 'var(--text-hi)' }}>{fmtI(item.alloc)}</p>
-                            </div>
-                            <div className="flex flex-col items-center gap-0.5">
-                              <svg className="w-5 h-5" style={{ color: item.signalColor }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                              </svg>
-                              <span className="text-[8px] font-bold" style={{ color: item.signalColor }}>+{item.prediction.targetReturn}%</span>
-                            </div>
-                            <div className="text-center flex-1">
-                              <p className="text-[9px] font-bold uppercase" style={{ color: 'var(--text-muted)' }}>Becomes</p>
-                              <p className="text-base font-black" style={{ color: item.signalColor }}>{fmtI(item.projTarget)}</p>
+                          {/* ── Invest → Becomes ── */}
+                          <div className="rounded-xl p-3.5"
+                            style={{ background: `${item.signalColor}0A`, border: `1px solid ${item.signalBorder}` }}>
+                            <div className="flex items-center gap-3">
+                              <div className="flex-1 text-center">
+                                <p className="text-[9px] font-bold uppercase tracking-wider mb-0.5" style={{ color: 'var(--text-muted)' }}>Invest</p>
+                                <p className="text-xl font-black" style={{ color: 'var(--text-hi)' }}>{fmtI(item.alloc)}</p>
+                              </div>
+                              <div className="flex flex-col items-center gap-1 shrink-0">
+                                <div className="w-8 h-8 rounded-full flex items-center justify-center"
+                                  style={{ background: `${item.signalColor}20` }}>
+                                  <svg className="w-4 h-4" style={{ color: item.signalColor }} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                                  </svg>
+                                </div>
+                                <span className="text-[9px] font-black" style={{ color: item.signalColor }}>
+                                  {multiplier.toFixed(2)}×
+                                </span>
+                              </div>
+                              <div className="flex-1 text-center">
+                                <p className="text-[9px] font-bold uppercase tracking-wider mb-0.5" style={{ color: 'var(--text-muted)' }}>Becomes</p>
+                                <p className="text-xl font-black" style={{ color: item.signalColor }}>{fmtI(item.projTarget)}</p>
+                              </div>
                             </div>
                           </div>
 
-                          {/* Projection bars */}
-                          <div className="space-y-1.5 mb-3">
-                            <ProjBar label="Conservative" value={item.projConserv} max={maxProj} color="#fbbf24" />
-                            <ProjBar label="At Target"    value={item.projTarget}  max={maxProj} color={item.signalColor} />
-                            <ProjBar label="Best Case"    value={item.projBest}    max={maxProj} color="#a78bfa" />
+                          {/* ── Projection scenarios ── */}
+                          <div className="space-y-2.5">
+                            <ProjBar label="🐢 Conservative" value={item.projConserv} max={item.projBest} color="#fbbf24" alloc={item.alloc} />
+                            <ProjBar label="🎯 At Target"    value={item.projTarget}  max={item.projBest} color={item.signalColor} alloc={item.alloc} />
+                            <ProjBar label="🚀 Best Case"    value={item.projBest}    max={item.projBest} color="#a78bfa" alloc={item.alloc} />
                           </div>
+
+                          {/* ── Model metrics row ── */}
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {[
+                              { key: 'CONF', val: `${item.prediction.confidenceScore}%`, color: 'var(--text-hi)' },
+                              { key: 'MC',   val: item.prediction.mcProbability != null ? `${(item.prediction.mcProbability * 100).toFixed(0)}%` : '—', color: '#818cf8' },
+                              { key: 'BT',   val: item.prediction.backtestWinRate != null ? `${(item.prediction.backtestWinRate * 100).toFixed(0)}%` : '—', color: '#a78bfa' },
+                            ].map(m => (
+                              <div key={m.key} className="rounded-xl p-2 text-center"
+                                style={{ background: 'var(--bg-card-alt)', border: '1px solid var(--border)' }}>
+                                <p className="text-[8px] font-black uppercase tracking-wider mb-0.5" style={{ color: 'var(--text-muted)' }}>{m.key}</p>
+                                <p className="text-xs font-black" style={{ color: m.color }}>{m.val}</p>
+                              </div>
+                            ))}
+                          </div>
+
+                          {/* ── Why buy ── */}
+                          {item.whyBuy && (
+                            <div className="rounded-lg px-2.5 py-2 flex items-start gap-1.5"
+                              style={{ background: `${item.signalColor}08`, border: `1px solid ${item.signalBorder}` }}>
+                              <span className="text-[10px] mt-px shrink-0" style={{ color: item.signalColor }}>✓</span>
+                              <p className="text-[10px] leading-snug" style={{ color: 'var(--text-muted)' }}>{item.whyBuy}</p>
+                            </div>
+                          )}
                         </>
-                      )}
-
-                      {/* Signal metrics */}
-                      <div className="grid grid-cols-3 gap-1.5">
-                        <div className="rounded-lg p-1.5 text-center" style={{ background: 'var(--bg-card-alt)' }}>
-                          <p className="text-[8px] font-bold" style={{ color: 'var(--text-muted)' }}>CONF</p>
-                          <p className="text-[11px] font-black" style={{ color: 'var(--text-hi)' }}>{item.prediction.confidenceScore}%</p>
-                        </div>
-                        <div className="rounded-lg p-1.5 text-center" style={{ background: 'var(--bg-card-alt)' }}>
-                          <p className="text-[8px] font-bold" style={{ color: 'var(--text-muted)' }}>MC</p>
-                          <p className="text-[11px] font-black" style={{ color: '#818cf8' }}>
-                            {item.prediction.mcProbability != null ? `${(item.prediction.mcProbability * 100).toFixed(0)}%` : '—'}
-                          </p>
-                        </div>
-                        <div className="rounded-lg p-1.5 text-center" style={{ background: 'var(--bg-card-alt)' }}>
-                          <p className="text-[8px] font-bold" style={{ color: 'var(--text-muted)' }}>BT</p>
-                          <p className="text-[11px] font-black" style={{ color: '#a78bfa' }}>
-                            {item.prediction.backtestWinRate != null ? `${(item.prediction.backtestWinRate * 100).toFixed(0)}%` : '—'}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Why buy reason */}
-                      {!isAvoid && item.whyBuy && (
-                        <p className="text-[9px] mt-2 leading-tight" style={{ color: 'var(--text-muted)' }}>
-                          ✓ {item.whyBuy}
-                        </p>
                       )}
                     </div>
                   </div>
@@ -438,18 +582,25 @@ function AIInvestmentPlanner({ portfolioValue }: { portfolioValue: number }) {
             </div>
 
             {/* Disclaimer */}
-            <p className="text-[9px] mt-4 text-center leading-relaxed" style={{ color: 'var(--text-muted)', opacity: 0.7 }}>
-              Projections based on AI model's target return and historical backtest. Not financial advice. Past performance ≠ future results. Always do your own research before investing.
-            </p>
+            <div className="mt-5 rounded-xl px-4 py-3 flex items-start gap-2.5"
+              style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+              <span className="text-sm shrink-0 mt-0.5">⚠️</span>
+              <p className="text-[10px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+                <strong style={{ color: 'var(--text-lo)' }}>Not financial advice.</strong> Projections are based on AI model targets and historical backtest data.
+                Past performance does not guarantee future results. Always conduct your own research before investing.
+              </p>
+            </div>
           </div>
-        </>
+        </div>
       )}
 
-      {/* Empty state when no picks */}
+      {/* Empty state */}
       {!loadingPreds && predictions.length === 0 && (
-        <div className="px-5 pb-5 text-center">
+        <div className="px-6 py-8 text-center" style={{ borderTop: '1px solid var(--border)' }}>
+          <p className="text-3xl mb-3">🔭</p>
+          <p className="text-sm font-bold mb-1" style={{ color: 'var(--text-hi)' }}>No Active AI Picks</p>
           <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-            No active AI picks found. Go to the <strong>Predictions</strong> tab and click "Run Predictions".
+            Go to the <strong>Predictions</strong> tab and click "Run Predictions" to generate fresh AI picks.
           </p>
         </div>
       )}
