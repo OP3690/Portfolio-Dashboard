@@ -35,8 +35,7 @@ const fmtI = (n: number) => {
 };
 
 /* ─── Buying Opportunity Score ─────────────────────────────────────────────
-   Scores each holding 0-100 across 5 dimensions: XIRR, P&L position,
-   CAGR, holding period, and milestone proximity.
+   Scores each holding 0-100 across 5 dimensions.
 ────────────────────────────────────────────────────────────────────────── */
 function buySignal(h: Holding, pct: number): BuySignal {
   const xirr    = h.xirr    ?? 0;
@@ -81,8 +80,7 @@ function buySignal(h: Holding, pct: number): BuySignal {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   MILESTONE PLANNER — allocates fresh capital across portfolio holdings
-   to complete the per-stock milestone goal as quickly as possible.
+   MILESTONE PLANNER — Top-3 stock selector with allocation engine
 ══════════════════════════════════════════════════════════════════════════════*/
 
 interface PortfolioPlanItem {
@@ -93,26 +91,57 @@ interface PortfolioPlanItem {
   allocPct: number; signal: BuySignal; xirr: number | null;
 }
 
+/* Rank metadata: gold / silver / bronze */
+const RANK_META = [
+  {
+    strip:  'linear-gradient(90deg,#F59E0B,#FCD34D,#F59E0B)',
+    badge:  'linear-gradient(135deg,#F59E0B,#D97706)',
+    glow:   'rgba(245,158,11,0.22)',
+    border: 'rgba(245,158,11,0.38)',
+    bg:     'rgba(245,158,11,0.07)',
+    text:   '#F59E0B',
+  },
+  {
+    strip:  'linear-gradient(90deg,#94A3B8,#CBD5E1,#94A3B8)',
+    badge:  'linear-gradient(135deg,#94A3B8,#64748B)',
+    glow:   'rgba(148,163,184,0.22)',
+    border: 'rgba(148,163,184,0.38)',
+    bg:     'rgba(148,163,184,0.07)',
+    text:   '#94A3B8',
+  },
+  {
+    strip:  'linear-gradient(90deg,#CD7F32,#E8A96A,#CD7F32)',
+    badge:  'linear-gradient(135deg,#CD7F32,#92400E)',
+    glow:   'rgba(205,127,50,0.22)',
+    border: 'rgba(205,127,50,0.38)',
+    bg:     'rgba(205,127,50,0.07)',
+    text:   '#CD7F32',
+  },
+] as const;
+
 function buildPortfolioPlan(
-  holdings: Holding[], milestoneGoal: number, investAmount: number,
+  holdings: Holding[], milestoneGoal: number, investAmount: number, topN = Infinity,
 ): { items: PortfolioPlanItem[]; unallocated: number } {
   const eligible = holdings.filter(h => (h.marketValue ?? 0) > 0 && (h.marketValue ?? 0) < milestoneGoal);
   if (!eligible.length || investAmount <= 0 || milestoneGoal <= 0) return { items: [], unallocated: investAmount };
 
-  const items = eligible.map(h => {
+  let scored = eligible.map(h => {
     const value = h.marketValue ?? 0;
     const pct   = Math.min(100, (value / milestoneGoal) * 100);
     const sig   = buySignal(h, pct);
     const gap   = milestoneGoal - value;
-    // Score: 60% buy quality + 40% proximity (closer = higher priority)
     const score = (sig.score / 100) * 0.6 + (value / milestoneGoal) * 0.4;
     return { h, value, pct, sig, gap, score, alloc: 0 };
   });
 
-  // Iterative: distribute proportionally, cap at gap, redistribute leftover
+  /* Sort by composite score, then keep top N */
+  scored.sort((a, b) => b.score - a.score);
+  if (isFinite(topN)) scored = scored.slice(0, topN);
+
+  /* Iterative allocation: proportional → cap at gap → redistribute */
   let budget = investAmount;
   for (let iter = 0; iter < 6 && budget > 100; iter++) {
-    const uncapped   = items.filter(it => it.alloc < it.gap - 100);
+    const uncapped   = scored.filter(it => it.alloc < it.gap - 100);
     if (!uncapped.length) break;
     const totalScore = uncapped.reduce((s, it) => s + it.score, 0);
     let used = 0;
@@ -125,7 +154,7 @@ function buildPortfolioPlan(
     budget -= used;
   }
 
-  const result: PortfolioPlanItem[] = items.map(it => {
+  const result: PortfolioPlanItem[] = scored.map(it => {
     const alloc          = Math.round(it.alloc / 500) * 500;
     const projectedValue = it.value + alloc;
     return {
@@ -141,35 +170,46 @@ function buildPortfolioPlan(
       signal:        it.sig,
       xirr:          it.h.xirr ?? null,
     };
-  }).sort((a, b) => {
-    if (a.reachesGoal !== b.reachesGoal) return a.reachesGoal ? -1 : 1;
-    return a.remainingGap - b.remainingGap;
   });
 
   const totalRounded = result.reduce((s, it) => s + it.alloc, 0);
   return { items: result, unallocated: Math.max(0, investAmount - totalRounded) };
 }
 
-/* ─── Animated milestone bar ─────────────────────────────────────────────── */
-function MilestoneBar({ value, goal, color }: { value: number; goal: number; color: string }) {
+/* ─── Milestone progress bar ─────────────────────────────────────────────── */
+function MilestoneBar({
+  value, goal, color, height = 6,
+}: { value: number; goal: number; color: string; height?: number }) {
   const pct = Math.min(100, (value / goal) * 100);
   return (
-    <div className="relative h-2.5 rounded-full overflow-hidden" style={{ background: 'var(--bg-sunken)' }}>
+    <div className="relative rounded-full overflow-hidden"
+      style={{ height, background: 'rgba(128,128,128,0.12)' }}>
       <div className="absolute inset-y-0 left-0 rounded-full transition-all duration-700"
-        style={{ width: `${pct}%`, background: `linear-gradient(90deg,${color}70,${color})` }} />
+        style={{ width: `${pct}%`, background: `linear-gradient(90deg,${color}55,${color})` }} />
     </div>
   );
 }
 
-/* ─── Milestone Planner component ────────────────────────────────────────── */
+/* ─── Score ring ─────────────────────────────────────────────────────────── */
+function ScoreRing({ score, color }: { score: number; color: string }) {
+  const r = 14, circ = 2 * Math.PI * r;
+  const dash = (score / 100) * circ;
+  return (
+    <svg width={36} height={36} className="shrink-0">
+      <circle cx={18} cy={18} r={r} fill="none" stroke="rgba(128,128,128,0.15)" strokeWidth={3} />
+      <circle cx={18} cy={18} r={r} fill="none" stroke={color} strokeWidth={3}
+        strokeDasharray={`${dash} ${circ}`} strokeLinecap="round"
+        transform="rotate(-90 18 18)" style={{ transition: 'stroke-dasharray .6s ease' }} />
+      <text x={18} y={22} textAnchor="middle" fontSize={9} fontWeight={800} fill={color}>{score}</text>
+    </svg>
+  );
+}
+
+/* ─── Top-3 Investment Planner ───────────────────────────────────────────── */
 function AIInvestmentPlanner({
-  portfolioValue,
-  holdings,
-  milestoneGoal,
+  portfolioValue, holdings, milestoneGoal,
 }: {
-  portfolioValue: number;
-  holdings: Holding[];
-  milestoneGoal: number;
+  portfolioValue: number; holdings: Holding[]; milestoneGoal: number;
 }) {
   const [investRaw,  setInvestRaw]  = useState('');
   const [plan,       setPlan]       = useState<{ items: PortfolioPlanItem[]; unallocated: number } | null>(null);
@@ -182,105 +222,127 @@ function AIInvestmentPlanner({
   const totalNeeded  = eligible.reduce((s, h) => s + milestoneGoal - (h.marketValue ?? 0), 0);
   const canGenerate  = investAmount > 0 && eligible.length > 0;
 
-  const INVEST_PRESETS = [25_000, 50_000, 1_00_000, 2_00_000, 5_00_000];
+  const PRESETS = [25_000, 50_000, 1_00_000, 2_00_000, 5_00_000];
 
   function generate() {
     if (!canGenerate) return;
     setGenerating(true);
     setTimeout(() => {
-      setPlan(buildPortfolioPlan(holdings, milestoneGoal, investAmount));
+      setPlan(buildPortfolioPlan(holdings, milestoneGoal, investAmount, 3));
       setGenerated(true);
       setGenerating(false);
-    }, 500);
+    }, 650);
   }
 
-  const reachCount = plan?.items.filter(i => i.reachesGoal).length ?? 0;
-  const totalAlloc = plan?.items.reduce((s, i) => s + i.alloc, 0) ?? 0;
-  const totalGapAfter = plan?.items.reduce((s, i) => s + i.remainingGap, 0) ?? 0;
+  const topItems   = plan?.items ?? [];
+  const reachCount = topItems.filter(i => i.reachesGoal).length;
+  const totalAlloc = topItems.reduce((s, i) => s + i.alloc, 0);
 
   return (
-    <div className="rounded-3xl overflow-hidden" style={{ border: '1px solid var(--border)', background: 'var(--bg-card-alt)' }}>
+    <div className="rounded-3xl overflow-hidden"
+      style={{ border: '1px solid var(--border)', background: 'var(--bg-card-alt)' }}>
 
       {/* ══ HERO HEADER ══ */}
       <div className="relative overflow-hidden px-6 pt-6 pb-5"
-        style={{ background: 'linear-gradient(135deg,rgba(99,102,241,0.15),rgba(129,140,248,0.08),rgba(52,211,153,0.08))' }}>
-        <div className="absolute -top-10 -right-10 w-40 h-40 rounded-full pointer-events-none"
-          style={{ background: 'radial-gradient(circle,rgba(129,140,248,0.22) 0%,transparent 70%)' }} />
-        <div className="absolute -bottom-6 left-20 w-32 h-32 rounded-full pointer-events-none"
-          style={{ background: 'radial-gradient(circle,rgba(52,211,153,0.14) 0%,transparent 70%)' }} />
+        style={{ background: 'linear-gradient(135deg,rgba(99,102,241,0.13),rgba(139,92,246,0.07),rgba(52,211,153,0.06))' }}>
+        {/* decorative blobs */}
+        <div className="absolute -top-14 -right-14 w-52 h-52 rounded-full pointer-events-none"
+          style={{ background: 'radial-gradient(circle,rgba(129,140,248,0.16) 0%,transparent 70%)' }} />
+        <div className="absolute -bottom-10 left-20 w-40 h-40 rounded-full pointer-events-none"
+          style={{ background: 'radial-gradient(circle,rgba(52,211,153,0.1) 0%,transparent 70%)' }} />
 
         <div className="relative flex items-start gap-4">
-          <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-2xl shrink-0"
-            style={{ background: 'linear-gradient(135deg,#6366f1,#818cf8,#a78bfa)', boxShadow: '0 8px 24px rgba(99,102,241,0.35)' }}>
-            🎯
+          {/* Icon */}
+          <div className="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl shrink-0"
+            style={{
+              background: 'linear-gradient(135deg,#6366f1,#8b5cf6)',
+              boxShadow: '0 8px 24px rgba(99,102,241,0.35), inset 0 1px 0 rgba(255,255,255,0.15)',
+            }}>
+            🏆
           </div>
+
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap mb-1">
-              <h3 className="font-black text-base" style={{ color: 'var(--text-hi)' }}>Milestone Planner</h3>
+            <div className="flex flex-wrap items-center gap-2 mb-1.5">
+              <h3 className="font-black text-xl" style={{ color: 'var(--text-hi)', letterSpacing: '-0.025em' }}>
+                Top 3 Picks
+              </h3>
               <span className="text-[10px] font-black px-2.5 py-1 rounded-full"
-                style={{ background: 'rgba(99,102,241,0.15)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.25)' }}>
-                Goal: {fmtI(milestoneGoal)} / stock
+                style={{ background: 'rgba(99,102,241,0.18)', color: '#818cf8', border: '1px solid rgba(99,102,241,0.3)' }}>
+                Goal {fmtI(milestoneGoal)} / stock
               </span>
               {atGoalCount > 0 && (
                 <span className="text-[10px] font-black px-2.5 py-1 rounded-full"
-                  style={{ background: 'rgba(52,211,153,0.15)', color: '#34d399', border: '1px solid rgba(52,211,153,0.25)' }}>
+                  style={{ background: 'rgba(52,211,153,0.15)', color: '#34d399', border: '1px solid rgba(52,211,153,0.3)' }}>
                   🎯 {atGoalCount} at goal
                 </span>
               )}
             </div>
-            <p className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)', maxWidth: 480 }}>
-              Enter how much you have to invest → I'll show exactly which of your holdings to top-up to reach the {fmtI(milestoneGoal)} milestone
+            <p className="text-xs leading-relaxed" style={{ color: 'var(--text-muted)', maxWidth: 500 }}>
+              Tell me your budget — I'll score all {eligible.length} eligible holdings and surface the best 3 to top-up toward the {fmtI(milestoneGoal)} milestone
             </p>
           </div>
         </div>
 
-        {/* Mini stats */}
-        <div className="relative flex flex-wrap gap-5 mt-4">
+        {/* Stats strip */}
+        <div className="relative flex flex-wrap gap-6 mt-5 pt-4"
+          style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
           {[
-            { label: 'Below Goal',       val: String(eligible.length),    color: '#f87171' },
-            { label: 'Total Gap',        val: fmtI(totalNeeded),          color: '#fbbf24' },
-            { label: 'Portfolio Value',  val: fmtI(portfolioValue),       color: '#818cf8' },
+            { label: 'Stocks Below Goal', val: String(eligible.length), color: '#f87171' },
+            { label: 'Total Gap',          val: fmtI(totalNeeded),       color: '#fbbf24' },
+            { label: 'Portfolio Value',    val: fmtI(portfolioValue),    color: '#818cf8' },
           ].map(s => (
-            <div key={s.label} className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: s.color }} />
-              <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{s.label}:</span>
-              <span className="text-[11px] font-black" style={{ color: s.color }}>{s.val}</span>
+            <div key={s.label} className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: s.color }} />
+              <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{s.label}</span>
+              <span className="text-xs font-black" style={{ color: s.color }}>{s.val}</span>
             </div>
           ))}
         </div>
       </div>
 
-      {/* ══ INVESTMENT INPUT ══ */}
-      <div className="px-6 py-5 space-y-4" style={{ borderTop: '1px solid var(--border)' }}>
-        <div className="rounded-2xl p-5 space-y-3" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold"
-              style={{ background: 'rgba(99,102,241,0.15)', color: '#818cf8' }}>₹</div>
-            <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
-              I have this much to invest
-            </span>
+      {/* ══ INPUT SECTION ══ */}
+      <div className="px-6 py-6 space-y-4" style={{ borderTop: '1px solid var(--border)' }}>
+
+        {/* Amount card */}
+        <div className="rounded-2xl p-5 space-y-4"
+          style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
+          <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+            💰 How much do you want to invest?
+          </p>
+
+          <div className="flex items-baseline gap-2">
+            <span className="text-3xl font-black" style={{ color: 'var(--text-lo)' }}>₹</span>
+            <input
+              type="text" inputMode="numeric" placeholder="0"
+              value={investRaw}
+              onChange={e => { setInvestRaw(e.target.value); setGenerated(false); }}
+              className="flex-1 bg-transparent font-black outline-none"
+              style={{
+                color: investAmount > 0 ? '#818cf8' : 'var(--text-lo)',
+                fontSize: 42, lineHeight: 1, minWidth: 0,
+                letterSpacing: '-0.03em',
+              }}
+            />
           </div>
-          <input
-            type="text" inputMode="numeric" placeholder="Enter amount…"
-            value={investRaw}
-            onChange={e => { setInvestRaw(e.target.value); setGenerated(false); }}
-            className="w-full bg-transparent text-4xl font-black outline-none"
-            style={{ color: investAmount > 0 ? '#818cf8' : 'var(--text-lo)' }}
-          />
+
           {investAmount > 0 && (
-            <p className="text-xs font-bold -mt-1" style={{ color: 'var(--text-muted)' }}>{fmtI(investAmount)}</p>
+            <p className="text-xs font-bold -mt-2" style={{ color: 'var(--text-muted)' }}>{fmtI(investAmount)}</p>
           )}
-          <div className="flex flex-wrap gap-1.5 pt-1">
-            {INVEST_PRESETS.map(v => {
+
+          {/* Preset chips */}
+          <div className="flex flex-wrap gap-2 pt-3" style={{ borderTop: '1px solid var(--border)' }}>
+            {PRESETS.map(v => {
               const active = investAmount === v;
               return (
                 <button key={v}
                   onClick={() => { setInvestRaw(v.toLocaleString('en-IN')); setGenerated(false); }}
-                  className="px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all"
+                  className="px-3 py-1.5 rounded-xl text-[11px] font-bold transition-all duration-150"
                   style={{
                     background: active ? 'rgba(99,102,241,0.2)' : 'var(--bg-card-alt)',
-                    border: `1px solid ${active ? 'rgba(99,102,241,0.5)' : 'var(--border)'}`,
+                    border: `1px solid ${active ? 'rgba(99,102,241,0.55)' : 'var(--border)'}`,
                     color: active ? '#818cf8' : 'var(--text-lo)',
+                    transform: active ? 'scale(1.05)' : 'scale(1)',
+                    boxShadow: active ? '0 2px 8px rgba(99,102,241,0.2)' : 'none',
                   }}>
                   {fmtI(v)}
                 </button>
@@ -289,30 +351,38 @@ function AIInvestmentPlanner({
           </div>
         </div>
 
+        {/* CTA */}
         <button
           onClick={generate}
           disabled={!canGenerate || generating}
-          className="w-full py-4 rounded-2xl text-sm font-black flex items-center justify-center gap-2.5 transition-all"
+          className="w-full py-4 rounded-2xl font-black flex items-center justify-center gap-3 transition-all duration-200"
           style={{
-            background: canGenerate ? 'linear-gradient(135deg,#6366f1,#818cf8,#a78bfa)' : 'var(--bg-card)',
-            color: canGenerate ? '#fff' : 'var(--text-muted)',
+            fontSize: 15,
+            background: canGenerate
+              ? 'linear-gradient(135deg,#6366f1 0%,#818cf8 55%,#a78bfa 100%)'
+              : 'var(--bg-card)',
+            color:  canGenerate ? '#fff' : 'var(--text-muted)',
             border: canGenerate ? 'none' : '1px solid var(--border)',
-            boxShadow: canGenerate ? '0 4px 20px rgba(99,102,241,0.4)' : 'none',
-            opacity: generating ? 0.8 : 1,
+            boxShadow: canGenerate
+              ? '0 6px 28px rgba(99,102,241,0.45), inset 0 1px 0 rgba(255,255,255,0.15)'
+              : 'none',
+            opacity: generating ? 0.75 : 1,
           }}>
           {generating ? (
-            <><div className="w-4 h-4 border-2 border-white/60 border-t-white rounded-full animate-spin" />Calculating plan…</>
+            <>
+              <div className="w-5 h-5 border-2 border-white/35 border-t-white rounded-full animate-spin" />
+              Scoring your portfolio…
+            </>
           ) : eligible.length === 0 ? (
-            <>🏆 All stocks already at {fmtI(milestoneGoal)} goal!</>
+            <>🏆 All stocks already at {fmtI(milestoneGoal)}!</>
           ) : !canGenerate ? (
-            <>Enter an amount to generate your plan</>
+            <>Enter an amount to find your top 3</>
           ) : (
             <>
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-              </svg>
-              Show Me the Plan
-              <span className="px-2 py-0.5 rounded-full text-[10px] bg-white/20">
+              <span style={{ fontSize: 20 }}>✨</span>
+              Find My Top 3 Picks
+              <span className="text-sm px-2.5 py-1 rounded-full font-black"
+                style={{ background: 'rgba(255,255,255,0.18)' }}>
                 {eligible.length} stocks
               </span>
             </>
@@ -320,209 +390,224 @@ function AIInvestmentPlanner({
         </button>
       </div>
 
-      {/* ══ PLAN OUTPUT ══ */}
-      {generated && plan && plan.items.length > 0 && (
+      {/* ══ RESULTS ══ */}
+      {generated && plan && topItems.length > 0 && (
         <div style={{ borderTop: '1px solid var(--border)' }}>
 
-          {/* Summary banner */}
-          <div className="px-6 py-5"
-            style={{ background: 'linear-gradient(135deg,rgba(52,211,153,0.07),rgba(99,102,241,0.05))' }}>
-            <p className="text-[10px] font-black uppercase tracking-widest mb-3" style={{ color: 'var(--text-muted)' }}>
-              📊 Plan Summary
-            </p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {/* Results header */}
+          <div className="px-6 pt-6 pb-4 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="font-black" style={{ color: 'var(--text-hi)', fontSize: 17, letterSpacing: '-0.02em' }}>
+                🏆 Your Top 3 Picks
+              </p>
+              <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+                Ranked by signal score · {fmtI(totalAlloc)} allocated across 3 stocks
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {reachCount > 0 && (
+                <span className="text-[11px] font-black px-3 py-1.5 rounded-full"
+                  style={{ background: 'rgba(52,211,153,0.14)', color: '#34d399', border: '1px solid rgba(52,211,153,0.3)' }}>
+                  🎯 {reachCount} hit{reachCount > 1 ? 's' : ''} milestone
+                </span>
+              )}
+              {(plan.unallocated ?? 0) > 0 && (
+                <span className="text-[11px] font-black px-3 py-1.5 rounded-full"
+                  style={{ background: 'rgba(251,191,36,0.12)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.25)' }}>
+                  {fmtI(plan.unallocated)} leftover
+                </span>
+              )}
+            </div>
+          </div>
+
+          {/* ── 3 Ranked Cards ── */}
+          <div className="px-6 pb-5 grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {topItems.map((item, idx) => {
+              const rk = RANK_META[Math.min(idx, 2)];
+              const sc = item.signal.color;
+
+              return (
+                <div key={item.stockName + idx}
+                  className="rounded-2xl overflow-hidden flex flex-col"
+                  style={{
+                    background: 'var(--bg-card)',
+                    border: `1px solid ${rk.border}`,
+                    boxShadow: `0 6px 24px ${rk.glow}`,
+                  }}>
+
+                  {/* Gradient top strip */}
+                  <div style={{ height: 4, background: rk.strip }} />
+
+                  <div className="p-4 flex flex-col gap-3.5 flex-1">
+
+                    {/* Rank badge + name + signal */}
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-3 min-w-0">
+                        {/* Metallic rank badge */}
+                        <div className="w-10 h-10 rounded-xl flex items-center justify-center font-black shrink-0"
+                          style={{
+                            background: rk.badge,
+                            boxShadow: `0 4px 14px ${rk.glow}`,
+                            color: '#fff',
+                            fontSize: 16,
+                            letterSpacing: '-0.02em',
+                          }}>
+                          {idx + 1}
+                        </div>
+                        <div className="min-w-0">
+                          <p className="font-black leading-snug"
+                            style={{ color: 'var(--text-hi)', fontSize: 13 }}>
+                            {item.stockName.length > 20
+                              ? item.stockName.slice(0, 20) + '…'
+                              : item.stockName}
+                          </p>
+                          {item.sector && (
+                            <p className="text-[10px] truncate mt-0.5"
+                              style={{ color: 'var(--text-muted)' }}>{item.sector}</p>
+                          )}
+                        </div>
+                      </div>
+                      {/* Signal chip */}
+                      <span className="text-[9px] font-black px-2 py-0.5 rounded-full shrink-0 whitespace-nowrap"
+                        style={{ background: item.signal.bg, color: sc, border: `1px solid ${item.signal.border}` }}>
+                        {item.signal.emoji} {item.signal.label}
+                      </span>
+                    </div>
+
+                    {/* Big invest amount */}
+                    <div className="rounded-2xl py-4 px-5 text-center"
+                      style={{ background: rk.bg, border: `1px solid ${rk.border}` }}>
+                      <p className="text-[9px] font-black uppercase tracking-widest mb-1.5"
+                        style={{ color: 'var(--text-muted)' }}>Suggested Investment</p>
+                      <p className="font-black" style={{ color: 'var(--text-hi)', fontSize: 28, lineHeight: 1, letterSpacing: '-0.03em' }}>
+                        {fmtI(item.alloc)}
+                      </p>
+                      <p className="text-[10px] mt-1.5 font-semibold" style={{ color: 'var(--text-muted)' }}>
+                        {item.allocPct.toFixed(0)}% of your {fmtI(investAmount)} budget
+                      </p>
+                    </div>
+
+                    {/* Before → After progress */}
+                    <div className="rounded-xl p-3.5 space-y-3"
+                      style={{ background: 'var(--bg-card-alt)', border: '1px solid var(--border)' }}>
+
+                      {/* Now */}
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[9px] font-black uppercase tracking-wider"
+                            style={{ color: 'var(--text-muted)' }}>Now</span>
+                          <span className="text-[11px] font-black" style={{ color: 'var(--text-lo)' }}>
+                            {fmtI(item.currentValue)}&nbsp;
+                            <span style={{ opacity: 0.45 }}>·</span>&nbsp;
+                            {item.currentPct.toFixed(0)}%
+                          </span>
+                        </div>
+                        <MilestoneBar value={item.currentValue} goal={milestoneGoal} color={sc} height={6} />
+                      </div>
+
+                      {/* Divider with amount badge */}
+                      <div className="flex items-center gap-2">
+                        <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
+                        <span className="text-[10px] font-black px-2.5 py-1 rounded-lg whitespace-nowrap"
+                          style={{ background: `${sc}18`, color: sc, border: `1px solid ${sc}30` }}>
+                          +&nbsp;{fmtI(item.alloc)}
+                        </span>
+                        <div className="flex-1 h-px" style={{ background: 'var(--border)' }} />
+                      </div>
+
+                      {/* After */}
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-[9px] font-black uppercase tracking-wider"
+                            style={{ color: item.reachesGoal ? '#34d399' : sc }}>After</span>
+                          <span className="text-[11px] font-black"
+                            style={{ color: item.reachesGoal ? '#34d399' : sc }}>
+                            {fmtI(item.projectedValue)}&nbsp;
+                            <span style={{ opacity: 0.45 }}>·</span>&nbsp;
+                            {item.projectedPct.toFixed(0)}%
+                            {item.reachesGoal ? ' 🎯' : ''}
+                          </span>
+                        </div>
+                        <MilestoneBar
+                          value={item.projectedValue} goal={milestoneGoal}
+                          color={item.reachesGoal ? '#34d399' : sc} height={6} />
+                      </div>
+                    </div>
+
+                    {/* Score ring + status pill + XIRR */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <ScoreRing score={item.signal.score} color={sc} />
+                      <span className="text-[10px] font-black px-2.5 py-1 rounded-full"
+                        style={{
+                          background: item.reachesGoal ? 'rgba(52,211,153,0.15)' : 'rgba(248,113,113,0.1)',
+                          color:      item.reachesGoal ? '#34d399' : '#f87171',
+                          border: `1px solid ${item.reachesGoal ? 'rgba(52,211,153,0.3)' : 'rgba(248,113,113,0.2)'}`,
+                        }}>
+                        {item.reachesGoal ? '✓ Hits milestone' : `${fmtI(item.remainingGap)} needed`}
+                      </span>
+                      {item.xirr != null && (
+                        <span className="text-[9px] font-bold px-2 py-1 rounded-full"
+                          style={{
+                            background: item.xirr >= 0 ? 'rgba(52,211,153,0.1)' : 'rgba(248,113,113,0.1)',
+                            color:      item.xirr >= 0 ? '#34d399' : '#f87171',
+                            border: `1px solid ${item.xirr >= 0 ? 'rgba(52,211,153,0.2)' : 'rgba(248,113,113,0.2)'}`,
+                          }}>
+                          XIRR {item.xirr >= 0 ? '+' : ''}{item.xirr.toFixed(1)}%
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Signal reason */}
+                    {item.signal.reason && (
+                      <p className="text-[9px] leading-relaxed -mt-1" style={{ color: 'var(--text-muted)' }}>
+                        {item.signal.emoji} {item.signal.reason}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* ── Summary bar ── */}
+          <div className="mx-6 mb-5 rounded-2xl overflow-hidden"
+            style={{ border: '1px solid var(--border)', background: 'var(--bg-card)' }}>
+            <div className="grid grid-cols-3 divide-x" style={{ borderColor: 'var(--border)' }}>
               {[
-                { label: 'You Invest',     val: fmtI(totalAlloc),                                                     icon: '💰', color: '#818cf8' },
-                { label: 'Hit Milestone',  val: `${reachCount} / ${plan.items.length}`,                               icon: '🎯', color: '#34d399' },
-                { label: 'Unallocated',    val: plan.unallocated > 0 ? fmtI(plan.unallocated) : '₹0 (fully used)',   icon: '💼', color: plan.unallocated > 0 ? '#fbbf24' : '#34d399' },
-                { label: 'Gap Remaining',  val: fmtI(totalGapAfter),                                                  icon: '📏', color: totalGapAfter === 0 ? '#34d399' : '#f87171' },
-              ].map(c => (
-                <div key={c.label} className="rounded-2xl p-3.5 text-center"
-                  style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-                  <p className="text-xl mb-1">{c.icon}</p>
+                { icon: '💰', label: 'Total Invested',   val: fmtI(totalAlloc),                                                             color: '#818cf8' },
+                { icon: '🎯', label: 'Hits Milestone',   val: `${reachCount} / ${topItems.length}`,                                         color: '#34d399' },
+                { icon: '💼', label: 'Unallocated',      val: (plan.unallocated ?? 0) > 0 ? fmtI(plan.unallocated) : 'Fully used',          color: (plan.unallocated ?? 0) > 0 ? '#fbbf24' : '#34d399' },
+              ].map((c, i) => (
+                <div key={c.label} className="py-4 px-3 text-center"
+                  style={{ borderRight: i < 2 ? '1px solid var(--border)' : 'none' }}>
+                  <p className="text-base mb-1.5">{c.icon}</p>
                   <p className="text-[9px] font-bold uppercase tracking-wider mb-1" style={{ color: 'var(--text-muted)' }}>{c.label}</p>
-                  <p className="text-sm font-black" style={{ color: c.color }}>{c.val}</p>
+                  <p className="font-black text-sm" style={{ color: c.color }}>{c.val}</p>
                 </div>
               ))}
             </div>
-            {plan.unallocated > 0 && (
-              <p className="text-[10px] mt-3 px-3 py-2 rounded-xl"
-                style={{ background: 'rgba(251,191,36,0.1)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.2)' }}>
-                ℹ️ {fmtI(plan.unallocated)} unallocated — all eligible stocks reach their milestone with less than your full budget.
-              </p>
-            )}
           </div>
 
-          {/* Per-stock allocation cards */}
-          <div className="px-6 pb-6 pt-5" style={{ borderTop: '1px solid var(--border)' }}>
-            <p className="text-[10px] font-black uppercase tracking-widest mb-4" style={{ color: 'var(--text-muted)' }}>
-              {reachCount > 0
-                ? `🎯 ${reachCount} stock${reachCount > 1 ? 's' : ''} will reach ${fmtI(milestoneGoal)}`
-                : 'Allocation breakdown'}
-              {plan.items.length - reachCount > 0
-                ? ` · ${plan.items.length - reachCount} will get closer`
-                : ''}
+          {/* Disclaimer */}
+          <div className="mx-6 mb-6 rounded-xl px-4 py-3 flex items-start gap-2.5"
+            style={{ background: 'var(--bg-card-alt)', border: '1px solid var(--border)' }}>
+            <span className="text-sm shrink-0 mt-0.5">⚠️</span>
+            <p className="text-[10px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
+              <strong style={{ color: 'var(--text-lo)' }}>Not financial advice.</strong>{' '}
+              Rankings are algorithm-scored on XIRR, CAGR, P&L position, holding period and milestone proximity.
+              Consult a SEBI-registered financial advisor before investing.
             </p>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
-              {plan.items.map((item, idx) => {
-                const sc = item.signal.color;
-                const sb = item.signal.bg;
-                const sr = item.signal.border;
-                return (
-                  <div key={item.stockName + idx} className="rounded-2xl overflow-hidden"
-                    style={{
-                      background: 'var(--bg-card)',
-                      border: `1px solid ${item.reachesGoal ? 'rgba(52,211,153,0.35)' : sr}`,
-                    }}>
-
-                    {/* Colored top strip */}
-                    <div className="h-1" style={{
-                      background: item.reachesGoal
-                        ? 'linear-gradient(90deg,#34d399,#10b981,transparent)'
-                        : `linear-gradient(90deg,${sc},${sc}40,transparent)`,
-                    }} />
-
-                    <div className="p-4 space-y-3">
-
-                      {/* Stock name + signal chip */}
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="text-base font-black" style={{ color: 'var(--text-hi)' }}>
-                              {item.stockName.length > 20 ? item.stockName.slice(0, 20) + '…' : item.stockName}
-                            </p>
-                            {item.reachesGoal && (
-                              <span className="text-[9px] font-black px-2 py-0.5 rounded-full"
-                                style={{ background: 'rgba(52,211,153,0.15)', color: '#34d399', border: '1px solid rgba(52,211,153,0.3)' }}>
-                                🎯 Reaches Goal!
-                              </span>
-                            )}
-                          </div>
-                          {item.sector && (
-                            <p className="text-[10px] mt-0.5 truncate" style={{ color: 'var(--text-muted)' }}>{item.sector}</p>
-                          )}
-                        </div>
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-black shrink-0"
-                          style={{ background: sb, color: sc, border: `1px solid ${sr}` }}>
-                          {item.signal.emoji} {item.signal.label}
-                        </span>
-                      </div>
-
-                      {/* Before → After progress */}
-                      <div className="rounded-xl p-3 space-y-2"
-                        style={{ background: 'var(--bg-card-alt)', border: '1px solid var(--border)' }}>
-
-                        {/* Current state */}
-                        <div className="space-y-1">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[9px] font-black uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Now</span>
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] font-bold" style={{ color: 'var(--text-lo)' }}>{item.currentPct.toFixed(0)}%</span>
-                              <span className="text-xs font-black" style={{ color: 'var(--text-hi)' }}>{fmtI(item.currentValue)}</span>
-                            </div>
-                          </div>
-                          <MilestoneBar value={item.currentValue} goal={milestoneGoal} color={sc} />
-                        </div>
-
-                        {/* Investment badge */}
-                        <div className="flex items-center gap-2">
-                          <div className="flex-1 border-t border-dashed" style={{ borderColor: 'var(--border)' }} />
-                          <span className="text-[10px] font-black px-2.5 py-1 rounded-lg whitespace-nowrap"
-                            style={{ background: `${sc}18`, color: sc, border: `1px solid ${sr}` }}>
-                            + {fmtI(item.alloc)}
-                          </span>
-                          <div className="flex-1 border-t border-dashed" style={{ borderColor: 'var(--border)' }} />
-                        </div>
-
-                        {/* After state */}
-                        <div className="space-y-1">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[9px] font-black uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>After</span>
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] font-bold"
-                                style={{ color: item.reachesGoal ? '#34d399' : sc }}>
-                                {item.projectedPct.toFixed(0)}%
-                              </span>
-                              <span className="text-xs font-black"
-                                style={{ color: item.reachesGoal ? '#34d399' : sc }}>
-                                {fmtI(item.projectedValue)}{item.reachesGoal ? ' 🎯' : ''}
-                              </span>
-                            </div>
-                          </div>
-                          <MilestoneBar
-                            value={item.projectedValue}
-                            goal={milestoneGoal}
-                            color={item.reachesGoal ? '#34d399' : sc}
-                          />
-                        </div>
-                      </div>
-
-                      {/* Allocation % + still needed */}
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="rounded-xl p-2.5 text-center"
-                          style={{ background: `${sc}0A`, border: `1px solid ${sr}` }}>
-                          <p className="text-[8px] font-bold uppercase tracking-wider mb-0.5" style={{ color: 'var(--text-muted)' }}>of budget</p>
-                          <p className="text-sm font-black" style={{ color: sc }}>{item.allocPct.toFixed(0)}%</p>
-                        </div>
-                        <div className="rounded-xl p-2.5 text-center"
-                          style={{
-                            background: item.reachesGoal ? 'rgba(52,211,153,0.08)' : 'var(--bg-card-alt)',
-                            border: `1px solid ${item.reachesGoal ? 'rgba(52,211,153,0.2)' : 'var(--border)'}`,
-                          }}>
-                          <p className="text-[8px] font-bold uppercase tracking-wider mb-0.5" style={{ color: 'var(--text-muted)' }}>still needed</p>
-                          <p className="text-sm font-black"
-                            style={{ color: item.reachesGoal ? '#34d399' : '#f87171' }}>
-                            {item.reachesGoal ? '✓ Done' : fmtI(item.remainingGap)}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* XIRR + signal reason */}
-                      {(item.xirr != null || item.signal.reason) && (
-                        <div className="flex flex-wrap items-center gap-2">
-                          {item.xirr != null && (
-                            <span className="text-[9px] font-bold px-2 py-0.5 rounded-md"
-                              style={{
-                                background: item.xirr >= 0 ? 'rgba(52,211,153,0.1)' : 'rgba(248,113,113,0.1)',
-                                color: item.xirr >= 0 ? '#34d399' : '#f87171',
-                              }}>
-                              XIRR {item.xirr >= 0 ? '+' : ''}{item.xirr.toFixed(1)}%
-                            </span>
-                          )}
-                          {item.signal.reason && (
-                            <span className="text-[9px]" style={{ color: 'var(--text-muted)' }}>
-                              {item.signal.emoji} {item.signal.reason}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* Disclaimer */}
-            <div className="mt-5 rounded-xl px-4 py-3 flex items-start gap-2.5"
-              style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
-              <span className="text-sm shrink-0 mt-0.5">⚠️</span>
-              <p className="text-[10px] leading-relaxed" style={{ color: 'var(--text-muted)' }}>
-                <strong style={{ color: 'var(--text-lo)' }}>Not financial advice.</strong> Allocation is based on XIRR, CAGR, P&L position and milestone proximity scores.
-                Investing in a holding increases its portfolio value proportionally at current market price.
-              </p>
-            </div>
           </div>
         </div>
       )}
 
-      {/* All-at-goal state */}
+      {/* All-at-goal empty state */}
       {eligible.length === 0 && holdings.length > 0 && (
-        <div className="px-6 py-10 text-center" style={{ borderTop: '1px solid var(--border)' }}>
-          <p className="text-4xl mb-3">🏆</p>
-          <p className="text-base font-black mb-1" style={{ color: '#34d399' }}>All Stocks at Goal!</p>
+        <div className="px-6 py-14 text-center" style={{ borderTop: '1px solid var(--border)' }}>
+          <p className="text-5xl mb-4">🏆</p>
+          <p className="font-black text-base mb-2" style={{ color: '#34d399' }}>All Stocks at Goal!</p>
           <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
-            Every stock has reached the {fmtI(milestoneGoal)} milestone. Try increasing the goal above.
+            Every holding has crossed the {fmtI(milestoneGoal)} milestone. Try a higher goal to keep growing.
           </p>
         </div>
       )}
@@ -653,7 +738,7 @@ export default function StockMilestoneTracker({ holdings }: Props) {
         </div>
         <div style={{ position: 'absolute', left: 0, right: 0, top: 16 }}>
           {allTicks.filter(m => m % labelEvery === 0 || m === 0).map(m => {
-            const lp     = (m / goal) * 100;
+            const lp      = (m / goal) * 100;
             const passed  = value >= m;
             const isFirst = m === 0;
             const isLast  = m === goal;
@@ -685,7 +770,7 @@ export default function StockMilestoneTracker({ holdings }: Props) {
   return (
     <div className="space-y-6">
 
-      {/* ══ MILESTONE PLANNER ══ */}
+      {/* ══ TOP-3 MILESTONE PLANNER ══ */}
       <AIInvestmentPlanner
         portfolioValue={totalCurrentValue}
         holdings={valid}
