@@ -708,14 +708,368 @@ function TradeEfficiency({ trades }: { trades: Trade[] }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   MODULE 6 — EV Ranker
+══════════════════════════════════════════════════════════════════════════════*/
+function EVRanker({ trades, predictions, stats }: {
+  trades: Trade[]; predictions: Prediction[]; stats: Stats | null;
+}) {
+  const rows = useMemo(() => {
+    const closed = trades.filter(t => t.status === 'closed');
+    const W = stats
+      ? stats.successRate / 100
+      : closed.length ? closed.filter(t => t.realizedPnL > 0).length / closed.length : 0.5;
+    const wins   = closed.filter(t => t.realizedPnLPct > 0);
+    const losses = closed.filter(t => t.realizedPnLPct <= 0);
+    const avgWin  = wins.length   ? wins.reduce((s, t)   => s + t.realizedPnLPct, 0) / wins.length   : 5;
+    const avgLoss = losses.length ? Math.abs(losses.reduce((s, t) => s + t.realizedPnLPct, 0) / losses.length) : 3;
+
+    return trades
+      .filter(t => t.status !== 'closed')
+      .map(t => {
+        const pred  = predictions.find(p => p.stockSymbol === t.stockSymbol);
+        const conf  = pred?.confidenceScore ?? 60;
+        const adjW  = Math.min(0.95,
+          conf >= 80 ? W * 1.15 : conf >= 70 ? W * 1.07 : conf >= 60 ? W : W * 0.88);
+        const ev    = adjW * avgWin - (1 - adjW) * avgLoss;
+        const evAmt = t.totalInvested * ev / 100;
+        const rec   = ev > 2 ? 'Add' : ev > 0 ? 'Hold' : 'Review';
+        return { symbol: t.stockSymbol, invested: t.totalInvested,
+                 unPct: t.unrealizedPnLPct, conf, adjW, ev, evAmt, rec };
+      })
+      .sort((a, b) => b.ev - a.ev);
+  }, [trades, predictions, stats]);
+
+  const totalEV = rows.reduce((s, r) => s + r.evAmt, 0);
+  const adds    = rows.filter(r => r.rec === 'Add').length;
+  const reviews = rows.filter(r => r.rec === 'Review').length;
+
+  if (rows.length === 0) return (
+    <div className="flex flex-col items-center justify-center py-10" style={{ color: 'var(--text-muted)' }}>
+      <span className="text-3xl mb-2">📊</span>
+      <p className="text-sm">No open positions to rank</p>
+      <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>Open some positions to see EV analysis</p>
+    </div>
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Tile label="Open Positions" value={String(rows.length)} sub="ranked by EV"                color="#38bdf8" />
+        <Tile label="Portfolio EV"   value={fmtPnl(totalEV)}     sub="total expected value"        color={pclr(totalEV)} />
+        <Tile label="Add Candidates" value={String(adds)}        sub="EV > 2% — worth adding"      color="#4ade80" />
+        <Tile label="Review Flag"    value={String(reviews)}     sub="negative EV — consider exit" color="#f87171" />
+      </div>
+
+      <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--border-sm)' }}>
+        <div className="px-4 py-2.5 text-[10px] font-black uppercase tracking-widest"
+          style={{ background: 'var(--bg-raised)', color: 'var(--text-muted)', borderBottom: '1px solid var(--border-sm)' }}>
+          Open Positions — Ranked by Expected Value
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full" style={{ borderCollapse: 'collapse' }}>
+            <thead>
+              <tr>
+                {['#', 'Stock', 'Invested', 'Unrealised', 'Conf.', 'Adj. Win%', 'EV%', 'EV ₹', 'Action'].map((h, i) => (
+                  <th key={h} className="px-3 py-2 text-[9px] font-black uppercase tracking-wider"
+                    style={{ color: 'var(--text-muted)', textAlign: i < 2 ? 'left' : 'right',
+                             background: 'var(--bg-raised)', whiteSpace: 'nowrap' }}>
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => {
+                const rc = r.rec === 'Add' ? '#4ade80' : r.rec === 'Hold' ? '#38bdf8' : '#f87171';
+                return (
+                  <tr key={r.symbol}
+                    style={{ borderTop: '1px solid var(--border-sm)',
+                             background: i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,0.01)' }}>
+                    <td className="px-3 py-2.5 text-[10px]" style={{ color: 'var(--text-muted)' }}>{i + 1}</td>
+                    <td className="px-3 py-2.5">
+                      <span className="text-[11px] font-black" style={{ color: 'var(--text-hi)' }}>{r.symbol}</span>
+                    </td>
+                    <td className="px-3 py-2.5 text-[10px] font-semibold text-right" style={{ color: 'var(--text-lo)' }}>{fmtI(r.invested)}</td>
+                    <td className="px-3 py-2.5 text-[10px] font-semibold text-right" style={{ color: pclr(r.unPct) }}>
+                      {r.unPct >= 0 ? '+' : ''}{r.unPct.toFixed(2)}%
+                    </td>
+                    <td className="px-3 py-2.5 text-[10px] text-right" style={{ color: 'var(--text-muted)' }}>{r.conf}</td>
+                    <td className="px-3 py-2.5 text-[10px] text-right" style={{ color: 'var(--text-lo)' }}>{(r.adjW * 100).toFixed(1)}%</td>
+                    <td className="px-3 py-2.5 text-[10px] font-black text-right" style={{ color: pclr(r.ev) }}>
+                      {r.ev >= 0 ? '+' : ''}{r.ev.toFixed(2)}%
+                    </td>
+                    <td className="px-3 py-2.5 text-[10px] font-black text-right" style={{ color: pclr(r.evAmt) }}>{fmtPnl(r.evAmt)}</td>
+                    <td className="px-3 py-2.5 text-right">
+                      <span className="text-[9px] font-black px-2 py-0.5 rounded-full"
+                        style={{ background: `${rc}18`, border: `1px solid ${rc}40`, color: rc }}>
+                        {r.rec}
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="rounded-xl px-4 py-3 text-[10px] leading-relaxed"
+        style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-sm)', color: 'var(--text-muted)' }}>
+        <strong style={{ color: 'var(--text-lo)' }}>EV formula:</strong>{' '}
+        EV% = (Adj. Win Rate × Avg Win%) − (1 − Adj. Win Rate) × Avg Loss%.
+        Confidence ≥ 80 boosts win rate +15%. Negative EV = expected loss; consider exiting.
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MODULE 7 — 5% Builder (Reverse Engineering)
+══════════════════════════════════════════════════════════════════════════════*/
+function FivePercentBuilder({ trades, monthlyTarget }: { trades: Trade[]; monthlyTarget: number }) {
+  const analysis = useMemo(() => {
+    const cur        = month0();
+    const base       = trades.reduce((s, t) => s + t.totalInvested, 0) || 100000;
+    const targetAmt  = base * monthlyTarget / 100;
+    const realized   = trades.reduce((s, t) =>
+      s + t.sells.filter(sl => sl.sellDate.startsWith(cur)).reduce((a, sl) => a + sl.realizedPnL, 0), 0);
+    const unrealized = trades.filter(t => t.status !== 'closed').reduce((s, t) => s + t.unrealizedPnL, 0);
+    const mtdTotal   = realized + unrealized;
+    const gap        = Math.max(0, targetAmt - mtdTotal);
+    const daysLeft   = tradingDaysLeft();
+
+    const closed  = trades.filter(t => t.status === 'closed');
+    const winRate = closed.length ? closed.filter(t => t.realizedPnL > 0).length / closed.length : 0.6;
+
+    const scenarios = [
+      { label: 'Conservative', trades: 2, riskPct: 30, targetReturn: 8,  color: '#38bdf8', icon: '🔵' },
+      { label: 'Balanced',     trades: 4, riskPct: 20, targetReturn: 5,  color: '#4ade80', icon: '🟢' },
+      { label: 'Aggressive',   trades: 8, riskPct: 12, targetReturn: 3,  color: '#fbbf24', icon: '🟡' },
+    ].map(sc => {
+      const capPerTrade = base * sc.riskPct / 100;
+      const expPerTrade = capPerTrade * sc.targetReturn / 100;
+      const totalExp    = expPerTrade * sc.trades * winRate;
+      const needed      = gap > 0
+        ? Math.ceil(gap / Math.max(0.01, capPerTrade * sc.targetReturn / 100 * winRate))
+        : 0;
+      return { ...sc, capPerTrade, expPerTrade, totalExp, feasible: totalExp >= gap, needed };
+    });
+
+    return { base, targetAmt, mtdTotal, gap, daysLeft, winRate, scenarios };
+  }, [trades, monthlyTarget]);
+
+  const { base, targetAmt, mtdTotal, gap, daysLeft, winRate, scenarios } = analysis;
+  const progress = Math.min(100, (mtdTotal / (targetAmt || 1)) * 100);
+
+  return (
+    <div className="space-y-5">
+      {/* Progress */}
+      <div className="rounded-xl p-4" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-sm)' }}>
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+            Path to {monthlyTarget}%
+          </span>
+          <span className="text-xs font-black" style={{ color: pclr(mtdTotal) }}>
+            {fmtPnl(mtdTotal)} / {fmtI(targetAmt)}
+          </span>
+        </div>
+        <div className="w-full rounded-full overflow-hidden" style={{ height: 8, background: 'rgba(255,255,255,0.06)' }}>
+          <div className="h-full rounded-full transition-all"
+            style={{ width: `${progress}%`, background: progress >= 100 ? '#4ade80' : 'linear-gradient(90deg,#f87171,#fbbf24,#4ade80)' }} />
+        </div>
+        <div className="flex justify-between mt-2 text-[9px]" style={{ color: 'var(--text-muted)' }}>
+          <span>{progress.toFixed(1)}% complete</span>
+          <span>{gap > 0 ? `${fmtI(gap)} gap · ${daysLeft}d left` : '🎯 Target hit!'}</span>
+        </div>
+      </div>
+
+      {gap > 0 ? (
+        <>
+          <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>
+            How to close the {fmtI(gap)} gap — pick a path
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {scenarios.map(sc => (
+              <div key={sc.label} className="rounded-xl p-4"
+                style={{ background: `${sc.color}08`, border: `1px solid ${sc.color}25` }}>
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-base">{sc.icon}</span>
+                  <span className="text-[11px] font-black" style={{ color: sc.color }}>{sc.label}</span>
+                  {sc.feasible && (
+                    <span className="text-[9px] px-1.5 py-0.5 rounded-full ml-auto"
+                      style={{ background: '#4ade8020', color: '#4ade80', border: '1px solid #4ade8040' }}>✓ Works</span>
+                  )}
+                </div>
+                <div className="space-y-2">
+                  {[
+                    { label: 'Trades needed',   val: String(sc.needed) },
+                    { label: 'Capital / trade',  val: fmtI(sc.capPerTrade) },
+                    { label: 'Target return',    val: `${sc.targetReturn}% / trade` },
+                    { label: 'Expected total',   val: fmtPnl(sc.totalExp) },
+                  ].map(r => (
+                    <div key={r.label} className="flex justify-between">
+                      <span className="text-[9px]" style={{ color: 'var(--text-muted)' }}>{r.label}</span>
+                      <span className="text-[10px] font-bold" style={{ color: 'var(--text-lo)' }}>{r.val}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : (
+        <div className="rounded-xl p-6 text-center"
+          style={{ background: 'rgba(74,222,128,0.05)', border: '1px solid rgba(74,222,128,0.2)' }}>
+          <div className="text-4xl mb-2">🎯</div>
+          <p className="font-black" style={{ color: '#4ade80' }}>Monthly target achieved!</p>
+          <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>
+            Ahead by {fmtPnl(Math.abs(gap))} — focus on compounding gains
+          </p>
+        </div>
+      )}
+
+      <div className="rounded-xl px-4 py-3 text-[10px] leading-relaxed"
+        style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-sm)', color: 'var(--text-muted)' }}>
+        <strong style={{ color: 'var(--text-lo)' }}>Formula:</strong>{' '}
+        Trades needed = Gap ÷ (Capital/trade × Target return% × Win rate).
+        Your win rate: {(winRate * 100).toFixed(0)}% · Base corpus: {fmtI(base)}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MODULE 8 — Monte Carlo Probability Engine
+══════════════════════════════════════════════════════════════════════════════*/
+function MonteCarlo({ trades, stats, monthlyTarget }: {
+  trades: Trade[]; stats: Stats | null; monthlyTarget: number;
+}) {
+  const sim = useMemo(() => {
+    const RUNS   = 500;
+    const base   = trades.reduce((s, t) => s + t.totalInvested, 0) || 100000;
+    const target = base * monthlyTarget / 100;
+    const W      = stats ? stats.successRate / 100 : 0.6;
+
+    const closed  = trades.filter(t => t.status === 'closed');
+    const wins    = closed.filter(t => t.realizedPnLPct > 0);
+    const losses  = closed.filter(t => t.realizedPnLPct <= 0);
+    const avgWin  = wins.length   ? wins.reduce((s, t)   => s + t.totalInvested * t.realizedPnLPct / 100, 0) / wins.length   : base * 0.05;
+    const avgLoss = losses.length ? Math.abs(losses.reduce((s, t) => s + t.totalInvested * t.realizedPnLPct / 100, 0) / losses.length) : base * 0.03;
+
+    const daysLeft      = tradingDaysLeft();
+    const monthSet      = new Set(closed.map(t => t.buyDate.slice(0, 7)));
+    const tradesPerMo   = monthSet.size > 0 ? closed.length / monthSet.size : 4;
+    const tradeProb     = Math.min(0.8, tradesPerMo / Math.max(1, tradingDaysInMonth()));
+
+    const cur       = month0();
+    const mtdEarned = trades.reduce((s, t) =>
+      s + t.sells.filter(sl => sl.sellDate.startsWith(cur)).reduce((a, sl) => a + sl.realizedPnL, 0), 0)
+      + trades.filter(t => t.status !== 'closed').reduce((s, t) => s + t.unrealizedPnL, 0);
+
+    const results: number[] = [];
+    for (let i = 0; i < RUNS; i++) {
+      let pnl = mtdEarned;
+      for (let d = 0; d < daysLeft; d++) {
+        if (Math.random() < tradeProb) pnl += Math.random() < W ? avgWin : -avgLoss;
+      }
+      results.push(pnl);
+    }
+    results.sort((a, b) => a - b);
+
+    const hits = results.filter(r => r >= target).length;
+    const p10  = results[Math.floor(RUNS * 0.10)];
+    const p50  = results[Math.floor(RUNS * 0.50)];
+    const p90  = results[Math.floor(RUNS * 0.90)];
+    const min  = results[0], max = results[RUNS - 1];
+    const bsz  = (max - min) / 10 || 1;
+    const buckets = Array.from({ length: 10 }, (_, i) => {
+      const lo = min + i * bsz, hi = lo + bsz;
+      return { lo, hi, count: results.filter(r => r >= lo && r < hi).length };
+    });
+    return { hits, hitRate: hits / RUNS, p10, p50, p90, buckets,
+             maxCount: Math.max(...buckets.map(b => b.count)),
+             RUNS, target, daysLeft, W, tradeProb, mtdEarned };
+  }, [trades, stats, monthlyTarget]);
+
+  const { hitRate, p10, p50, p90, buckets, maxCount, RUNS, target, daysLeft, W, tradeProb, mtdEarned } = sim;
+  const hitPct   = (hitRate * 100).toFixed(1);
+  const confClr  = hitRate >= 0.7 ? '#4ade80' : hitRate >= 0.4 ? '#fbbf24' : '#f87171';
+
+  return (
+    <div className="space-y-5">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Tile label="Hit Probability" value={`${hitPct}%`}   sub={`of ${RUNS} simulations`}  color={confClr} size="lg" />
+        <Tile label="Median Outcome"  value={fmtPnl(p50)}    sub="50th percentile path"       color={pclr(p50)} />
+        <Tile label="Bull Case P90"   value={fmtPnl(p90)}    sub="top 10% of paths"           color="#4ade80" />
+        <Tile label="Bear Case P10"   value={fmtPnl(p10)}    sub="bottom 10% of paths"        color="#f87171" />
+      </div>
+
+      {/* Histogram */}
+      <div className="rounded-xl p-4" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-sm)' }}>
+        <p className="text-[10px] font-black uppercase tracking-widest mb-4" style={{ color: 'var(--text-muted)' }}>
+          P&L Distribution — {RUNS} Simulated Paths
+        </p>
+        <div className="flex items-end gap-1" style={{ height: 80 }}>
+          {buckets.map((b, i) => {
+            const h          = maxCount > 0 ? (b.count / maxCount) * 100 : 0;
+            const pastTarget = b.lo >= target;
+            const straddle   = b.lo < target && b.hi >= target;
+            const clr        = pastTarget ? '#4ade80' : straddle ? '#fbbf24' : '#f87171';
+            return (
+              <div key={i} className="flex-1" title={`${fmtI(b.lo)}–${fmtI(b.hi)}: ${b.count} runs`}
+                style={{ display: 'flex', alignItems: 'flex-end', height: '100%' }}>
+                <div className="w-full rounded-sm" style={{ height: `${Math.max(2, h)}%`, background: clr, opacity: 0.8 }} />
+              </div>
+            );
+          })}
+        </div>
+        <div className="flex justify-between text-[9px] mt-2" style={{ color: 'var(--text-muted)' }}>
+          <span>{fmtI(buckets[0]?.lo ?? 0)}</span>
+          <span style={{ color: '#fbbf24' }}>← {monthlyTarget}% target ({fmtI(target)}) →</span>
+          <span>{fmtI(buckets[buckets.length - 1]?.hi ?? 0)}</span>
+        </div>
+      </div>
+
+      {/* Confidence gauge */}
+      <div className="rounded-xl p-4" style={{ background: `${confClr}08`, border: `1px solid ${confClr}25` }}>
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Confidence Level</span>
+          <span className="text-xl font-black" style={{ color: confClr }}>{hitPct}%</span>
+        </div>
+        <div className="w-full rounded-full overflow-hidden" style={{ height: 10, background: 'rgba(255,255,255,0.06)' }}>
+          <div className="h-full rounded-full"
+            style={{ width: `${hitRate * 100}%`, background: `linear-gradient(90deg,#f87171,#fbbf24,${confClr})` }} />
+        </div>
+        <p className="text-[9px] mt-2" style={{ color: 'var(--text-muted)' }}>
+          {hitRate >= 0.7 ? '✅ Strong probability — stay the course'
+           : hitRate >= 0.4 ? '⚠️ Moderate chance — increase trade frequency or sizing'
+           : '❌ Low probability — review strategy or lower target for this month'}
+        </p>
+      </div>
+
+      <div className="rounded-xl px-4 py-3 text-[10px] leading-relaxed"
+        style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-sm)', color: 'var(--text-muted)' }}>
+        <strong style={{ color: 'var(--text-lo)' }}>Model:</strong>{' '}
+        {RUNS} paths × {daysLeft} remaining trading days.
+        Trade frequency {(tradeProb * 100).toFixed(0)}%/day (from history) · Win rate {(W * 100).toFixed(0)}%.
+        Starting from MTD base: {fmtPnl(mtdEarned)}.
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
    MAIN EXPORT
 ══════════════════════════════════════════════════════════════════════════════*/
 const TABS = [
-  { key: 'target',    label: '🎯 Target',      title: '5% Monthly Target Tracker',        sub: 'MTD P&L · daily run rate · on-pace analysis',                         color: '#f87171' },
-  { key: 'kelly',     label: '📐 Kelly',       title: 'Kelly Criterion Position Sizer',    sub: 'Optimal trade size from your win rate + payoff ratio',                color: '#a78bfa' },
-  { key: 'compound',  label: '📈 Compound',    title: 'Compounding Projector',             sub: 'Corpus goals · growth table · milestone countdown',                   color: '#34d399' },
-  { key: 'confidence',label: '🔬 Signals',     title: 'Confidence Score vs Win Rate',      sub: 'Which score bucket actually predicts winners',                        color: '#38bdf8' },
-  { key: 'efficiency',label: '⚡ Efficiency',  title: 'Return per Trading Day',            sub: 'Capital efficiency leaderboard · annualised return · grade',          color: '#fbbf24' },
+  { key: 'target',     label: '🎯 Target',      title: '5% Monthly Target Tracker',          sub: 'MTD P&L · daily run rate · on-pace analysis',                        color: '#f87171' },
+  { key: 'ev',         label: '📊 EV Rank',     title: 'Expected Value Ranker',              sub: 'Which open positions have positive EV — hold, add, or exit',         color: '#38bdf8' },
+  { key: 'kelly',      label: '📐 Kelly',       title: 'Kelly Criterion Position Sizer',     sub: 'Optimal trade size from your win rate + payoff ratio',               color: '#a78bfa' },
+  { key: 'confidence', label: '🔬 Calibration', title: 'Prediction Calibration',             sub: 'Actual win rate per confidence bucket — trust the right signals',    color: '#34d399' },
+  { key: 'builder',    label: '🏗️ Builder',     title: '5% Builder — Reverse Engineer',      sub: 'How many trades, what size, what return closes the gap',             color: '#fbbf24' },
+  { key: 'compound',   label: '📈 Compound',    title: 'Compounding Ladder',                 sub: 'Corpus goals · growth table · milestone countdown',                  color: '#34d399' },
+  { key: 'montecarlo', label: '🎲 Monte Carlo', title: 'Monte Carlo Probability Engine',     sub: 'Simulate 500 paths · probability of hitting 5% target this month',  color: '#a78bfa' },
+  { key: 'efficiency', label: '⚡ Efficiency',  title: 'Return per Trading Day',             sub: 'Capital efficiency leaderboard · annualised return · grade',         color: '#fbbf24' },
 ] as const;
 type TabKey = (typeof TABS)[number]['key'];
 
@@ -741,7 +1095,7 @@ export default function PredictionIntelligence({ predictions, stats, trades, mon
               Prediction Intelligence
             </h2>
             <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
-              5 mathematical engines to help you hit {monthlyTarget}% every month
+              8 mathematical engines to help you hit {monthlyTarget}% every month
             </p>
           </div>
         </div>
@@ -770,11 +1124,14 @@ export default function PredictionIntelligence({ predictions, stats, trades, mon
       <div className="px-6 py-6" style={{ borderTop: '1px solid var(--border-sm)' }}>
         <SectionHead icon={meta.label.split(' ')[0]} title={meta.title} sub={meta.sub} color={meta.color} />
 
-        {tab === 'target'     && <MonthlyTargetTracker  trades={trades}      monthlyTarget={monthlyTarget} />}
-        {tab === 'kelly'      && <KellyCriterion        stats={stats}        trades={trades} />}
-        {tab === 'compound'   && <CompoundingProjector  trades={trades} />}
-        {tab === 'confidence' && <ConfidenceAnalysis     predictions={predictions} />}
-        {tab === 'efficiency' && <TradeEfficiency        trades={trades} />}
+        {tab === 'target'      && <MonthlyTargetTracker trades={trades}       monthlyTarget={monthlyTarget} />}
+        {tab === 'ev'          && <EVRanker             trades={trades}       predictions={predictions} stats={stats} />}
+        {tab === 'kelly'       && <KellyCriterion       stats={stats}        trades={trades} />}
+        {tab === 'confidence'  && <ConfidenceAnalysis    predictions={predictions} />}
+        {tab === 'builder'     && <FivePercentBuilder    trades={trades}       monthlyTarget={monthlyTarget} />}
+        {tab === 'compound'    && <CompoundingProjector  trades={trades} />}
+        {tab === 'montecarlo'  && <MonteCarlo            trades={trades}       stats={stats} monthlyTarget={monthlyTarget} />}
+        {tab === 'efficiency'  && <TradeEfficiency       trades={trades} />}
       </div>
     </div>
   );
