@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import DailyTrackingTable from './DailyTrackingTable';
 import PredictionTrades, { BuyModal, SellModal, Trade as PTrade, TradePrediction } from './PredictionTrades';
+import PredictionIntelligence from './PredictionIntelligence';
 
 /* ─── Types ──────────────────────────────────────────────────────────────── */
 type PredictionStatus = 'Active' | 'Achieved' | 'OverAchieved' | 'MissedSlightly' | 'Missed' | 'Expired';
@@ -628,6 +629,16 @@ export default function StockPredictions() {
           </div>
         ))}
       </div>
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          2b. PREDICTION INTELLIGENCE — 5% MONTHLY TARGET ENGINE
+      ══════════════════════════════════════════════════════════════════════ */}
+      <PredictionIntelligence
+        predictions={data?.predictions ?? []}
+        stats={data?.stats ?? null}
+        trades={allTrades}
+        monthlyTarget={5}
+      />
 
       {/* ══════════════════════════════════════════════════════════════════════
           3. TODAY'S AI PICKS
