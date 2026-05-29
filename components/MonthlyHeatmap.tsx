@@ -66,118 +66,177 @@ function tipHeadText(pct: number): string {
 /* ── Fixed-position floating tooltip ─────────────────────── */
 function HeatTooltip({ tip }: { tip: TooltipState }) {
   const { ret, div, inv, year, mi, cx, cy } = tip;
-  const pct  = ret.returnPercent;
-  const bg   = cellBg(pct);
-  const isUp = pct >= 0;
+  const pct    = ret.returnPercent;
+  const accentBg = cellBg(pct);
+  const isUp   = pct >= 0;
+  const hasDiv = div != null && div > 0;
+  const hasInv = inv != null && inv.investments > 0;
+  const retClr = isUp ? '#4ade80' : '#f87171';
+  const quarter = `Q${Math.floor(mi / 3) + 1}`;
 
-  /* Smart position: keep 240px tooltip inside viewport */
-  const tw = 240;
-  const th = 180; // rough height
+  /* Smart position: keep tooltip inside viewport */
+  const tw = 264;
+  const th = hasDiv || hasInv ? 260 : 180;
   const left = typeof window !== 'undefined'
     ? (cx + tw + 20 > window.innerWidth ? cx - tw - 12 : cx + 16)
     : cx + 16;
-  const top  = typeof window !== 'undefined'
-    ? Math.min(cy - 20, window.innerHeight - th - 12)
-    : cy - 20;
+  const top = typeof window !== 'undefined'
+    ? Math.min(cy - 30, window.innerHeight - th - 12)
+    : cy - 30;
+
+  /* Return bar: pct mapped from -15..+15 → 0..100% width, pivot at 50% */
+  const barPct    = Math.min(100, (Math.abs(pct) / 15) * 50);
+  const barLeft   = isUp ? 50 : Math.max(0, 50 - barPct);
+  const barWidth  = barPct;
 
   return (
-    <div
-      className="fixed z-[9999] pointer-events-none"
-      style={{ left, top, width: tw }}>
-
-      {/* Card */}
+    <div className="fixed z-[9999] pointer-events-none" style={{ left, top, width: tw }}>
       <div className="rounded-2xl overflow-hidden"
         style={{
-          background: '#0d1117',
+          background: '#0d1320',
           border: '1px solid rgba(255,255,255,0.1)',
-          boxShadow: '0 20px 60px rgba(0,0,0,0.7), 0 4px 16px rgba(0,0,0,0.5)',
+          boxShadow: `0 24px 72px rgba(0,0,0,0.8), 0 6px 24px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.04)`,
         }}>
 
-        {/* Coloured header — matches the cell */}
-        <div className="px-4 pt-3.5 pb-3" style={{ background: bg }}>
-          <div className="flex items-start justify-between gap-2">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest mb-0.5"
-                style={{ color: tipHeadText(pct), opacity: 0.75 }}>
-                {MONTHS[mi]} {year}
-              </p>
-              <p className="font-black leading-none"
-                style={{ fontSize: 26, letterSpacing: '-0.03em', color: '#fff',
-                  textShadow: '0 2px 8px rgba(0,0,0,0.4)' }}>
-                {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
-              </p>
+        {/* ── Coloured accent strip ── */}
+        <div style={{ height: 5, background: `linear-gradient(90deg, ${accentBg}cc, ${accentBg})` }} />
+
+        {/* ── Header ── */}
+        <div className="px-4 pt-4 pb-3">
+          {/* Month + quarter row */}
+          <div className="flex items-center gap-2 mb-3">
+            <span style={{ fontSize: 13, lineHeight: 1 }}>📅</span>
+            <span className="font-black" style={{ fontSize: 13, color: '#e2e8f0', letterSpacing: '-0.01em' }}>
+              {MONTHS[mi]} {year}
+            </span>
+            <span className="font-bold px-2 py-0.5 rounded-md"
+              style={{ fontSize: 10, background: 'rgba(255,255,255,0.07)', color: '#64748b', letterSpacing: '0.04em' }}>
+              {quarter}
+            </span>
+            {/* Indicator badges */}
+            <div className="ml-auto flex items-center gap-1">
+              {hasInv && (
+                <span className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-md font-bold"
+                  style={{ fontSize: 10, background: 'rgba(148,163,184,0.12)', color: '#94a3b8', border: '1px solid rgba(148,163,184,0.2)' }}>
+                  💼
+                </span>
+              )}
+              {hasDiv && (
+                <span className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-md font-bold"
+                  style={{ fontSize: 10, background: 'rgba(251,191,36,0.12)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.2)' }}>
+                  💛
+                </span>
+              )}
             </div>
-            {/* Signal dot */}
-            <div className="w-8 h-8 rounded-xl flex items-center justify-center mt-0.5"
+          </div>
+
+          {/* Big return % */}
+          <div className="flex items-end gap-3 mb-3">
+            <p className="font-black leading-none"
               style={{
-                background: 'rgba(0,0,0,0.2)',
-                fontSize: 16,
+                fontSize: 38, letterSpacing: '-0.04em', color: retClr,
+                textShadow: isUp ? '0 0 28px rgba(74,222,128,0.4)' : '0 0 28px rgba(248,113,113,0.4)',
               }}>
-              {div ? '💛' : isUp ? '📈' : '📉'}
+              {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
+            </p>
+            <div className="pb-1">
+              <span style={{ fontSize: 22 }}>{isUp ? '📈' : '📉'}</span>
             </div>
+          </div>
+
+          {/* Return intensity bar */}
+          <div className="relative h-1.5 rounded-full overflow-hidden mb-1"
+            style={{ background: 'rgba(255,255,255,0.07)' }}>
+            {/* pivot line at center */}
+            <div className="absolute top-0 bottom-0 w-px"
+              style={{ left: '50%', background: 'rgba(255,255,255,0.2)' }} />
+            {/* fill */}
+            <div className="absolute top-0 bottom-0 rounded-full transition-all duration-500"
+              style={{
+                left: `${barLeft}%`,
+                width: `${barWidth}%`,
+                background: `linear-gradient(90deg, ${retClr}80, ${retClr})`,
+              }} />
+          </div>
+          <div className="flex justify-between">
+            <span style={{ fontSize: 8, color: '#475569', fontWeight: 600 }}>−15%</span>
+            <span style={{ fontSize: 8, color: '#475569', fontWeight: 600 }}>0</span>
+            <span style={{ fontSize: 8, color: '#475569', fontWeight: 600 }}>+15%</span>
           </div>
         </div>
 
-        {/* Details rows */}
-        <div className="px-4 py-3 space-y-2.5">
+        {/* ── Metrics ── */}
+        <div className="px-4 pb-4 space-y-2"
+          style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 12 }}>
+
           {/* Return ₹ */}
-          <div className="flex items-center justify-between gap-3">
-            <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Return ₹</span>
-            <span style={{
-              fontSize: 13, fontWeight: 800,
-              color: isUp ? '#4ade80' : '#f87171',
-            }}>
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded-lg flex items-center justify-center font-black"
+                style={{ background: `${retClr}18`, color: retClr, fontSize: 12 }}>
+                {isUp ? '↑' : '↓'}
+              </div>
+              <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Return ₹</span>
+            </div>
+            <span className="font-black px-2.5 py-1 rounded-xl"
+              style={{ fontSize: 12, color: retClr, background: `${retClr}15`, border: `1px solid ${retClr}25` }}>
               {isUp ? '+' : ''}{formatCurrency(ret.returnAmount)}
             </span>
           </div>
 
           {/* Dividend */}
-          {div != null && (
-            <div className="flex items-center justify-between gap-3">
-              <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>💛 Dividend</span>
-              <span style={{ fontSize: 13, fontWeight: 800, color: '#fbbf24' }}>
-                +{formatCurrency(div)}
-              </span>
-            </div>
-          )}
-
-          {/* Investment */}
-          {inv && inv.investments > 0 && (
-            <div className="flex items-center justify-between gap-3">
-              <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Invested</span>
-              <span style={{ fontSize: 13, fontWeight: 800, color: '#94a3b8' }}>
-                {formatCurrency(inv.investments)}
-              </span>
-            </div>
-          )}
-
-          {/* Divider + combined */}
-          {div != null && (
-            <div className="pt-2 mt-1" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
-              <div className="flex items-center justify-between gap-3">
-                <span style={{ fontSize: 10, color: '#475569', fontWeight: 600 }}>Total incl. dividend</span>
-                <span style={{ fontSize: 12, fontWeight: 800, color: '#c4b5fd' }}>
-                  {isUp ? '+' : ''}{formatCurrency(ret.returnAmount + div)}
-                </span>
+          {hasDiv && (
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-lg flex items-center justify-center"
+                  style={{ background: 'rgba(251,191,36,0.15)', fontSize: 13 }}>
+                  💛
+                </div>
+                <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Dividend</span>
               </div>
+              <span className="font-black px-2.5 py-1 rounded-xl"
+                style={{ fontSize: 12, color: '#fbbf24', background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.22)' }}>
+                +{formatCurrency(div!)}
+              </span>
+            </div>
+          )}
+
+          {/* Invested */}
+          {hasInv && (
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-lg flex items-center justify-center"
+                  style={{ background: 'rgba(148,163,184,0.12)', fontSize: 13 }}>
+                  💼
+                </div>
+                <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Invested</span>
+              </div>
+              <span className="font-black px-2.5 py-1 rounded-xl"
+                style={{ fontSize: 12, color: '#94a3b8', background: 'rgba(148,163,184,0.12)', border: '1px solid rgba(148,163,184,0.2)' }}>
+                {formatCurrency(inv!.investments)}
+              </span>
+            </div>
+          )}
+
+          {/* Net total footer */}
+          {hasDiv && (
+            <div className="flex items-center justify-between gap-2 pt-2 mt-1"
+              style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-lg flex items-center justify-center font-black"
+                  style={{ background: 'rgba(196,181,253,0.12)', color: '#c4b5fd', fontSize: 11 }}>
+                  Σ
+                </div>
+                <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Total incl. div</span>
+              </div>
+              <span className="font-black px-2.5 py-1 rounded-xl"
+                style={{ fontSize: 12, color: '#c4b5fd', background: 'rgba(196,181,253,0.1)', border: '1px solid rgba(196,181,253,0.2)' }}>
+                {isUp ? '+' : ''}{formatCurrency(ret.returnAmount + div!)}
+              </span>
             </div>
           )}
         </div>
       </div>
-
-      {/* Arrow (simple triangle) */}
-      <div style={{
-        position: 'absolute',
-        top: 28,
-        left: (left === cx + 16) ? -6 : tw + 2,
-        width: 8, height: 8,
-        background: bg,
-        transform: 'rotate(45deg)',
-        borderLeft: (left !== cx + 16) ? '1px solid rgba(255,255,255,0.1)' : 'none',
-        borderBottom: (left !== cx + 16) ? '1px solid rgba(255,255,255,0.1)' : 'none',
-        borderRight: (left === cx + 16) ? '1px solid rgba(255,255,255,0.1)' : 'none',
-        borderTop: (left === cx + 16) ? '1px solid rgba(255,255,255,0.1)' : 'none',
-      }} />
     </div>
   );
 }
@@ -455,8 +514,11 @@ export default function MonthlyHeatmap({
                                 style={{ fontSize: 10, color: cellText(pct) }}>
                                 {fmtCell(ret!)}
                               </span>
-                              {div ? (
-                                <span style={{ fontSize: 8, lineHeight: 1, marginTop: 2 }} title="Dividend received">💛</span>
+                              {(div || (inv && inv.investments > 0)) ? (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 2, marginTop: 2, lineHeight: 1 }}>
+                                  {div ? <span style={{ fontSize: 8 }} title="Dividend received">💛</span> : null}
+                                  {inv && inv.investments > 0 ? <span style={{ fontSize: 8 }} title="Invested this month">💼</span> : null}
+                                </div>
                               ) : null}
                             </>
                           ) : (
