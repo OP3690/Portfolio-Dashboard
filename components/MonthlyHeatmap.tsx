@@ -63,179 +63,102 @@ function tipHeadText(pct: number): string {
   return '#0f172a';
 }
 
-/* ── Fixed-position floating tooltip ─────────────────────── */
+/* ── Compact symmetric tooltip ───────────────────────────── */
 function HeatTooltip({ tip }: { tip: TooltipState }) {
   const { ret, div, inv, year, mi, cx, cy } = tip;
   const pct    = ret.returnPercent;
-  const accentBg = cellBg(pct);
+  const accent = cellBg(pct);
   const isUp   = pct >= 0;
   const hasDiv = div != null && div > 0;
   const hasInv = inv != null && inv.investments > 0;
-  const retClr = isUp ? '#4ade80' : '#f87171';
-  const quarter = `Q${Math.floor(mi / 3) + 1}`;
+  const clr    = isUp ? '#4ade80' : '#f87171';
+  const dimClr = isUp ? 'rgba(74,222,128,0.08)' : 'rgba(248,113,113,0.08)';
+  const Q      = `Q${Math.floor(mi / 3) + 1}`;
 
-  /* Smart position: keep tooltip inside viewport */
-  const tw = 264;
-  const th = hasDiv || hasInv ? 260 : 180;
+  const tw = 208;
+  const th = 130 + (hasDiv ? 24 : 0) + (hasInv ? 24 : 0) + (hasDiv ? 28 : 0);
   const left = typeof window !== 'undefined'
-    ? (cx + tw + 20 > window.innerWidth ? cx - tw - 12 : cx + 16)
-    : cx + 16;
+    ? (cx + tw + 18 > window.innerWidth ? cx - tw - 10 : cx + 14)
+    : cx + 14;
   const top = typeof window !== 'undefined'
-    ? Math.min(cy - 30, window.innerHeight - th - 12)
-    : cy - 30;
+    ? Math.min(cy - 24, window.innerHeight - th - 10)
+    : cy - 24;
 
-  /* Return bar: pct mapped from -15..+15 → 0..100% width, pivot at 50% */
-  const barPct    = Math.min(100, (Math.abs(pct) / 15) * 50);
-  const barLeft   = isUp ? 50 : Math.max(0, 50 - barPct);
-  const barWidth  = barPct;
+  const rows: { label: string; val: string; color: string }[] = [
+    { label: 'Return ₹', val: `${isUp ? '+' : ''}${formatCurrency(ret.returnAmount)}`, color: clr },
+    ...(hasDiv ? [{ label: '💛 Dividend', val: `+${formatCurrency(div!)}`, color: '#fbbf24' }] : []),
+    ...(hasInv ? [{ label: '💼 Invested', val: formatCurrency(inv!.investments),        color: '#94a3b8' }] : []),
+  ];
+  const showNet = hasDiv;
+  const netVal  = ret.returnAmount + (hasDiv ? div! : 0);
 
   return (
     <div className="fixed z-[9999] pointer-events-none" style={{ left, top, width: tw }}>
-      <div className="rounded-2xl overflow-hidden"
+      <div className="rounded-xl overflow-hidden"
         style={{
-          background: '#0d1320',
-          border: '1px solid rgba(255,255,255,0.1)',
-          boxShadow: `0 24px 72px rgba(0,0,0,0.8), 0 6px 24px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.04)`,
+          background: '#0f1623',
+          border: '1px solid rgba(255,255,255,0.09)',
+          boxShadow: '0 16px 48px rgba(0,0,0,0.75), 0 4px 16px rgba(0,0,0,0.4)',
         }}>
 
-        {/* ── Coloured accent strip ── */}
-        <div style={{ height: 5, background: `linear-gradient(90deg, ${accentBg}cc, ${accentBg})` }} />
+        {/* Accent strip */}
+        <div style={{ height: 3, background: accent }} />
 
-        {/* ── Header ── */}
-        <div className="px-4 pt-4 pb-3">
-          {/* Month + quarter row */}
-          <div className="flex items-center gap-2 mb-3">
-            <span style={{ fontSize: 13, lineHeight: 1 }}>📅</span>
-            <span className="font-black" style={{ fontSize: 13, color: '#e2e8f0', letterSpacing: '-0.01em' }}>
+        {/* ── Month header ── */}
+        <div className="flex items-center justify-between px-3.5 pt-3 pb-2.5"
+          style={{ borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+          <div className="flex items-center gap-1.5">
+            <span className="font-black" style={{ fontSize: 12, color: '#e2e8f0', letterSpacing: '-0.01em' }}>
               {MONTHS[mi]} {year}
             </span>
-            <span className="font-bold px-2 py-0.5 rounded-md"
-              style={{ fontSize: 10, background: 'rgba(255,255,255,0.07)', color: '#64748b', letterSpacing: '0.04em' }}>
-              {quarter}
-            </span>
-            {/* Indicator badges */}
-            <div className="ml-auto flex items-center gap-1">
-              {hasInv && (
-                <span className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-md font-bold"
-                  style={{ fontSize: 10, background: 'rgba(148,163,184,0.12)', color: '#94a3b8', border: '1px solid rgba(148,163,184,0.2)' }}>
-                  💼
-                </span>
-              )}
-              {hasDiv && (
-                <span className="flex items-center gap-0.5 px-1.5 py-0.5 rounded-md font-bold"
-                  style={{ fontSize: 10, background: 'rgba(251,191,36,0.12)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.2)' }}>
-                  💛
-                </span>
-              )}
-            </div>
-          </div>
-
-          {/* Big return % */}
-          <div className="flex items-end gap-3 mb-3">
-            <p className="font-black leading-none"
-              style={{
-                fontSize: 38, letterSpacing: '-0.04em', color: retClr,
-                textShadow: isUp ? '0 0 28px rgba(74,222,128,0.4)' : '0 0 28px rgba(248,113,113,0.4)',
-              }}>
-              {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
-            </p>
-            <div className="pb-1">
-              <span style={{ fontSize: 22 }}>{isUp ? '📈' : '📉'}</span>
-            </div>
-          </div>
-
-          {/* Return intensity bar */}
-          <div className="relative h-1.5 rounded-full overflow-hidden mb-1"
-            style={{ background: 'rgba(255,255,255,0.07)' }}>
-            {/* pivot line at center */}
-            <div className="absolute top-0 bottom-0 w-px"
-              style={{ left: '50%', background: 'rgba(255,255,255,0.2)' }} />
-            {/* fill */}
-            <div className="absolute top-0 bottom-0 rounded-full transition-all duration-500"
-              style={{
-                left: `${barLeft}%`,
-                width: `${barWidth}%`,
-                background: `linear-gradient(90deg, ${retClr}80, ${retClr})`,
-              }} />
-          </div>
-          <div className="flex justify-between">
-            <span style={{ fontSize: 8, color: '#475569', fontWeight: 600 }}>−15%</span>
-            <span style={{ fontSize: 8, color: '#475569', fontWeight: 600 }}>0</span>
-            <span style={{ fontSize: 8, color: '#475569', fontWeight: 600 }}>+15%</span>
-          </div>
-        </div>
-
-        {/* ── Metrics ── */}
-        <div className="px-4 pb-4 space-y-2"
-          style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 12 }}>
-
-          {/* Return ₹ */}
-          <div className="flex items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-lg flex items-center justify-center font-black"
-                style={{ background: `${retClr}18`, color: retClr, fontSize: 12 }}>
-                {isUp ? '↑' : '↓'}
-              </div>
-              <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Return ₹</span>
-            </div>
-            <span className="font-black px-2.5 py-1 rounded-xl"
-              style={{ fontSize: 12, color: retClr, background: `${retClr}15`, border: `1px solid ${retClr}25` }}>
-              {isUp ? '+' : ''}{formatCurrency(ret.returnAmount)}
+            <span className="font-semibold rounded px-1.5 py-px"
+              style={{ fontSize: 9, background: 'rgba(255,255,255,0.07)', color: '#475569', letterSpacing: '0.05em' }}>
+              {Q}
             </span>
           </div>
-
-          {/* Dividend */}
-          {hasDiv && (
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-lg flex items-center justify-center"
-                  style={{ background: 'rgba(251,191,36,0.15)', fontSize: 13 }}>
-                  💛
-                </div>
-                <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Dividend</span>
-              </div>
-              <span className="font-black px-2.5 py-1 rounded-xl"
-                style={{ fontSize: 12, color: '#fbbf24', background: 'rgba(251,191,36,0.12)', border: '1px solid rgba(251,191,36,0.22)' }}>
-                +{formatCurrency(div!)}
-              </span>
-            </div>
-          )}
-
-          {/* Invested */}
-          {hasInv && (
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-lg flex items-center justify-center"
-                  style={{ background: 'rgba(148,163,184,0.12)', fontSize: 13 }}>
-                  💼
-                </div>
-                <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Invested</span>
-              </div>
-              <span className="font-black px-2.5 py-1 rounded-xl"
-                style={{ fontSize: 12, color: '#94a3b8', background: 'rgba(148,163,184,0.12)', border: '1px solid rgba(148,163,184,0.2)' }}>
-                {formatCurrency(inv!.investments)}
-              </span>
-            </div>
-          )}
-
-          {/* Net total footer */}
-          {hasDiv && (
-            <div className="flex items-center justify-between gap-2 pt-2 mt-1"
-              style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-              <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-lg flex items-center justify-center font-black"
-                  style={{ background: 'rgba(196,181,253,0.12)', color: '#c4b5fd', fontSize: 11 }}>
-                  Σ
-                </div>
-                <span style={{ fontSize: 11, color: '#64748b', fontWeight: 600 }}>Total incl. div</span>
-              </div>
-              <span className="font-black px-2.5 py-1 rounded-xl"
-                style={{ fontSize: 12, color: '#c4b5fd', background: 'rgba(196,181,253,0.1)', border: '1px solid rgba(196,181,253,0.2)' }}>
-                {isUp ? '+' : ''}{formatCurrency(ret.returnAmount + div!)}
-              </span>
+          {(hasDiv || hasInv) && (
+            <div className="flex items-center gap-1">
+              {hasInv && <span style={{ fontSize: 11 }}>💼</span>}
+              {hasDiv && <span style={{ fontSize: 11 }}>💛</span>}
             </div>
           )}
         </div>
+
+        {/* ── Return % hero — centred ── */}
+        <div className="text-center py-3" style={{ background: dimClr }}>
+          <p className="font-black leading-none"
+            style={{ fontSize: 26, letterSpacing: '-0.035em', color: clr }}>
+            {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
+          </p>
+          <p className="mt-1 font-semibold"
+            style={{ fontSize: 9, color: '#475569', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+            {isUp ? '▲' : '▼'} monthly return
+          </p>
+        </div>
+
+        {/* ── Data rows ── */}
+        <div className="px-3.5 py-2.5 space-y-1.5"
+          style={{ borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+          {rows.map(r => (
+            <div key={r.label} className="flex items-center justify-between">
+              <span style={{ fontSize: 10, color: '#64748b', fontWeight: 600 }}>{r.label}</span>
+              <span style={{ fontSize: 11, fontWeight: 800, color: r.color }}>{r.val}</span>
+            </div>
+          ))}
+
+          {showNet && (
+            <>
+              <div style={{ height: 1, background: 'rgba(255,255,255,0.05)', margin: '4px 0' }} />
+              <div className="flex items-center justify-between">
+                <span style={{ fontSize: 10, color: '#475569', fontWeight: 600 }}>Net total</span>
+                <span style={{ fontSize: 11, fontWeight: 800, color: '#c4b5fd' }}>
+                  {isUp ? '+' : ''}{formatCurrency(netVal)}
+                </span>
+              </div>
+            </>
+          )}
+        </div>
+
       </div>
     </div>
   );
