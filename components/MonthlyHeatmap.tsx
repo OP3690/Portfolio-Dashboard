@@ -543,30 +543,77 @@ export default function MonthlyHeatmap({
           </div>
         </div>
 
-        {/* ── Colour legend ── */}
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-5 pt-4"
-          style={{ borderTop: '1px solid var(--border-sm)' }}>
-          <span className="text-[10px] font-bold uppercase tracking-widest"
-            style={{ color: 'var(--text-lo)' }}>Return Scale</span>
-          {[
-            { label: '< −8%',  color: '#9f1239', text: '#fff' },
-            { label: '−4–8%',  color: '#be123c', text: '#fff' },
-            { label: '−1–4%',  color: '#f43f5e', text: '#fff' },
-            { label: '0–1%',   color: '#bbf7d0', text: '#14532d' },
-            { label: '1–3%',   color: '#4ade80', text: '#14532d' },
-            { label: '3–6%',   color: '#16a34a', text: '#fff' },
-            { label: '> 6%',   color: '#064e3b', text: '#fff' },
-          ].map(({ label, color, text }) => (
-            <div key={label} className="flex items-center gap-1.5">
-              <div className="rounded flex items-center justify-center flex-shrink-0"
-                style={{ width: 28, height: 16, background: color }}>
-                <span style={{ fontSize: 8, fontWeight: 700, color: text }}>{label}</span>
-              </div>
+        {/* ── Colour legend — spectrum bar ── */}
+        <div className="mt-5 pt-5" style={{ borderTop: '1px solid var(--border-sm)' }}>
+
+          {/* Title row */}
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-[10px] font-black uppercase tracking-widest"
+              style={{ color: 'var(--text-lo)' }}>Return Scale</p>
+            <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg"
+              style={{ background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.25)' }}>
+              <span style={{ fontSize: 13 }}>💛</span>
+              <span className="text-[11px] font-bold" style={{ color: '#fbbf24' }}>Dividend received</span>
             </div>
-          ))}
-          <div className="flex items-center gap-1.5 ml-1">
-            <span style={{ fontSize: 12 }}>💛</span>
-            <span className="text-[10px]" style={{ color: 'var(--text-lo)' }}>Dividend received</span>
+          </div>
+
+          {/* Zone labels above the bar */}
+          <div className="flex items-center mb-2">
+            {/* LOSS side — 3 segments */}
+            <div className="flex items-center gap-1.5" style={{ flex: 3 }}>
+              <span className="text-[9px] font-black uppercase tracking-widest whitespace-nowrap"
+                style={{ color: '#f87171' }}>◄ Loss</span>
+              <div className="flex-1 h-px"
+                style={{ background: 'linear-gradient(90deg,rgba(248,113,113,0.12),rgba(248,113,113,0.45))' }} />
+            </div>
+            {/* Centre divider */}
+            <div className="mx-2 flex-shrink-0"
+              style={{ width: 1, height: 14, background: 'var(--border-md)', borderRadius: 99 }} />
+            {/* GAIN side — 4 segments */}
+            <div className="flex items-center gap-1.5" style={{ flex: 4 }}>
+              <div className="flex-1 h-px"
+                style={{ background: 'linear-gradient(90deg,rgba(74,222,128,0.45),rgba(74,222,128,0.12))' }} />
+              <span className="text-[9px] font-black uppercase tracking-widest whitespace-nowrap"
+                style={{ color: '#4ade80' }}>Gain ►</span>
+            </div>
+          </div>
+
+          {/* Spectrum bar */}
+          <div className="flex rounded-xl overflow-hidden"
+            style={{ height: 38, border: '1px solid rgba(255,255,255,0.07)' }}>
+            {[
+              '#9f1239','#be123c','#f43f5e',
+              '#bbf7d0',
+              '#4ade80','#16a34a','#064e3b',
+            ].map((color, i, arr) => (
+              <div key={i} className="flex-1"
+                style={{
+                  background: color,
+                  borderRight: i < arr.length - 1
+                    ? '1px solid rgba(255,255,255,0.1)'
+                    : 'none',
+                }} />
+            ))}
+          </div>
+
+          {/* Tick lines + labels */}
+          <div className="flex mt-1">
+            {[
+              { label: '< −8%', c: '#fca5a5' },
+              { label: '−4–8%', c: '#fca5a5' },
+              { label: '−1–4%', c: '#fca5a5' },
+              { label: '0–1%',  c: '#86efac' },
+              { label: '1–3%',  c: '#86efac' },
+              { label: '3–6%',  c: '#86efac' },
+              { label: '> 6%',  c: '#86efac' },
+            ].map(({ label, c }) => (
+              <div key={label} className="flex-1 flex flex-col items-center gap-0.5">
+                <div style={{ width: 1, height: 5, background: 'var(--border-md)', borderRadius: 1 }} />
+                <span style={{ fontSize: 9, fontWeight: 700, color: c, whiteSpace: 'nowrap' }}>
+                  {label}
+                </span>
+              </div>
+            ))}
           </div>
         </div>
 
