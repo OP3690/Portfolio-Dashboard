@@ -1059,17 +1059,605 @@ function MonteCarlo({ trades, stats, monthlyTarget }: {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   MODULE 9 — Risk Dashboard (Sharpe · Sortino · Profit Factor · Calmar)
+══════════════════════════════════════════════════════════════════════════════*/
+function RiskDashboard({ trades }: { trades: Trade[] }) {
+  const m = useMemo(() => {
+    const closed = trades.filter(t => t.status === 'closed' && t.sells.length > 0);
+    if (closed.length < 2) return null;
+    const sorted = [...closed].sort((a, b) => {
+      const ad = a.sells[a.sells.length - 1]?.sellDate ?? a.buyDate;
+      const bd = b.sells[b.sells.length - 1]?.sellDate ?? b.buyDate;
+      return new Date(ad).getTime() - new Date(bd).getTime();
+    });
+    const dailyR = sorted.map(t => {
+      const d = holdingDays(t.buyDate, t.sells[t.sells.length - 1]?.sellDate);
+      return t.realizedPnLPct / d;
+    });
+    const n    = dailyR.length;
+    const mean = dailyR.reduce((s, r) => s + r, 0) / n;
+    const std  = Math.sqrt(dailyR.reduce((s, r) => s + (r - mean) ** 2, 0) / Math.max(1, n - 1));
+    const neg  = dailyR.filter(r => r < 0);
+    const dStd = neg.length > 0 ? Math.sqrt(neg.reduce((s, r) => s + r ** 2, 0) / neg.length) : std;
+    const sharpe  = std  > 0 ? (mean / std)  * Math.sqrt(252) : 0;
+    const sortino = dStd > 0 ? (mean / dStd) * Math.sqrt(252) : 0;
+    const gw  = sorted.filter(t => t.realizedPnL > 0).reduce((s, t) => s + t.realizedPnL, 0);
+    const gl  = Math.abs(sorted.filter(t => t.realizedPnL < 0).reduce((s, t) => s + t.realizedPnL, 0));
+    const pf  = gl > 0 ? gw / gl : gw > 0 ? 99 : 0;
+    // equity curve drawdown
+    let eq = 0, peak = 0, maxDD = 0;
+    for (const t of sorted) {
+      eq += t.realizedPnL;
+      if (eq > peak) peak = eq;
+      if (peak > 0) maxDD = Math.max(maxDD, (peak - eq) / peak);
+    }
+    const avgR   = sorted.reduce((s, t) => s + t.realizedPnLPct, 0) / n;
+    const annual = ((1 + avgR / 100) ** 12 - 1) * 100;
+    const calmar = maxDD > 0 ? annual / (maxDD * 100) : 0;
+    return { sharpe, sortino, pf, maxDD, calmar, gw, gl, n, annual };
+  }, [trades]);
+
+  if (!m) return (
+    <div className="flex flex-col items-center justify-center py-10" style={{ color: 'var(--text-muted)' }}>
+      <span className="text-3xl mb-2">📊</span>
+      <p className="text-sm">Need at least 2 closed trades for risk metrics</p>
+    </div>
+  );
+
+  function qgrade(v: number, t: [number, number, number]) {
+    return v >= t[0] ? { label: 'Excellent', c: '#4ade80' }
+         : v >= t[1] ? { label: 'Good',      c: '#34d399' }
+         : v >= t[2] ? { label: 'Fair',       c: '#fbbf24' }
+                     : { label: 'Poor',       c: '#f87171' };
+  }
+
+  const rows = [
+    { label: 'Sharpe Ratio',  val: m.sharpe.toFixed(2),  g: qgrade(m.sharpe,  [2,1,0.5]),  bench: '≥ 1.0 good · ≥ 2.0 excellent', sub: 'return per unit of total risk (annualised)' },
+    { label: 'Sortino Ratio', val: m.sortino.toFixed(2), g: qgrade(m.sortino, [3,1.5,0.7]),bench: '≥ 1.5 good · ≥ 3.0 excellent',  sub: 'return per unit of downside risk only' },
+    { label: 'Profit Factor', val: m.pf >= 99 ? '∞' : m.pf.toFixed(2), g: qgrade(m.pf, [2,1.5,1.1]), bench: '≥ 1.5 good · ≥ 2.0 excellent', sub: 'gross profit ÷ gross loss' },
+    { label: 'Calmar Ratio',  val: m.calmar.toFixed(2),  g: qgrade(m.calmar, [1.5,0.75,0.3]), bench: '≥ 0.75 good · ≥ 1.5 excellent', sub: 'annualised return ÷ max drawdown' },
+  ];
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        {rows.map(r => (
+          <div key={r.label} className="rounded-xl p-4" style={{ background: `${r.g.c}08`, border: `1px solid ${r.g.c}22` }}>
+            <p className="text-[9px] font-black uppercase tracking-widest mb-2" style={{ color: 'var(--text-muted)' }}>{r.label}</p>
+            <p className="text-2xl font-black leading-none" style={{ color: r.g.c }}>{r.val}</p>
+            <span className="inline-block mt-2 text-[9px] font-black px-1.5 py-0.5 rounded-full"
+              style={{ background: `${r.g.c}20`, color: r.g.c }}>{r.g.label}</span>
+            <p className="text-[9px] mt-1.5 leading-relaxed" style={{ color: 'var(--text-muted)' }}>{r.sub}</p>
+          </div>
+        ))}
+      </div>
+      {/* Gross W vs L bar */}
+      <div className="rounded-xl p-4" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-sm)' }}>
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>Gross Win vs Loss ({m.n} trades)</span>
+          <span className="text-[10px] font-bold" style={{ color: 'var(--text-lo)' }}>PF {m.pf >= 99 ? '∞' : m.pf.toFixed(2)}</span>
+        </div>
+        <div className="flex rounded-lg overflow-hidden" style={{ height: 28 }}>
+          {m.gw + m.gl > 0 && <>
+            <div style={{ width: `${(m.gw / (m.gw + m.gl)) * 100}%`, background: 'rgba(74,222,128,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <span className="text-[10px] font-black text-white">{fmtPnl(m.gw)}</span>
+            </div>
+            <div style={{ flex: 1, background: 'rgba(248,113,113,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <span className="text-[10px] font-black text-white">{fmtPnl(-m.gl)}</span>
+            </div>
+          </>}
+        </div>
+      </div>
+      <div className="rounded-xl px-4 py-3 text-[10px] leading-relaxed" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-sm)', color: 'var(--text-muted)' }}>
+        <strong style={{ color: 'var(--text-lo)' }}>Benchmarks:</strong>{' '}
+        {rows.map(r => `${r.label}: ${r.bench}`).join(' · ')}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MODULE 10 — Drawdown Analyzer
+══════════════════════════════════════════════════════════════════════════════*/
+function DrawdownAnalyzer({ trades }: { trades: Trade[] }) {
+  const m = useMemo(() => {
+    const closed = trades.filter(t => t.status === 'closed' && t.sells.length > 0)
+      .sort((a, b) => {
+        const ad = a.sells[a.sells.length - 1]?.sellDate ?? a.buyDate;
+        const bd = b.sells[b.sells.length - 1]?.sellDate ?? b.buyDate;
+        return new Date(ad).getTime() - new Date(bd).getTime();
+      });
+    if (closed.length < 2) return null;
+
+    let equity = 0, peak = 0, maxDD = 0, maxDDStart = 0, maxDDEnd = 0;
+    let ddStart = 0, inDD = false;
+    const curve: { label: string; eq: number; peak: number }[] = [];
+
+    closed.forEach((t, i) => {
+      equity += t.realizedPnL;
+      if (equity > peak) { peak = equity; if (inDD) inDD = false; }
+      const dd = peak > 0 ? (peak - equity) / peak : 0;
+      if (dd > maxDD) { maxDD = dd; maxDDEnd = i; }
+      if (dd > 0 && !inDD) { inDD = true; ddStart = i; }
+      curve.push({ label: t.stockSymbol, eq: equity, peak });
+    });
+
+    // Recovery factor
+    const totalPnL = closed.reduce((s, t) => s + t.realizedPnL, 0);
+    const recoveryFactor = maxDD > 0 ? (totalPnL / (peak * maxDD)) : 0;
+
+    // Current DD
+    const currentDD = peak > 0 ? (peak - equity) / peak : 0;
+
+    return { curve, maxDD, currentDD, recoveryFactor, peak, equity, totalPnL };
+  }, [trades]);
+
+  if (!m) return (
+    <div className="flex flex-col items-center justify-center py-10" style={{ color: 'var(--text-muted)' }}>
+      <span className="text-3xl mb-2">📉</span>
+      <p className="text-sm">Need at least 2 closed trades</p>
+    </div>
+  );
+
+  const maxH = 100;
+  const minEq = Math.min(...m.curve.map(c => c.eq));
+  const maxEq = Math.max(...m.curve.map(c => c.eq));
+  const range = maxEq - minEq || 1;
+  const toH = (v: number) => ((v - minEq) / range) * maxH;
+  const ddClr = m.maxDD > 0.15 ? '#f87171' : m.maxDD > 0.08 ? '#fbbf24' : '#4ade80';
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Tile label="Max Drawdown"      value={`${(m.maxDD * 100).toFixed(1)}%`}        sub="peak-to-trough loss"        color={ddClr} size="lg" />
+        <Tile label="Current Drawdown"  value={`${(m.currentDD * 100).toFixed(1)}%`}    sub="from all-time peak"          color={pclr(-m.currentDD)} />
+        <Tile label="Recovery Factor"   value={m.recoveryFactor.toFixed(2)}             sub="total profit ÷ max drawdown" color={m.recoveryFactor >= 1 ? '#4ade80' : '#fbbf24'} />
+        <Tile label="Peak Equity"       value={fmtPnl(m.peak)}                          sub="all-time high P&L"           color="#a78bfa" />
+      </div>
+
+      {/* Equity curve */}
+      <div className="rounded-xl p-4" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-sm)' }}>
+        <p className="text-[10px] font-black uppercase tracking-widest mb-3" style={{ color: 'var(--text-muted)' }}>
+          Equity Curve — {m.curve.length} closed trades
+        </p>
+        <div className="relative overflow-hidden" style={{ height: maxH + 20 }}>
+          <svg width="100%" height={maxH + 20} preserveAspectRatio="none" viewBox={`0 0 ${m.curve.length} ${maxH + 20}`}>
+            {/* Peak line */}
+            <polyline
+              points={m.curve.map((c, i) => `${i},${maxH + 10 - toH(c.peak)}`).join(' ')}
+              fill="none" stroke="rgba(148,163,184,0.25)" strokeWidth="1" strokeDasharray="3,3" />
+            {/* Equity fill */}
+            <polygon
+              points={[
+                '0,' + (maxH + 10),
+                ...m.curve.map((c, i) => `${i},${maxH + 10 - toH(c.eq)}`),
+                (m.curve.length - 1) + ',' + (maxH + 10),
+              ].join(' ')}
+              fill="url(#eqGrad)" opacity="0.3" />
+            {/* Equity line */}
+            <polyline
+              points={m.curve.map((c, i) => `${i},${maxH + 10 - toH(c.eq)}`).join(' ')}
+              fill="none" stroke={m.equity >= 0 ? '#4ade80' : '#f87171'} strokeWidth="1.5" />
+            <defs>
+              <linearGradient id="eqGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={m.equity >= 0 ? '#4ade80' : '#f87171'} />
+                <stop offset="100%" stopColor="transparent" />
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <div className="flex justify-between text-[9px] mt-1" style={{ color: 'var(--text-muted)' }}>
+          <span>First trade</span>
+          <span style={{ color: '#94a3b8' }}>— — peak</span>
+          <span>Latest</span>
+        </div>
+      </div>
+
+      <div className="rounded-xl px-4 py-3 text-[10px] leading-relaxed" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-sm)', color: 'var(--text-muted)' }}>
+        <strong style={{ color: 'var(--text-lo)' }}>Recovery Factor</strong> = total profit ÷ (peak × max drawdown%).
+        ≥ 1.0 means you earn back drawdowns. Max DD{' '}
+        <span style={{ color: ddClr }}>{(m.maxDD * 100).toFixed(1)}%</span>{' '}
+        {m.maxDD > 0.15 ? '— high risk, review position sizing' : m.maxDD > 0.08 ? '— moderate, watch sizing' : '— well controlled ✅'}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MODULE 11 — Streak Tracker
+══════════════════════════════════════════════════════════════════════════════*/
+function StreakTracker({ trades }: { trades: Trade[] }) {
+  const m = useMemo(() => {
+    const closed = trades.filter(t => t.status === 'closed' && t.sells.length > 0)
+      .sort((a, b) => {
+        const ad = a.sells[a.sells.length - 1]?.sellDate ?? a.buyDate;
+        const bd = b.sells[b.sells.length - 1]?.sellDate ?? b.buyDate;
+        return new Date(ad).getTime() - new Date(bd).getTime();
+      });
+    if (closed.length === 0) return null;
+
+    const outcomes = closed.map(t => t.realizedPnL > 0);
+    let curStreak = 1, curType = outcomes[outcomes.length - 1];
+    let maxWin = 0, maxLoss = 0, tmpW = 0, tmpL = 0;
+    let postStreakWins = 0, postStreakTotal = 0;
+
+    for (let i = outcomes.length - 2; i >= 0; i--) {
+      if (outcomes[i] === curType) curStreak++;
+      else break;
+    }
+
+    // full pass for max streaks and post-streak stats
+    let streak = 1;
+    for (let i = 1; i < outcomes.length; i++) {
+      if (outcomes[i] === outcomes[i - 1]) {
+        streak++;
+      } else {
+        if (outcomes[i - 1]) maxWin = Math.max(maxWin, streak);
+        else maxLoss = Math.max(maxLoss, streak);
+        // post-streak (after 3+)
+        if (streak >= 3 && i < outcomes.length) {
+          postStreakTotal++;
+          if (outcomes[i]) postStreakWins++;
+        }
+        streak = 1;
+      }
+    }
+    if (outcomes[outcomes.length - 1]) maxWin = Math.max(maxWin, streak);
+    else maxLoss = Math.max(maxLoss, streak);
+
+    // last 10 outcomes for visual
+    const last10 = outcomes.slice(-10);
+    const postStreakWinRate = postStreakTotal > 0 ? postStreakWins / postStreakTotal : null;
+
+    return { curStreak, curType, maxWin, maxLoss, last10, postStreakWinRate, postStreakTotal, n: closed.length };
+  }, [trades]);
+
+  if (!m) return (
+    <div className="flex flex-col items-center justify-center py-10" style={{ color: 'var(--text-muted)' }}>
+      <span className="text-3xl mb-2">🔥</span>
+      <p className="text-sm">No closed trades yet</p>
+    </div>
+  );
+
+  const streakClr = m.curType ? '#4ade80' : '#f87171';
+  const streakLabel = m.curType ? `${m.curStreak} Win Streak` : `${m.curStreak} Loss Streak`;
+
+  return (
+    <div className="space-y-4">
+      {/* Current streak hero */}
+      <div className="rounded-xl p-5 text-center" style={{ background: `${streakClr}08`, border: `1px solid ${streakClr}25` }}>
+        <p className="text-[10px] font-black uppercase tracking-widest mb-2" style={{ color: 'var(--text-muted)' }}>Current Streak</p>
+        <p className="text-5xl font-black mb-1" style={{ color: streakClr }}>{m.curStreak}</p>
+        <p className="text-sm font-bold" style={{ color: streakClr }}>{streakLabel} 🔥</p>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <Tile label="Longest Win Streak"  value={String(m.maxWin)}  sub="consecutive wins"  color="#4ade80" />
+        <Tile label="Longest Loss Streak" value={String(m.maxLoss)} sub="consecutive losses" color="#f87171" />
+        <Tile label="Post-Streak Win Rate" value={m.postStreakWinRate !== null ? `${(m.postStreakWinRate * 100).toFixed(0)}%` : '—'}
+          sub={`after 3+ streak (${m.postStreakTotal} events)`} color="#fbbf24" />
+      </div>
+
+      {/* Last 10 trades visual */}
+      <div className="rounded-xl p-4" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-sm)' }}>
+        <p className="text-[10px] font-black uppercase tracking-widest mb-3" style={{ color: 'var(--text-muted)' }}>
+          Last {m.last10.length} Trades
+        </p>
+        <div className="flex gap-2">
+          {m.last10.map((win, i) => (
+            <div key={i} className="flex-1 rounded-lg flex flex-col items-center justify-center gap-1 py-3"
+              style={{ background: win ? 'rgba(74,222,128,0.12)' : 'rgba(248,113,113,0.12)',
+                       border: `1px solid ${win ? 'rgba(74,222,128,0.3)' : 'rgba(248,113,113,0.3)'}` }}>
+              <span className="text-base">{win ? '✅' : '❌'}</span>
+              <span className="text-[8px] font-black" style={{ color: win ? '#4ade80' : '#f87171' }}>{win ? 'W' : 'L'}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-xl px-4 py-3 text-[10px] leading-relaxed" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-sm)', color: 'var(--text-muted)' }}>
+        <strong style={{ color: 'var(--text-lo)' }}>Tilt detection:</strong>{' '}
+        A loss streak ≥ 3 is a warning — post-streak win rate
+        {m.postStreakWinRate !== null
+          ? ` from your history is ${(m.postStreakWinRate * 100).toFixed(0)}%. ${m.postStreakWinRate < 0.5 ? 'Consider sitting out one trade after a streak.' : 'You recover well after streaks ✅'}`
+          : ' will appear after your first streak of 3+.'}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MODULE 12 — Optimal Hold Timer
+══════════════════════════════════════════════════════════════════════════════*/
+function OptimalHoldTimer({ trades }: { trades: Trade[] }) {
+  const buckets = useMemo(() => {
+    const closed = trades.filter(t => t.status === 'closed' && t.sells.length > 0);
+    const defs = [
+      { label: '1–3 days',   min: 0,  max: 3  },
+      { label: '4–7 days',   min: 4,  max: 7  },
+      { label: '8–14 days',  min: 8,  max: 14 },
+      { label: '15–30 days', min: 15, max: 30 },
+      { label: '30+ days',   min: 31, max: 999 },
+    ];
+    return defs.map(b => {
+      const group = closed.filter(t => {
+        const d = holdingDays(t.buyDate, t.sells[t.sells.length - 1]?.sellDate);
+        return d >= b.min && d <= b.max;
+      });
+      const wins = group.filter(t => t.realizedPnL > 0);
+      const avgRet = group.length ? group.reduce((s, t) => s + t.realizedPnLPct, 0) / group.length : 0;
+      const winRate = group.length ? wins.length / group.length : 0;
+      return { ...b, count: group.length, avgRet, winRate };
+    });
+  }, [trades]);
+
+  const best = buckets.reduce((b, c) => (c.count > 1 && c.avgRet > b.avgRet ? c : b), buckets[0]);
+  const maxRet = Math.max(...buckets.map(b => Math.abs(b.avgRet)), 0.01);
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <Tile label="Sweet Spot"     value={best.count > 0 ? best.label : '—'} sub="highest avg return bucket" color="#fbbf24" size="lg" />
+        <Tile label="Best Avg Return" value={best.count > 0 ? `${best.avgRet >= 0 ? '+' : ''}${best.avgRet.toFixed(2)}%` : '—'} sub="in sweet-spot bucket" color={pclr(best.avgRet)} />
+        <Tile label="Sweet-Spot Win%" value={best.count > 0 ? `${(best.winRate * 100).toFixed(0)}%` : '—'} sub={`${best.count} trades`} color="#4ade80" />
+      </div>
+
+      <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--border-sm)' }}>
+        <div className="px-4 py-2.5 text-[10px] font-black uppercase tracking-widest"
+          style={{ background: 'var(--bg-raised)', color: 'var(--text-muted)', borderBottom: '1px solid var(--border-sm)' }}>
+          Return by Holding Period
+        </div>
+        <div className="divide-y" style={{ borderColor: 'var(--border-sm)' }}>
+          {buckets.map(b => {
+            const barW = b.count > 0 ? Math.abs(b.avgRet) / maxRet * 100 : 0;
+            const isSweet = b.label === best.label && b.count > 0;
+            return (
+              <div key={b.label} className="px-4 py-3" style={{ background: isSweet ? `rgba(251,191,36,0.04)` : 'transparent' }}>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-black" style={{ color: isSweet ? '#fbbf24' : 'var(--text-lo)' }}>
+                      {b.label}
+                    </span>
+                    {isSweet && <span className="text-[8px] px-1.5 py-0.5 rounded-full font-black"
+                      style={{ background: 'rgba(251,191,36,0.2)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)' }}>★ Sweet Spot</span>}
+                  </div>
+                  <div className="flex items-center gap-3 text-[10px]">
+                    <span style={{ color: 'var(--text-muted)' }}>{b.count} trades</span>
+                    <span style={{ color: pclr(b.avgRet) }} className="font-bold">
+                      {b.count > 0 ? `${b.avgRet >= 0 ? '+' : ''}${b.avgRet.toFixed(2)}%` : '—'}
+                    </span>
+                    <span style={{ color: '#4ade80' }}>{b.count > 0 ? `${(b.winRate * 100).toFixed(0)}% W` : '—'}</span>
+                  </div>
+                </div>
+                {b.count > 0 && (
+                  <div className="w-full rounded-full overflow-hidden" style={{ height: 4, background: 'rgba(255,255,255,0.06)' }}>
+                    <div style={{ width: `${barW}%`, height: '100%', background: b.avgRet >= 0 ? '#4ade80' : '#f87171', borderRadius: 9999 }} />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="rounded-xl px-4 py-3 text-[10px] leading-relaxed" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-sm)', color: 'var(--text-muted)' }}>
+        <strong style={{ color: 'var(--text-lo)' }}>Action:</strong>{' '}
+        Target the{' '}<span style={{ color: '#fbbf24' }}>{best.count > 0 ? best.label : '—'}</span>{' '}
+        window for new entries. Holding beyond your sweet spot often means watching gains erode — set a time-stop.
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MODULE 13 — R-Multiple System
+══════════════════════════════════════════════════════════════════════════════*/
+function RMultipleSystem({ trades }: { trades: Trade[] }) {
+  const m = useMemo(() => {
+    const closed = trades.filter(t => t.status === 'closed');
+    if (closed.length === 0) return null;
+    // R = pnlPct / assumed initial risk of 2%
+    const RISK_PCT = 2;
+    const rmults = closed.map(t => t.realizedPnLPct / RISK_PCT);
+    const n = rmults.length;
+    const avg = rmults.reduce((s, r) => s + r, 0) / n;
+    const std = Math.sqrt(rmults.reduce((s, r) => s + (r - avg) ** 2, 0) / Math.max(1, n - 1));
+    const sqn = std > 0 ? (Math.sqrt(n) * avg) / std : 0;
+    const min = Math.min(...rmults), max = Math.max(...rmults);
+    const bsz = (max - min) / 8 || 0.5;
+    const buckets = Array.from({ length: 8 }, (_, i) => {
+      const lo = min + i * bsz, hi = lo + bsz;
+      const items = rmults.filter(r => r >= lo && r < hi);
+      return { lo, hi, count: items.length };
+    });
+    const maxCount = Math.max(...buckets.map(b => b.count), 1);
+    return { rmults, avg, std, sqn, min, max, buckets, maxCount, n, RISK_PCT };
+  }, [trades]);
+
+  if (!m) return (
+    <div className="flex flex-col items-center justify-center py-10" style={{ color: 'var(--text-muted)' }}>
+      <span className="text-3xl mb-2">📐</span>
+      <p className="text-sm">No closed trades yet</p>
+    </div>
+  );
+
+  const sqnG = m.sqn >= 3 ? { label: 'Excellent', c: '#4ade80' }
+             : m.sqn >= 2 ? { label: 'Good',      c: '#34d399' }
+             : m.sqn >= 1 ? { label: 'Average',   c: '#fbbf24' }
+                          : { label: 'Poor',       c: '#f87171' };
+  const expG = m.avg >= 0.5 ? '#4ade80' : m.avg >= 0 ? '#fbbf24' : '#f87171';
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Tile label="Expectancy"      value={`${m.avg >= 0 ? '+' : ''}${m.avg.toFixed(2)}R`}  sub="avg R per trade"           color={expG} size="lg" />
+        <Tile label="SQN Score"       value={m.sqn.toFixed(2)}      sub="System Quality Number"     color={sqnG.c} />
+        <Tile label="Best Trade"      value={`+${m.max.toFixed(2)}R`}  sub="largest R-multiple"     color="#4ade80" />
+        <Tile label="Worst Trade"     value={`${m.min.toFixed(2)}R`}   sub="smallest R-multiple"    color="#f87171" />
+      </div>
+
+      {/* R histogram */}
+      <div className="rounded-xl p-4" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-sm)' }}>
+        <div className="flex items-center justify-between mb-4">
+          <p className="text-[10px] font-black uppercase tracking-widest" style={{ color: 'var(--text-muted)' }}>R-Multiple Distribution</p>
+          <span className="text-[9px] px-2 py-0.5 rounded-full font-black"
+            style={{ background: `${sqnG.c}20`, color: sqnG.c, border: `1px solid ${sqnG.c}40` }}>
+            SQN: {sqnG.label}
+          </span>
+        </div>
+        <div className="flex items-end gap-1" style={{ height: 80 }}>
+          {m.buckets.map((b, i) => {
+            const h   = (b.count / m.maxCount) * 100;
+            const clr = b.lo >= 0 ? '#4ade80' : '#f87171';
+            return (
+              <div key={i} className="flex-1 flex flex-col items-center" style={{ height: '100%' }}
+                title={`${b.lo.toFixed(1)}R–${b.hi.toFixed(1)}R: ${b.count} trades`}>
+                <div style={{ marginTop: 'auto', width: '100%', height: `${Math.max(3, h)}%`, background: clr, opacity: 0.75, borderRadius: 3 }} />
+              </div>
+            );
+          })}
+        </div>
+        <div className="flex justify-between text-[9px] mt-1" style={{ color: 'var(--text-muted)' }}>
+          <span>{m.min.toFixed(1)}R</span>
+          <span style={{ color: '#94a3b8' }}>0R break-even</span>
+          <span>{m.max.toFixed(1)}R</span>
+        </div>
+      </div>
+
+      <div className="rounded-xl px-4 py-3 text-[10px] leading-relaxed" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-sm)', color: 'var(--text-muted)' }}>
+        <strong style={{ color: 'var(--text-lo)' }}>R-Multiple:</strong>{' '}
+        1R = assumed 2% risk per trade. Expectancy {m.avg >= 0 ? '+' : ''}{m.avg.toFixed(2)}R means you make {m.avg >= 0 ? `${(m.avg * m.RISK_PCT).toFixed(1)}% per trade on average` : `${Math.abs(m.avg * m.RISK_PCT).toFixed(1)}% loss on average`}.
+        SQN ≥ 2 = good system · ≥ 3 = excellent · 1R stop assumed at {m.RISK_PCT}% of position.
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MODULE 14 — Concentration Risk
+══════════════════════════════════════════════════════════════════════════════*/
+function ConcentrationRisk({ trades }: { trades: Trade[] }) {
+  const m = useMemo(() => {
+    const open = trades.filter(t => t.status !== 'closed');
+    if (open.length === 0) return null;
+    const total = open.reduce((s, t) => s + t.totalInvested, 0);
+    if (total === 0) return null;
+
+    // Aggregate by stock
+    const byStock = new Map<string, number>();
+    for (const t of open) {
+      byStock.set(t.stockSymbol, (byStock.get(t.stockSymbol) ?? 0) + t.totalInvested);
+    }
+    const rows = [...byStock.entries()]
+      .map(([sym, amt]) => ({ sym, amt, pct: amt / total }))
+      .sort((a, b) => b.pct - a.pct);
+
+    // HHI (0–1): higher = more concentrated
+    const hhi = rows.reduce((s, r) => s + r.pct ** 2, 0);
+    const divScore = Math.round((1 - hhi) * 100);
+
+    // Alerts
+    const alerts: string[] = [];
+    if (rows[0]?.pct > 0.30) alerts.push(`${rows[0].sym} is ${(rows[0].pct * 100).toFixed(0)}% of portfolio — consider trimming`);
+    if (rows.slice(0, 3).reduce((s, r) => s + r.pct, 0) > 0.70) alerts.push('Top-3 stocks > 70% — under-diversified');
+    if (rows.length < 3) alerts.push('Fewer than 3 positions — high concentration risk');
+
+    const top3Pct = rows.slice(0, 3).reduce((s, r) => s + r.pct, 0) * 100;
+
+    return { rows, total, hhi, divScore, alerts, top3Pct };
+  }, [trades]);
+
+  if (!m) return (
+    <div className="flex flex-col items-center justify-center py-10" style={{ color: 'var(--text-muted)' }}>
+      <span className="text-3xl mb-2">🎯</span>
+      <p className="text-sm">No open positions to analyse</p>
+    </div>
+  );
+
+  const divClr = m.divScore >= 70 ? '#4ade80' : m.divScore >= 50 ? '#fbbf24' : '#f87171';
+  const divLabel = m.divScore >= 70 ? 'Well Diversified' : m.divScore >= 50 ? 'Moderate Risk' : 'Concentrated';
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <Tile label="Diversification Score" value={`${m.divScore}/100`}          sub="100 = perfectly spread"        color={divClr} size="lg" />
+        <Tile label="HHI Index"             value={m.hhi.toFixed(3)}             sub="< 0.15 = diversified"          color={m.hhi < 0.15 ? '#4ade80' : m.hhi < 0.25 ? '#fbbf24' : '#f87171'} />
+        <Tile label="Top-3 Concentration"   value={`${m.top3Pct.toFixed(0)}%`}   sub="of total portfolio"            color={m.top3Pct < 60 ? '#4ade80' : '#fbbf24'} />
+        <Tile label="Positions"             value={String(m.rows.length)}        sub="distinct stocks open"          color="#a78bfa" />
+      </div>
+
+      {/* Concentration bars */}
+      <div className="rounded-xl overflow-hidden" style={{ border: '1px solid var(--border-sm)' }}>
+        <div className="px-4 py-2.5 text-[10px] font-black uppercase tracking-widest"
+          style={{ background: 'var(--bg-raised)', color: 'var(--text-muted)', borderBottom: '1px solid var(--border-sm)' }}>
+          Portfolio Allocation — {m.rows.length} open positions
+        </div>
+        <div className="divide-y" style={{ borderColor: 'var(--border-sm)' }}>
+          {m.rows.map((r, i) => {
+            const barClr = r.pct > 0.30 ? '#f87171' : r.pct > 0.20 ? '#fbbf24' : '#4ade80';
+            return (
+              <div key={r.sym} className="px-4 py-3">
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[9px] font-black w-4 text-center" style={{ color: 'var(--text-muted)' }}>{i + 1}</span>
+                    <span className="text-[11px] font-black" style={{ color: 'var(--text-hi)' }}>{r.sym}</span>
+                    {r.pct > 0.30 && <span className="text-[8px] px-1 py-0.5 rounded font-black"
+                      style={{ background: 'rgba(248,113,113,0.15)', color: '#f87171' }}>⚠ Overweight</span>}
+                  </div>
+                  <div className="flex items-center gap-3 text-[10px]">
+                    <span style={{ color: 'var(--text-muted)' }}>{fmtI(r.amt)}</span>
+                    <span className="font-black" style={{ color: barClr }}>{(r.pct * 100).toFixed(1)}%</span>
+                  </div>
+                </div>
+                <div className="w-full rounded-full overflow-hidden" style={{ height: 5, background: 'rgba(255,255,255,0.06)' }}>
+                  <div style={{ width: `${r.pct * 100}%`, height: '100%', background: barClr, borderRadius: 9999 }} />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Alerts */}
+      {m.alerts.length > 0 && (
+        <div className="space-y-2">
+          {m.alerts.map((a, i) => (
+            <div key={i} className="rounded-xl px-4 py-2.5 flex items-center gap-2"
+              style={{ background: 'rgba(248,113,113,0.06)', border: '1px solid rgba(248,113,113,0.2)' }}>
+              <span className="text-sm">⚠️</span>
+              <span className="text-[10px]" style={{ color: '#f87171' }}>{a}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="rounded-xl px-4 py-3 text-[10px] leading-relaxed" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-sm)', color: 'var(--text-muted)' }}>
+        <strong style={{ color: 'var(--text-lo)' }}>HHI:</strong>{' '}
+        Herfindahl-Hirschman Index = sum of squared weights. 0 = perfectly diversified, 1 = all-in one stock.
+        HHI {m.hhi.toFixed(3)} → Diversification: <span style={{ color: divClr }}>{divLabel}</span>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
    MAIN EXPORT
 ══════════════════════════════════════════════════════════════════════════════*/
 const TABS = [
-  { key: 'target',     label: '🎯 Target',      title: '5% Monthly Target Tracker',          sub: 'MTD P&L · daily run rate · on-pace analysis',                        color: '#f87171' },
-  { key: 'ev',         label: '📊 EV Rank',     title: 'Expected Value Ranker',              sub: 'Which open positions have positive EV — hold, add, or exit',         color: '#38bdf8' },
-  { key: 'kelly',      label: '📐 Kelly',       title: 'Kelly Criterion Position Sizer',     sub: 'Optimal trade size from your win rate + payoff ratio',               color: '#a78bfa' },
-  { key: 'confidence', label: '🔬 Calibration', title: 'Prediction Calibration',             sub: 'Actual win rate per confidence bucket — trust the right signals',    color: '#34d399' },
-  { key: 'builder',    label: '🏗️ Builder',     title: '5% Builder — Reverse Engineer',      sub: 'How many trades, what size, what return closes the gap',             color: '#fbbf24' },
-  { key: 'compound',   label: '📈 Compound',    title: 'Compounding Ladder',                 sub: 'Corpus goals · growth table · milestone countdown',                  color: '#34d399' },
-  { key: 'montecarlo', label: '🎲 Monte Carlo', title: 'Monte Carlo Probability Engine',     sub: 'Simulate 500 paths · probability of hitting 5% target this month',  color: '#a78bfa' },
-  { key: 'efficiency', label: '⚡ Efficiency',  title: 'Return per Trading Day',             sub: 'Capital efficiency leaderboard · annualised return · grade',         color: '#fbbf24' },
+  { key: 'target',       label: '🎯 Target',      title: '5% Monthly Target Tracker',          sub: 'MTD P&L · daily run rate · on-pace analysis',                        color: '#f87171' },
+  { key: 'ev',           label: '📊 EV Rank',     title: 'Expected Value Ranker',              sub: 'Which open positions have positive EV — hold, add, or exit',         color: '#38bdf8' },
+  { key: 'kelly',        label: '📐 Kelly',       title: 'Kelly Criterion Position Sizer',     sub: 'Optimal trade size from your win rate + payoff ratio',               color: '#a78bfa' },
+  { key: 'confidence',   label: '🔬 Calibration', title: 'Prediction Calibration',             sub: 'Actual win rate per confidence bucket — trust the right signals',    color: '#34d399' },
+  { key: 'builder',      label: '🏗️ Builder',     title: '5% Builder — Reverse Engineer',      sub: 'How many trades, what size, what return closes the gap',             color: '#fbbf24' },
+  { key: 'compound',     label: '📈 Compound',    title: 'Compounding Ladder',                 sub: 'Corpus goals · growth table · milestone countdown',                  color: '#34d399' },
+  { key: 'montecarlo',   label: '🎲 Monte Carlo', title: 'Monte Carlo Probability Engine',     sub: 'Simulate 500 paths · probability of hitting 5% target this month',  color: '#a78bfa' },
+  { key: 'risk',         label: '🛡️ Risk',        title: 'Risk Dashboard',                     sub: 'Sharpe · Sortino · Profit Factor · Calmar — professional metrics',   color: '#f87171' },
+  { key: 'drawdown',     label: '📉 Drawdown',    title: 'Drawdown Analyzer',                  sub: 'Peak-to-trough · equity curve · recovery factor',                    color: '#fb923c' },
+  { key: 'streak',       label: '🔥 Streak',      title: 'Streak Tracker',                     sub: 'Win/loss streaks · post-streak win rate · tilt detection',           color: '#fbbf24' },
+  { key: 'holdtimer',    label: '⏱️ Hold Timer',  title: 'Optimal Hold Timer',                 sub: 'Best holding period bucket by avg return and win rate',              color: '#38bdf8' },
+  { key: 'rmultiple',    label: '📐 R-Multiple',  title: 'R-Multiple System',                  sub: 'Trade expectancy · SQN score · R distribution histogram',            color: '#a78bfa' },
+  { key: 'concentration',label: '🎯 Exposure',    title: 'Concentration Risk',                 sub: 'HHI diversification score · overweight alerts · allocation bars',    color: '#34d399' },
+  { key: 'efficiency',   label: '⚡ Efficiency',  title: 'Return per Trading Day',             sub: 'Capital efficiency leaderboard · annualised return · grade',         color: '#fbbf24' },
 ] as const;
 type TabKey = (typeof TABS)[number]['key'];
 
@@ -1095,7 +1683,7 @@ export default function PredictionIntelligence({ predictions, stats, trades, mon
               Prediction Intelligence
             </h2>
             <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>
-              8 mathematical engines to help you hit {monthlyTarget}% every month
+              14 mathematical engines to help you hit {monthlyTarget}% every month
             </p>
           </div>
         </div>
@@ -1124,14 +1712,20 @@ export default function PredictionIntelligence({ predictions, stats, trades, mon
       <div className="px-6 py-6" style={{ borderTop: '1px solid var(--border-sm)' }}>
         <SectionHead icon={meta.label.split(' ')[0]} title={meta.title} sub={meta.sub} color={meta.color} />
 
-        {tab === 'target'      && <MonthlyTargetTracker trades={trades}       monthlyTarget={monthlyTarget} />}
-        {tab === 'ev'          && <EVRanker             trades={trades}       predictions={predictions} stats={stats} />}
-        {tab === 'kelly'       && <KellyCriterion       stats={stats}        trades={trades} />}
-        {tab === 'confidence'  && <ConfidenceAnalysis    predictions={predictions} />}
-        {tab === 'builder'     && <FivePercentBuilder    trades={trades}       monthlyTarget={monthlyTarget} />}
-        {tab === 'compound'    && <CompoundingProjector  trades={trades} />}
-        {tab === 'montecarlo'  && <MonteCarlo            trades={trades}       stats={stats} monthlyTarget={monthlyTarget} />}
-        {tab === 'efficiency'  && <TradeEfficiency       trades={trades} />}
+        {tab === 'target'        && <MonthlyTargetTracker trades={trades}       monthlyTarget={monthlyTarget} />}
+        {tab === 'ev'            && <EVRanker             trades={trades}       predictions={predictions} stats={stats} />}
+        {tab === 'kelly'         && <KellyCriterion       stats={stats}         trades={trades} />}
+        {tab === 'confidence'    && <ConfidenceAnalysis   predictions={predictions} />}
+        {tab === 'builder'       && <FivePercentBuilder   trades={trades}       monthlyTarget={monthlyTarget} />}
+        {tab === 'compound'      && <CompoundingProjector trades={trades} />}
+        {tab === 'montecarlo'    && <MonteCarlo           trades={trades}       stats={stats} monthlyTarget={monthlyTarget} />}
+        {tab === 'risk'          && <RiskDashboard        trades={trades} />}
+        {tab === 'drawdown'      && <DrawdownAnalyzer     trades={trades} />}
+        {tab === 'streak'        && <StreakTracker         trades={trades} />}
+        {tab === 'holdtimer'     && <OptimalHoldTimer      trades={trades} />}
+        {tab === 'rmultiple'     && <RMultipleSystem       trades={trades} />}
+        {tab === 'concentration' && <ConcentrationRisk     trades={trades} />}
+        {tab === 'efficiency'    && <TradeEfficiency       trades={trades} />}
       </div>
     </div>
   );
