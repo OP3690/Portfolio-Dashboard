@@ -108,21 +108,73 @@ function getStatus(cagr: number, consistency: string): { text: string; emoji: st
   return                               { text: 'Worst',          emoji: '🚨', cssColor: 'var(--loss)', bgColor: 'rgba(248,113,113,0.15)' };
 }
 
-function getTrend(stock: StockPerformance, n: number): { text: string; emoji: string; color: string } {
-  if (stock.monthlyReturns.length < 3) return { text: 'Insufficient', emoji: '➡️', color: 'var(--text-lo)' };
-  const slice = stock.monthlyReturns.slice(-n);
-  if (!slice.length) return { text: 'Insufficient', emoji: '➡️', color: 'var(--text-lo)' };
-  const recent3 = stock.monthlyReturns.slice(-3);
-  const avgR = recent3.reduce((s, m) => s + m.return, 0) / recent3.length;
-  const avgP = slice.reduce((s, m) => s + m.return, 0) / slice.length;
-  if (avgR > avgP + 1 && avgR > 2)            return { text: 'Strong Uptrend', emoji: '📈', color: '#4ade80' };
-  if (avgR > avgP + 0.5)                      return { text: 'Improving',      emoji: '📈', color: '#86efac' };
-  if (Math.abs(avgR - avgP) < 0.5)            return { text: 'Stable',         emoji: '➡️', color: 'var(--text-mid)' };
-  if (Math.abs(avgR) < 1)                     return { text: 'Sideways',       emoji: '🔄', color: 'var(--text-lo)' };
-  if (avgR > avgP - 1 && avgR > 0)            return { text: 'Recovering',     emoji: '📈', color: '#fbbf24' };
-  if (avgR < avgP - 1 && avgR < 0)            return { text: 'Weakening',      emoji: '🔽', color: '#fb923c' };
-  if (avgR < -1)                              return { text: 'Downtrend',      emoji: '📉', color: '#f87171' };
-  return                                             { text: 'Falling',        emoji: '📉', color: '#f87171' };
+/** Trend uses the investor-filtered returns array (all of it = their full holding) */
+function getTrend(
+  investorReturns: Array<{ return: number }>
+): { text: string; emoji: string; color: string } {
+  if (investorReturns.length < 3) return { text: 'Insufficient', emoji: '➡️', color: 'var(--text-lo)' };
+  const recent3 = investorReturns.slice(-3);
+  const avgR    = recent3.reduce((s, m) => s + m.return, 0) / recent3.length;
+  const avgP    = investorReturns.reduce((s, m) => s + m.return, 0) / investorReturns.length;
+  if (avgR > avgP + 1 && avgR > 2)    return { text: 'Strong Uptrend', emoji: '📈', color: '#4ade80' };
+  if (avgR > avgP + 0.5)              return { text: 'Improving',      emoji: '📈', color: '#86efac' };
+  if (Math.abs(avgR - avgP) < 0.5)   return { text: 'Stable',         emoji: '➡️', color: 'var(--text-mid)' };
+  if (Math.abs(avgR) < 1)            return { text: 'Sideways',       emoji: '🔄', color: 'var(--text-lo)' };
+  if (avgR > avgP - 1 && avgR > 0)   return { text: 'Recovering',     emoji: '📈', color: '#fbbf24' };
+  if (avgR < avgP - 1 && avgR < 0)   return { text: 'Weakening',      emoji: '🔽', color: '#fb923c' };
+  if (avgR < -1)                     return { text: 'Downtrend',      emoji: '📉', color: '#f87171' };
+  return                                    { text: 'Falling',        emoji: '📉', color: '#f87171' };
+}
+
+/**
+ * Filter monthly price returns to only include months the investor actually held
+ * the stock. Uses transaction buy dates first, falls back to holding.asOnDate.
+ */
+const MON_IDX = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'] as const;
+
+function parseMonthLabel(label: string): { yr: number; mo: number } | null {
+  const [monStr, yrStr] = label.split('-');
+  const mo = MON_IDX.indexOf(monStr as typeof MON_IDX[number]);
+  const yr = 2000 + parseInt(yrStr, 10);
+  return mo === -1 || isNaN(yr) ? null : { yr, mo };
+}
+
+function filterToInvestorPeriod(
+  monthlyReturns: Array<{ month: string; return: number }>,
+  holding: Holding | undefined,
+  transactions: Array<{ isin?: string; stockName?: string; transactionDate: Date | string; buySell: string }>
+): Array<{ month: string; return: number }> {
+  // 1. Try to find earliest BUY transaction for this stock
+  let firstBuy: Date | null = null;
+  if (holding) {
+    const buys = transactions.filter(t =>
+      t.buySell === 'BUY' && (
+        (holding.isin   && t.isin      && t.isin      === holding.isin) ||
+        (holding.stockName && t.stockName && t.stockName === holding.stockName)
+      )
+    );
+    if (buys.length > 0) {
+      firstBuy = buys.reduce<Date | null>((earliest, t) => {
+        const d = new Date(t.transactionDate);
+        return !earliest || d < earliest ? d : earliest;
+      }, null);
+    }
+    // 2. Fall back to asOnDate
+    if (!firstBuy && holding.asOnDate) firstBuy = new Date(holding.asOnDate);
+  }
+
+  // No date info — return all (conservative)
+  if (!firstBuy) return monthlyReturns;
+
+  const buyYr = firstBuy.getFullYear();
+  const buyMo = firstBuy.getMonth(); // 0-indexed
+
+  return monthlyReturns.filter(m => {
+    const parsed = parseMonthLabel(m.month);
+    if (!parsed) return true;
+    // Keep if this month's year/month >= first buy year/month
+    return parsed.yr > buyYr || (parsed.yr === buyYr && parsed.mo >= buyMo);
+  });
 }
 
 function calcHoldingPeriod(
@@ -275,14 +327,20 @@ export default function PerformanceAnalyticsCharts({
   /* ── Build full leaderboard (memoised) ──────────────────────────────────── */
   const allLeaderboardEntries = useMemo(() => {
     const buildEntry = (stock: StockPerformance, holding: Holding | undefined) => {
-      const vol         = calcVolatility(stock.monthlyReturns, periodMonths);
-      const cagr        = calcCAGR(stock.monthlyReturns, periodMonths);
-      const consistency = calcConsistency(stock.monthlyReturns, periodMonths);
-      const sharpe      = calcSharpe(stock.monthlyReturns, vol, periodMonths);
-      const sortino     = calcSortino(stock.monthlyReturns, periodMonths);
-      const avgMonthly  = calcAvgMonthly(stock.monthlyReturns, periodMonths);
+      // ── KEY FIX: restrict returns to months the investor actually held ──────
+      // Full price history filtered to >= first buy date, then capped to period
+      const investorReturns = filterToInvestorPeriod(stock.monthlyReturns, holding, transactions)
+        .slice(-periodMonths); // cap at selected period window
+      const n = investorReturns.length; // may be < periodMonths for recent buys
+
+      const vol         = calcVolatility(investorReturns, n);
+      const cagr        = calcCAGR(investorReturns, n);
+      const consistency = calcConsistency(investorReturns, n);
+      const sharpe      = calcSharpe(investorReturns, vol, n);
+      const sortino     = calcSortino(investorReturns, n);
+      const avgMonthly  = calcAvgMonthly(investorReturns, n);
       const status      = getStatus(cagr, consistency);
-      const trend       = getTrend(stock, periodMonths);
+      const trend       = getTrend(investorReturns);
       const holdPeriod  = calcHoldingPeriod(holding, transactions);
       const actMonthly  = calcActualMonthly(holding);
       const weightage   = totalPortfolioValue > 0 && holding
@@ -613,19 +671,21 @@ export default function PerformanceAnalyticsCharts({
           {tooltipContent === 'sharpe' && <>
             <p className="font-black mb-2" style={{ color: 'var(--text-hi)' }}>Sharpe Ratio</p>
             <div className="space-y-1.5 text-[11px]" style={{ color: 'var(--text-mid)' }}>
-              <p><strong style={{ color: 'var(--text-hi)' }}>Formula:</strong> (Annualised Return − 7.5%) ÷ Total Volatility</p>
+              <p><strong style={{ color: 'var(--text-hi)' }}>Formula:</strong> (Annualised Return − 7.5%) ÷ Total Volatility × √12</p>
+              <p><strong style={{ color: 'var(--text-hi)' }}>Period:</strong> Only months from your first buy date are used — pre-purchase price history is excluded.</p>
               <div className="pt-2 mt-2 space-y-0.5" style={{ borderTop: '1px solid var(--border-sm)' }}>
                 <p className="font-bold mb-1" style={{ color: 'var(--text-hi)' }}>Interpretation</p>
-                <p>{'<'} 1.0 — Below average</p>
-                <p>1.0 – 2.0 — Good · 2.0 – 3.0 — Very good · {'>'} 3.0 — Excellent</p>
+                <p>{'<'} 1.0 — Below average · 1.0–2.0 — Good</p>
+                <p>2.0–3.0 — Very good · {'>'} 3.0 — Excellent</p>
               </div>
             </div>
           </>}
           {tooltipContent === 'sortino' && <>
             <p className="font-black mb-2" style={{ color: 'var(--text-hi)' }}>Sortino Ratio</p>
             <div className="space-y-1.5 text-[11px]" style={{ color: 'var(--text-mid)' }}>
-              <p><strong style={{ color: 'var(--text-hi)' }}>Formula:</strong> (Annualised Return − 7.5%) ÷ Downside Deviation</p>
-              <p><strong style={{ color: 'var(--text-hi)' }}>vs Sharpe:</strong> Only penalises negative months — upside volatility is good.</p>
+              <p><strong style={{ color: 'var(--text-hi)' }}>Formula:</strong> (Annualised Return − 7.5%) ÷ Downside Deviation × √12</p>
+              <p><strong style={{ color: 'var(--text-hi)' }}>vs Sharpe:</strong> Only penalises negative months — upside volatility is not counted as risk.</p>
+              <p><strong style={{ color: 'var(--text-hi)' }}>Period:</strong> Computed from your first buy date only.</p>
               <div className="pt-2 mt-2 space-y-0.5" style={{ borderTop: '1px solid var(--border-sm)' }}>
                 <p>Sortino ≥ Sharpe → most volatility is upside ✅</p>
               </div>
@@ -634,7 +694,7 @@ export default function PerformanceAnalyticsCharts({
           {tooltipContent === 'avgMonthlyReturn' && <>
             <p className="font-black mb-2" style={{ color: 'var(--text-hi)' }}>Average Monthly Return</p>
             <div className="space-y-1.5 text-[11px]" style={{ color: 'var(--text-mid)' }}>
-              <p>Arithmetic mean of monthly price movements over the selected period.</p>
+              <p>Arithmetic mean of monthly price movements since your first buy, up to the selected period.</p>
               <div className="pt-2 mt-2" style={{ borderTop: '1px solid var(--border-sm)' }}>
                 <p className="font-bold mb-1" style={{ color: 'var(--text-hi)' }}>vs CAGR</p>
                 <p>Avg Monthly = arithmetic mean (simple). CAGR = geometric mean (compounds). With volatility, CAGR ≤ Avg Monthly.</p>
