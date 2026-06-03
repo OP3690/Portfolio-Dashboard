@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import {
   LineChart,
   Line,
@@ -137,54 +137,13 @@ export default function MonthlyCharts({
   const [activeMonth, setActiveMonth]   = useState<string | null>(null);
   const [activeChart, setActiveChart]   = useState<string | null>(null);
 
-  // Background animation state
-  const [animationFrame, setAnimationFrame] = useState(0);
-  const animationRef = useRef<number>();
-  const isVisibleRef = useRef(true);
-
-  // Continuous background animation
-  useEffect(() => {
-    const animate = () => {
-      setAnimationFrame(prev => prev + 1);
-      animationRef.current = requestAnimationFrame(animate);
-    };
-    
-    // Start animation loop
-    animationRef.current = requestAnimationFrame(animate);
-    
-    // Keep running even when tab is not visible
-    document.addEventListener('visibilitychange', () => {
-      isVisibleRef.current = !document.hidden;
-    });
-
-    return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current);
-      }
-    };
-  }, []);
-  
-  // Debug: Log data to console to verify it's being passed
-  useEffect(() => {
-    console.log('📊 MonthlyCharts - Data received:');
-    console.log('  - monthlyInvestments:', safeMonthlyInvestments.length, 'items');
-    if (safeMonthlyInvestments.length > 0) {
-      console.log('  - Sample investment data:', JSON.stringify(safeMonthlyInvestments[0], null, 2));
-      console.log('  - First item investments value:', safeMonthlyInvestments[0].investments, typeof safeMonthlyInvestments[0].investments);
-      console.log('  - First item withdrawals value:', safeMonthlyInvestments[0].withdrawals, typeof safeMonthlyInvestments[0].withdrawals);
-      console.log('  - All investments values:', safeMonthlyInvestments.map((item: any) => ({ month: item.month, investments: item.investments, withdrawals: item.withdrawals })));
-    }
-    console.log('  - monthlyDividends:', safeMonthlyDividends.length, 'items');
-    if (safeMonthlyDividends.length > 0) {
-      console.log('  - Sample dividend data:', JSON.stringify(safeMonthlyDividends[0], null, 2));
-      console.log('  - First item amount value:', safeMonthlyDividends[0].amount, typeof safeMonthlyDividends[0].amount);
-      console.log('  - All dividend values:', safeMonthlyDividends.map((item: any) => ({ month: item.month, amount: item.amount })));
-    }
-    console.log('  - monthlyReturns:', safeMonthlyReturns.length, 'items');
-    if (safeMonthlyReturns.length > 0) {
-      console.log('  - Sample returns data:', JSON.stringify(safeMonthlyReturns[0], null, 2));
-    }
-  }, [safeMonthlyInvestments, safeMonthlyDividends, safeMonthlyReturns]);
+  // Enrich filtered data with per-month net cashflow
+  const chartInvData = useMemo(() =>
+    filteredMonthlyInvestments.map(d => ({
+      ...d,
+      net: (d.investments || 0) - (d.withdrawals || 0),
+    })),
+  [filteredMonthlyInvestments]);
 
   // Don't render charts if there's no data
   if (safeMonthlyInvestments.length === 0 && safeMonthlyDividends.length === 0 && safeMonthlyReturns.length === 0) {
@@ -206,252 +165,210 @@ export default function MonthlyCharts({
 
   return (
     <div className="mt-6 space-y-6" style={{ position: 'relative', zIndex: 1 }}>
-      {/* Monthly Investments Chart */}
-      {safeMonthlyInvestments.length > 0 && (
-      <div className="card p-6">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
-          {/* Title + toggle */}
-          <div className="flex items-center gap-3 flex-wrap">
-            <h2 className="section-title text-base flex items-center gap-2">
-              <div className="w-1 h-5 rounded-full" style={{ background: 'var(--brand)' }}></div>
-              Month on Month Investments &amp; Withdrawals
-            </h2>
-            {/* Period toggle pill */}
-            <div
-              className="flex items-center rounded-full p-0.5 gap-0.5"
-              style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-md)' }}
-            >
-              {(['all', '5y'] as const).map(opt => (
-                <button
-                  key={opt}
-                  onClick={() => setInvPeriod(opt)}
-                  className="text-[11px] font-bold px-3 py-1 rounded-full transition-all duration-200"
-                  style={invPeriod === opt ? {
-                    background: 'var(--brand)',
-                    color: '#fff',
-                    boxShadow: '0 1px 6px color-mix(in srgb, var(--brand) 45%, transparent)',
-                  } : {
-                    background: 'transparent',
-                    color: 'var(--text-lo)',
-                  }}
-                >
-                  {opt === 'all' ? 'All' : 'Last 5 Yr'}
-                </button>
+      {/* ── Month on Month Investments & Withdrawals ── */}
+      {safeMonthlyInvestments.length > 0 && (() => {
+        const totalInv  = chartInvData.reduce((s, d) => s + d.investments, 0);
+        const totalWdl  = chartInvData.reduce((s, d) => s + d.withdrawals, 0);
+        const netInv    = totalInv - totalWdl;
+        const activeMos = chartInvData.filter(d => d.investments > 0).length || 1;
+        const avgInv    = totalInv / activeMos;
+        const dateFrom  = chartInvData[0]?.month ?? '';
+        const dateTo    = chartInvData[chartInvData.length - 1]?.month ?? '';
+        const xInterval = chartInvData.length > 48 ? 5
+                        : chartInvData.length > 24 ? 2
+                        : chartInvData.length > 12 ? 1 : 0;
+
+        return (
+        <div className="card overflow-hidden" style={{ padding: 0 }}>
+
+          {/* ── Top accent strip ── */}
+          <div className="h-1 w-full" style={{ background: 'linear-gradient(90deg, var(--brand) 0%, #6366f1 50%, var(--info) 100%)' }} />
+
+          <div className="p-5 pb-0">
+            {/* ── Header row ── */}
+            <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+              <div className="flex items-center gap-3 flex-wrap">
+                <h2 className="text-sm font-bold tracking-tight flex items-center gap-2" style={{ color: 'var(--text-hi)' }}>
+                  <div className="w-1.5 h-5 rounded-full" style={{ background: 'var(--brand)' }} />
+                  Month on Month Investments &amp; Withdrawals
+                </h2>
+                {/* date range badge */}
+                {dateFrom && (
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full"
+                    style={{ background: 'var(--bg-raised)', color: 'var(--text-lo)', border: '1px solid var(--border-md)' }}>
+                    {dateFrom} → {dateTo}
+                  </span>
+                )}
+              </div>
+
+              {/* Period toggle */}
+              <div className="flex items-center rounded-full p-[3px] gap-0.5"
+                style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-md)' }}>
+                {(['all', '5y'] as const).map(opt => (
+                  <button key={opt} onClick={() => setInvPeriod(opt)}
+                    className="text-[11px] font-bold px-3 py-1 rounded-full transition-all duration-200"
+                    style={invPeriod === opt
+                      ? { background: 'var(--brand)', color: '#fff', boxShadow: '0 1px 8px color-mix(in srgb,var(--brand) 50%,transparent)' }
+                      : { background: 'transparent', color: 'var(--text-lo)' }}>
+                    {opt === 'all' ? 'All Time' : 'Last 5 Yr'}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* ── Stat cards ── */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+              {[
+                { label: 'Total Invested',   val: totalInv, color: 'var(--brand)', bg: 'color-mix(in srgb,var(--brand) 8%,transparent)',
+                  icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /> },
+                { label: 'Total Withdrawn',  val: totalWdl, color: 'var(--loss)',  bg: 'color-mix(in srgb,var(--loss) 8%,transparent)',
+                  icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" /> },
+                { label: 'Net Deployed',     val: netInv,   color: netInv >= 0 ? 'var(--gain)' : 'var(--loss)',
+                  bg: netInv >= 0 ? 'color-mix(in srgb,var(--gain) 8%,transparent)' : 'color-mix(in srgb,var(--loss) 8%,transparent)',
+                  icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /> },
+                { label: 'Avg / Active Mo',  val: avgInv,   color: 'var(--info)',  bg: 'color-mix(in srgb,var(--info) 8%,transparent)',
+                  icon: <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" /> },
+              ].map(({ label, val, color, bg, icon }) => (
+                <div key={label} className="rounded-xl p-3 flex items-center gap-3"
+                  style={{ background: bg, border: `1px solid color-mix(in srgb,${color} 20%,transparent)` }}>
+                  <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+                    style={{ background: `color-mix(in srgb,${color} 15%,transparent)` }}>
+                    <svg className="w-4 h-4" fill="none" stroke={color} viewBox="0 0 24 24">{icon}</svg>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.08em] truncate" style={{ color: 'var(--text-muted)' }}>{label}</p>
+                    <p className="text-sm font-black leading-tight metric-value" style={{ color }}>{formatCurrency(val)}</p>
+                  </div>
+                </div>
               ))}
             </div>
           </div>
 
-          {/* Stat pills — reflect filtered data */}
-          <div className="flex flex-wrap gap-2.5">
-            {(() => {
-              const totalInv = filteredMonthlyInvestments.reduce((s, i) => s + (i.investments || 0), 0);
-              const totalWdl = filteredMonthlyInvestments.reduce((s, i) => s + (i.withdrawals || 0), 0);
-              const n = filteredMonthlyInvestments.filter(i => i.investments > 0).length || 1;
-              const m = filteredMonthlyInvestments.filter(i => i.withdrawals > 0).length || 1;
-              const avgInv = totalInv / n;
-              const avgWdl = totalWdl / m;
-              return [
-                { label: invPeriod === '5y' ? 'Total Invested (5 Yr)' : 'Gross Total Invested', val: totalInv, color: 'var(--brand)' },
-                { label: invPeriod === '5y' ? 'Total Withdrawal (5 Yr)' : 'Total Withdrawal',   val: totalWdl, color: 'var(--loss)' },
-                { label: 'Avg Monthly Investment', val: avgInv, color: 'var(--brand)' },
-                { label: 'Avg Monthly Withdrawal', val: avgWdl, color: 'var(--loss)' },
-              ];
-            })().map(({ label, val, color }) => (
-              <div key={label} className="stat-pill">
-                <p className="stat-pill-label">{label}</p>
-                <p className="stat-pill-value metric-value" style={{ color }}>{formatCurrency(val)}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div style={{ position: 'relative', zIndex: 10, width: '100%', height: '300px' }}>
-          {/* Cross-chart companion overlay */}
-          {activeMonth && activeChart !== 'investments' && (() => {
-            const md = filteredMonthlyInvestments.find(d => d.month === activeMonth);
-            return (
-              <div className="absolute top-2 right-2 z-30 rounded-xl px-3 py-2 text-xs shadow-lg animate-fadeIn"
-                style={{ background: 'var(--bg-card)', border: '1px solid var(--brand-glow)', minWidth: 190 }}>
-                <p className="font-bold mb-1.5 pb-1" style={{ color: 'var(--brand)', borderBottom: '1px solid var(--border-sm)' }}>
-                  📅 {activeMonth}
-                </p>
-                {md ? (
-                  <>
-                    <p className="text-lo mb-0.5">Invested: <span className="font-bold" style={{ color: 'var(--brand)' }}>{formatCurrency(md.investments)}</span></p>
-                    <p className="text-lo">Withdrew: <span className="font-bold" style={{ color: 'var(--loss)' }}>{formatCurrency(md.withdrawals)}</span></p>
-                  </>
-                ) : <p className="text-lo italic">No data for this month</p>}
-              </div>
-            );
-          })()}
-          <ResponsiveContainer width="100%" height={300}>
-            <ComposedChart
-              key={`inv-chart-${invPeriod}`}
-              data={filteredMonthlyInvestments}
-              margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
-              onMouseMove={(e: any) => { if (e?.activeLabel) { setActiveMonth(e.activeLabel); setActiveChart('investments'); } }}
-              onMouseLeave={() => { setActiveMonth(null); setActiveChart(null); }}
-            >
-            <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
-            <XAxis
-              dataKey="month"
-              tick={{ fill: '#6b7280', fontSize: 11 }}
-              stroke="#9ca3af"
-              angle={-35}
-              textAnchor="end"
-              height={55}
-              interval={filteredMonthlyInvestments.length > 36 ? Math.ceil(filteredMonthlyInvestments.length / 36) - 1 : 0}
-            />
-            <YAxis 
-              tickFormatter={(value) => `₹${(value / 1000).toFixed(0)}k`}
-              tick={{ fill: '#6b7280', fontSize: 12 }}
-              stroke="#9ca3af"
-            />
-            <Tooltip
-              content={({ active, payload, label }) => {
-                if (!active || !payload || !payload.length) return null;
-                const d = filteredMonthlyInvestments.find(r => r.month === label);
-                const investDetails   = d?.investmentDetails  || [];
-                const withdrawDetails = d?.withdrawalDetails  || [];
-                const investAmt   = d?.investments  || 0;
-                const withdrawAmt = d?.withdrawals  || 0;
-                const net = investAmt - withdrawAmt;
-                const hasBoth = investAmt > 0 && withdrawAmt > 0;
+          {/* ── Chart ── */}
+          <div className="px-2 pb-4">
+            <ResponsiveContainer width="100%" height={320}>
+              <ComposedChart
+                key={`inv-${invPeriod}`}
+                data={chartInvData}
+                margin={{ top: 8, right: 24, left: 8, bottom: 8 }}
+                onMouseMove={(e: any) => { if (e?.activeLabel) { setActiveMonth(e.activeLabel); setActiveChart('investments'); } }}
+                onMouseLeave={() => { setActiveMonth(null); setActiveChart(null); }}
+                barGap={2}
+                barCategoryGap="30%"
+              >
+                <defs>
+                  <linearGradient id="invGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#3b82f6" stopOpacity={1} />
+                    <stop offset="100%" stopColor="#2563eb" stopOpacity={0.7} />
+                  </linearGradient>
+                  <linearGradient id="wdlGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#f43f5e" stopOpacity={1} />
+                    <stop offset="100%" stopColor="#e11d48" stopOpacity={0.7} />
+                  </linearGradient>
+                </defs>
 
-                /* One stock row — narrower for side-by-side columns */
-                const StockRow = ({ r, color, compact }: { r: any; color: string; compact?: boolean }) => (
-                  <div style={{
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    padding: compact ? '2px 6px' : '3px 8px', borderRadius: 6,
-                    background: 'var(--bg-raised)', gap: 4,
-                  }}>
-                    <span style={{ fontSize: compact ? 10 : 11, fontWeight: 600, color: 'var(--text-hi)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: compact ? 90 : 140 }}>{r.stockName}</span>
-                    <div style={{ display: 'flex', flexDirection: compact ? 'column' : 'row', alignItems: compact ? 'flex-end' : 'center', gap: compact ? 0 : 6, flexShrink: 0 }}>
-                      <span style={{ fontSize: 9.5, color: 'var(--text-muted)', fontVariantNumeric: 'tabular-nums' }}>{r.qty?.toLocaleString()} sh</span>
-                      <span style={{ fontSize: compact ? 10 : 11, fontWeight: 800, color, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(r.amount)}</span>
-                    </div>
-                  </div>
-                );
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border-sm)" vertical={false} />
+                <XAxis
+                  dataKey="month"
+                  tick={{ fill: 'var(--text-muted)', fontSize: 10, fontWeight: 500 }}
+                  stroke="var(--border-md)"
+                  angle={-35}
+                  textAnchor="end"
+                  height={52}
+                  interval={xInterval}
+                  tickLine={false}
+                />
+                <YAxis
+                  tickFormatter={(v) => v >= 1000 ? `₹${(v/1000).toFixed(0)}k` : `₹${v}`}
+                  tick={{ fill: 'var(--text-muted)', fontSize: 10 }}
+                  stroke="transparent"
+                  tickLine={false}
+                  axisLine={false}
+                  width={52}
+                />
+                <ReferenceLine y={0} stroke="var(--border-md)" strokeWidth={1} />
 
-                /* Column section — used in the two-column layout */
-                const ColSection = ({ title, amt, rows, color, dotColor }: { title: string; amt: number; rows: any[]; color: string; dotColor: string }) => (
-                  <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    {/* Section header */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                      <div style={{ width: 7, height: 7, borderRadius: 2, background: dotColor, flexShrink: 0 }} />
-                      <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{title}</span>
-                    </div>
-                    {/* Amount badge */}
-                    <div style={{
-                      padding: '4px 8px', borderRadius: 8, textAlign: 'center',
-                      background: `color-mix(in srgb, ${dotColor} 10%, transparent)`,
-                      border: `1px solid color-mix(in srgb, ${dotColor} 25%, transparent)`,
-                    }}>
-                      <span style={{ fontSize: 13, fontWeight: 900, color, fontVariantNumeric: 'tabular-nums' }}>{formatCurrency(amt)}</span>
-                    </div>
-                    {/* Stock rows */}
-                    {rows.length > 0 && (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, maxHeight: 160, overflowY: 'auto' }}>
-                        {rows.map((r: any, i: number) => <StockRow key={i} r={r} color={color} compact />)}
-                      </div>
-                    )}
-                  </div>
-                );
+                <Tooltip
+                  content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null;
+                    const d = chartInvData.find(r => r.month === label);
+                    const inv  = d?.investments  || 0;
+                    const wdl  = d?.withdrawals  || 0;
+                    const net  = inv - wdl;
+                    const invRows = d?.investmentDetails  || [];
+                    const wdlRows = d?.withdrawalDetails  || [];
+                    const hasBoth = inv > 0 && wdl > 0;
 
-                return (
-                  <div style={{
-                    background: 'var(--bg-surface)', border: '1px solid var(--border-md)',
-                    borderRadius: 16, boxShadow: 'var(--shadow-lg)',
-                    width: hasBoth ? 520 : 300,
-                    overflow: 'hidden',
-                  }}>
-                    {/* Header */}
-                    <div style={{ padding: '9px 14px', borderBottom: '1px solid var(--border-md)', background: 'var(--bg-raised)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                      <svg width="13" height="13" fill="none" stroke="var(--text-muted)" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                      </svg>
-                      <span style={{ fontSize: 12, fontWeight: 800, color: 'var(--text-hi)', letterSpacing: '-0.01em' }}>{label}</span>
-                    </div>
-
-                    {/* Body — 2 columns when both sides present, 1 column otherwise */}
-                    <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                      <div style={{ display: 'flex', gap: 12 }}>
-                        {investAmt > 0 && (
-                          <ColSection title="Investments (Buy)" amt={investAmt} rows={investDetails} color="var(--brand)" dotColor="var(--brand)" />
-                        )}
-                        {hasBoth && (
-                          <div style={{ width: 1, background: 'var(--border-md)', alignSelf: 'stretch', flexShrink: 0 }} />
-                        )}
-                        {withdrawAmt > 0 && (
-                          <ColSection title="Withdrawals (Sell)" amt={withdrawAmt} rows={withdrawDetails} color="var(--loss)" dotColor="var(--loss)" />
+                    const ColSection = ({ title, amt, rows, color }: any) => (
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display:'flex', alignItems:'center', gap:4, marginBottom:5 }}>
+                          <div style={{ width:6, height:6, borderRadius:2, background:color }} />
+                          <span style={{ fontSize:9, fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.08em' }}>{title}</span>
+                        </div>
+                        <div style={{ padding:'4px 8px', borderRadius:7, textAlign:'center', background:`color-mix(in srgb,${color} 10%,transparent)`, border:`1px solid color-mix(in srgb,${color} 25%,transparent)`, marginBottom: rows.length ? 5 : 0 }}>
+                          <span style={{ fontSize:13, fontWeight:900, color, fontVariantNumeric:'tabular-nums' }}>{formatCurrency(amt)}</span>
+                        </div>
+                        {rows.length > 0 && (
+                          <div style={{ display:'flex', flexDirection:'column', gap:2, maxHeight:140, overflowY:'auto' }}>
+                            {rows.map((r: any, i: number) => (
+                              <div key={i} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'2px 6px', borderRadius:5, background:'var(--bg-raised)', gap:4 }}>
+                                <span style={{ fontSize:10, fontWeight:600, color:'var(--text-hi)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:85 }}>{r.stockName}</span>
+                                <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end', flexShrink:0 }}>
+                                  <span style={{ fontSize:9, color:'var(--text-muted)' }}>{r.qty?.toLocaleString()} sh</span>
+                                  <span style={{ fontSize:10, fontWeight:800, color, fontVariantNumeric:'tabular-nums' }}>{formatCurrency(r.amount)}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
                         )}
                       </div>
+                    );
 
-                      {/* Net cashflow footer */}
-                      {(investAmt > 0 || withdrawAmt > 0) && (
-                        <div style={{
-                          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                          padding: '6px 10px', borderRadius: 8,
-                          background: net >= 0 ? 'var(--brand-bg)' : 'var(--loss-bg)',
-                          border: `1px solid ${net >= 0 ? 'var(--brand-glow)' : 'var(--loss-border)'}`,
-                        }}>
-                          <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-lo)' }}>Net Cashflow</span>
-                          <span style={{ fontSize: 13, fontWeight: 900, fontVariantNumeric: 'tabular-nums', color: net >= 0 ? 'var(--brand)' : 'var(--loss)' }}>
-                            {net >= 0 ? '+' : '−'}{formatCurrency(Math.abs(net))}
+                    return (
+                      <div style={{ background:'var(--bg-surface)', border:'1px solid var(--border-md)', borderRadius:14, boxShadow:'var(--shadow-lg)', width: hasBoth ? 500 : 280, overflow:'hidden' }}>
+                        {/* Header */}
+                        <div style={{ padding:'8px 13px', background:'var(--bg-raised)', borderBottom:'1px solid var(--border-md)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
+                          <span style={{ fontSize:12, fontWeight:800, color:'var(--text-hi)' }}>📅 {label}</span>
+                          <span style={{ fontSize:11, fontWeight:700, color: net>=0?'var(--gain)':'var(--loss)', background: net>=0?'var(--gain-bg)':'var(--loss-bg)', padding:'2px 8px', borderRadius:99, border:`1px solid ${net>=0?'var(--gain-border)':'var(--loss-border)'}` }}>
+                            Net {net>=0?'+':'-'}{formatCurrency(Math.abs(net))}
                           </span>
                         </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              }}
-              filterNull={true}
-            />
-            <Legend />
-            <Bar 
-              dataKey="investments" 
-              fill="#3b82f6" 
-              name="Investments (Buy)"
-              isAnimationActive={false}
-              radius={[4, 4, 0, 0]}
-              stroke="#2563eb"
-              strokeWidth={1}
-            />
-            <Bar 
-              dataKey="withdrawals" 
-              fill="#ef4444" 
-              name="Withdrawals (Sell)"
-              isAnimationActive={false}
-              radius={[4, 4, 0, 0]}
-              stroke="#dc2626"
-              strokeWidth={1}
-            />
-            <Line 
-              type="monotone" 
-              dataKey="investments" 
-              stroke="#2563eb" 
-              strokeWidth={2}
-              dot={{ fill: '#2563eb', r: 3 }}
-              strokeDasharray="5 5"
-              name="Investments Trend"
-              legendType="line"
-              isAnimationActive={false}
-            />
-            <Line 
-              type="monotone" 
-              dataKey="withdrawals" 
-              stroke="#dc2626" 
-              strokeWidth={2}
-              dot={{ fill: '#dc2626', r: 3 }}
-              strokeDasharray="5 5"
-              name="Withdrawals Trend"
-              legendType="line"
-              isAnimationActive={false}
-            />
-            </ComposedChart>
-          </ResponsiveContainer>
+                        {/* Body */}
+                        <div style={{ padding:'11px 13px', display:'flex', gap:10 }}>
+                          {inv > 0 && <ColSection title="Invested (Buy)" amt={inv} rows={invRows} color="var(--brand)" />}
+                          {hasBoth && <div style={{ width:1, background:'var(--border-md)', alignSelf:'stretch' }} />}
+                          {wdl > 0 && <ColSection title="Withdrawn (Sell)" amt={wdl} rows={wdlRows} color="var(--loss)" />}
+                        </div>
+                      </div>
+                    );
+                  }}
+                />
+
+                <Legend
+                  wrapperStyle={{ paddingTop: 8, paddingBottom: 4 }}
+                  iconSize={10}
+                  formatter={(value) => (
+                    <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-lo)' }}>{value}</span>
+                  )}
+                />
+                <Bar dataKey="investments" name="Invested" fill="url(#invGrad)" radius={[3,3,0,0]} maxBarSize={28} isAnimationActive={true} />
+                <Bar dataKey="withdrawals"  name="Withdrawn" fill="url(#wdlGrad)"  radius={[3,3,0,0]} maxBarSize={28} isAnimationActive={true} />
+                <Line
+                  type="monotone"
+                  dataKey="net"
+                  name="Net Cashflow"
+                  stroke="#10b981"
+                  strokeWidth={2.5}
+                  dot={false}
+                  activeDot={{ r: 5, fill: '#10b981', stroke: '#fff', strokeWidth: 2 }}
+                  isAnimationActive={true}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
         </div>
-      </div>
-      )}
+        );
+      })()}
 
       {/* Monthly Dividends Chart */}
       <div className="card p-6">
