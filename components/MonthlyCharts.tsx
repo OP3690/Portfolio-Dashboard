@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import {
   LineChart,
   Line,
@@ -85,14 +85,19 @@ export default function MonthlyCharts({
     return isNaN(d.getTime()) ? 0 : d.getTime();
   };
 
-  // Guard against undefined/null data, ensure proper data structure, sort oldest → latest
-  const safeMonthlyInvestments = (monthlyInvestments || [])
-    .map(item => ({
-      ...item,
-      investments: Number(item.investments || 0),
-      withdrawals: Number(item.withdrawals || 0),
-    }))
-    .sort((a, b) => parseMonthStr(a.month) - parseMonthStr(b.month));
+  // Guard against undefined/null data, ensure proper data structure, sort oldest → latest.
+  // Memoised so the RAF animation loop's constant re-renders don't create new array
+  // references every frame (which confuses Recharts into ignoring data prop changes).
+  const safeMonthlyInvestments = useMemo(() =>
+    (monthlyInvestments || [])
+      .map(item => ({
+        ...item,
+        investments: Number(item.investments || 0),
+        withdrawals: Number(item.withdrawals || 0),
+      }))
+      .sort((a, b) => parseMonthStr(a.month) - parseMonthStr(b.month)),
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  [monthlyInvestments]);
 
   const safeMonthlyDividends = (monthlyDividends || [])
     .map(item => ({
@@ -122,10 +127,11 @@ export default function MonthlyCharts({
   // Investments & Withdrawals period toggle: 'all' | '5y'
   const [invPeriod, setInvPeriod] = useState<'all' | '5y'>('all');
 
-  // Last-5-year slice: keep only the most recent 60 months
-  const filteredMonthlyInvestments = invPeriod === '5y'
-    ? safeMonthlyInvestments.slice(-60)
-    : safeMonthlyInvestments;
+  // Last-5-year slice: keep only the most recent 60 months.
+  // Stable reference — only changes when invPeriod or source data changes.
+  const filteredMonthlyInvestments = useMemo(() =>
+    invPeriod === '5y' ? safeMonthlyInvestments.slice(-60) : safeMonthlyInvestments,
+  [invPeriod, safeMonthlyInvestments]);
 
   // Cross-chart hover sync
   const [activeMonth, setActiveMonth]   = useState<string | null>(null);
@@ -277,10 +283,9 @@ export default function MonthlyCharts({
               </div>
             );
           })()}
-          {/* key forces full remount when period or data length changes — required because
-              isAnimationActive=false prevents Recharts from diffing data prop updates */}
-          <ResponsiveContainer key={`inv-${invPeriod}-${filteredMonthlyInvestments.length}`} width="100%" height={300}>
+          <ResponsiveContainer width="100%" height={300}>
             <ComposedChart
+              key={`inv-chart-${invPeriod}`}
               data={filteredMonthlyInvestments}
               margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
               onMouseMove={(e: any) => { if (e?.activeLabel) { setActiveMonth(e.activeLabel); setActiveChart('investments'); } }}
