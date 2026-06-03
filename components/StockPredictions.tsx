@@ -530,6 +530,8 @@ export default function StockPredictions() {
   const [sellForTrade,    setSellForTrade]    = useState<PTrade | null>(null);
   // Incrementing this tells <PredictionTrades> to re-fetch its own list
   const [tradeRefreshKey, setTradeRefreshKey] = useState(0);
+  const [predPage,        setPredPage]        = useState(0);
+  const PRED_PAGE_SIZE = 10;
 
   /* maps predictionId → open trade */
   const openTradesMap = useMemo(() => {
@@ -566,7 +568,7 @@ export default function StockPredictions() {
     setTradeRefreshKey(k => k + 1);
   }, [fetchTrades]);
 
-  useEffect(() => { fetchPredictions(filter); }, [filter]);
+  useEffect(() => { fetchPredictions(filter); setPredPage(0); }, [filter]);
   useEffect(() => { fetchTrades(); }, [fetchTrades]);
 
   const handleAction = async (action: 'predict' | 'track' | 'recalibrate') => {
@@ -831,7 +833,7 @@ export default function StockPredictions() {
                 </tr>
               </thead>
               <tbody>
-                {sorted.map((p, idx) => {
+                {sorted.slice(predPage * PRED_PAGE_SIZE, (predPage + 1) * PRED_PAGE_SIZE).map((p, idx) => {
                   const tracking   = p.tracking;
                   const daysActive = getTradingDays(p.firstRecommendedDate);
                   const ret        = tracking?.totalReturn ?? p.bestReturn;
@@ -1047,6 +1049,49 @@ export default function StockPredictions() {
                 })}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* ── Pagination footer ────────────────────────────────────────── */}
+        {sorted.length > PRED_PAGE_SIZE && (
+          <div className="px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+            style={{ borderTop: '1px solid var(--border-sm)' }}>
+            <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
+              Showing {predPage * PRED_PAGE_SIZE + 1}–{Math.min((predPage + 1) * PRED_PAGE_SIZE, sorted.length)} of {sorted.length} predictions
+            </p>
+            <div className="flex items-center gap-1">
+              {/* Prev */}
+              <button onClick={() => setPredPage(p => Math.max(0, p - 1))} disabled={predPage === 0}
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold transition-all"
+                style={{ background: 'var(--bg-raised)', color: predPage === 0 ? 'var(--border-md)' : 'var(--text-lo)', border: '1px solid var(--border-md)', cursor: predPage === 0 ? 'not-allowed' : 'pointer' }}>
+                ‹
+              </button>
+              {/* Page pills */}
+              {Array.from({ length: Math.ceil(sorted.length / PRED_PAGE_SIZE) }, (_, i) => {
+                const isActive    = i === predPage;
+                const total       = Math.ceil(sorted.length / PRED_PAGE_SIZE);
+                const nearCurrent = Math.abs(i - predPage) <= 2;
+                const isEdge      = i === 0 || i === total - 1;
+                if (!nearCurrent && !isEdge) {
+                  if (i === 1 || i === total - 2) return <span key={i} className="text-[10px]" style={{ color: 'var(--border-md)' }}>…</span>;
+                  return null;
+                }
+                return (
+                  <button key={i} onClick={() => setPredPage(i)}
+                    className="w-7 h-7 rounded-lg flex items-center justify-center text-[11px] font-bold transition-all"
+                    style={{ background: isActive ? 'var(--brand)' : 'var(--bg-raised)', color: isActive ? '#fff' : 'var(--text-lo)', border: `1px solid ${isActive ? 'var(--brand)' : 'var(--border-md)'}`, boxShadow: isActive ? '0 2px 8px var(--brand-glow)' : 'none' }}>
+                    {i + 1}
+                  </button>
+                );
+              })}
+              {/* Next */}
+              <button onClick={() => setPredPage(p => Math.min(Math.ceil(sorted.length / PRED_PAGE_SIZE) - 1, p + 1))}
+                disabled={predPage === Math.ceil(sorted.length / PRED_PAGE_SIZE) - 1}
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold transition-all"
+                style={{ background: 'var(--bg-raised)', color: predPage === Math.ceil(sorted.length / PRED_PAGE_SIZE) - 1 ? 'var(--border-md)' : 'var(--text-lo)', border: '1px solid var(--border-md)', cursor: predPage === Math.ceil(sorted.length / PRED_PAGE_SIZE) - 1 ? 'not-allowed' : 'pointer' }}>
+                ›
+              </button>
+            </div>
           </div>
         )}
       </div>
