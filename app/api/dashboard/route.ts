@@ -1452,14 +1452,16 @@ function solveXIRR(cashFlows: Array<{ date: Date; amount: number }>): number {
   }
 }
 
-/* helper: extract trade value from a transaction record */
+/* helper: extract trade value from a transaction record.
+   tradeValueAdjusted already includes charges (= price×qty ± charges),
+   so we use it as-is. Fall back to price×qty ± charges only when it's 0. */
 function txnValue(t: any, isBuy: boolean): number {
-  const price  = Number(t.tradePriceAdjusted)  || 0;
-  const qty    = Number(t.tradedQty)            || 0;
-  const chg    = Number(t.charges)              || 0;
-  const adj    = Number(t.tradeValueAdjusted)   || 0;
-  const base   = adj > 0 ? adj : price * qty;
-  return isBuy ? base + chg : base - chg;
+  const price = Number(t.tradePriceAdjusted) || 0;
+  const qty   = Number(t.tradedQty)          || 0;
+  const chg   = Number(t.charges)            || 0;
+  const adj   = Number(t.tradeValueAdjusted) || 0;
+  if (adj > 0) return adj;                          // already the net amount paid/received
+  return isBuy ? price * qty + chg : price * qty - chg;
 }
 
 /**
