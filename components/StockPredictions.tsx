@@ -752,13 +752,25 @@ export default function StockPredictions() {
       )}
 
       {/* ══════════════════════════════════════════════════════════════════════
-          4. MY OPEN POSITIONS
+          4. MY TRADES FROM AI PREDICTIONS
       ══════════════════════════════════════════════════════════════════════ */}
-      <OpenPositions trades={openTrades}
-        onSell={t => setSellForTrade(t)} />
+      <PredictionTrades
+        predictions={(data?.predictions ?? []).map(p => ({
+          _id: p._id, stockSymbol: p.stockSymbol, stockName: p.stockName,
+          entryPrice: p.entryPrice, status: p.status,
+        }))}
+        onBuySuccess={() => { bumpTrades(); fetchPredictions(filter); }}
+        onTradeChange={bumpTrades}
+        refreshKey={tradeRefreshKey}
+      />
 
       {/* ══════════════════════════════════════════════════════════════════════
-          5. PREDICTION HISTORY TABLE
+          5. DAILY PERFORMANCE HEATMAP
+      ══════════════════════════════════════════════════════════════════════ */}
+      <DailyTrackingTable />
+
+      {/* ══════════════════════════════════════════════════════════════════════
+          6. PREDICTION HISTORY TABLE
       ══════════════════════════════════════════════════════════════════════ */}
       <div className="card overflow-hidden">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4"
@@ -1040,25 +1052,7 @@ export default function StockPredictions() {
       </div>
 
       {/* ══════════════════════════════════════════════════════════════════════
-          6. DAILY PERFORMANCE HEATMAP
-      ══════════════════════════════════════════════════════════════════════ */}
-      <DailyTrackingTable />
-
-      {/* ══════════════════════════════════════════════════════════════════════
-          7. TRADE P&L ANALYTICS
-      ══════════════════════════════════════════════════════════════════════ */}
-      <PredictionTrades
-        predictions={(data?.predictions ?? []).map(p => ({
-          _id: p._id, stockSymbol: p.stockSymbol, stockName: p.stockName,
-          entryPrice: p.entryPrice, status: p.status,
-        }))}
-        onBuySuccess={() => { bumpTrades(); fetchPredictions(filter); }}
-        onTradeChange={bumpTrades}
-        refreshKey={tradeRefreshKey}
-      />
-
-      {/* ══════════════════════════════════════════════════════════════════════
-          8. MODEL WEIGHTS + HOW IT WORKS
+          7. MODEL WEIGHTS + HOW IT WORKS
       ══════════════════════════════════════════════════════════════════════ */}
       {data?.modelWeights && (
         <div className="card p-5">
