@@ -363,6 +363,194 @@ export function SellModal({
   );
 }
 
+/* ─── ModifyModal ────────────────────────────────────────────────────────── */
+export function ModifyModal({
+  trade,
+  onClose,
+  onSuccess,
+}: {
+  trade: Trade;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [buyDate,  setBuyDate]  = useState(fmtDateInput(trade.buyDate));
+  const [buyPrice, setBuyPrice] = useState(trade.buyPrice.toFixed(2));
+  const [buyQty,   setBuyQty]   = useState(trade.buyQuantity.toString());
+  const [notes,    setNotes]    = useState(trade.notes ?? '');
+  const [loading,  setLoading]  = useState(false);
+  const [error,    setError]    = useState('');
+
+  const invested = parseFloat(buyPrice || '0') * parseFloat(buyQty || '0');
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!buyDate || !buyPrice || !buyQty) { setError('All fields required'); return; }
+    const qty = parseFloat(buyQty);
+    if (qty < trade.soldQuantity) {
+      setError(`Qty cannot be less than already sold (${trade.soldQuantity})`);
+      return;
+    }
+    setLoading(true); setError('');
+    try {
+      const res = await fetch(`/api/prediction-trades/${trade._id}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ buyDate, buyPrice, buyQuantity: buyQty, notes }),
+      });
+      const data = await res.json();
+      if (data.success) { onSuccess(); onClose(); }
+      else setError(data.error || 'Failed to update');
+    } catch (err: any) { setError(err.message); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <Modal title={`Modify Buy — ${trade.stockSymbol}`} onClose={onClose}>
+      {/* Stock info banner */}
+      <div className="flex items-center justify-between mb-4 p-3 rounded-xl"
+        style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-sm)' }}>
+        <div>
+          <p className="text-xs font-black" style={{ color: 'var(--text-hi)' }}>{trade.stockSymbol}</p>
+          <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{trade.stockName}</p>
+        </div>
+        <div className="text-right">
+          <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>AI Entry Price</p>
+          <p className="text-sm font-black" style={{ color: 'var(--brand)' }}>₹{trade.predictionEntryPrice.toLocaleString('en-IN')}</p>
+        </div>
+      </div>
+
+      {trade.soldQuantity > 0 && (
+        <div className="mb-4 px-3 py-2 rounded-lg text-[11px]"
+          style={{ background: 'rgba(251,191,36,0.1)', border: '1px solid rgba(251,191,36,0.3)', color: '#f59e0b' }}>
+          ⚠️ {trade.soldQuantity} shares already sold — quantity cannot go below this.
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit}>
+        <Field label="Buy Date">
+          <Input type="date" value={buyDate} onChange={e => setBuyDate(e.target.value)}
+            max={new Date().toISOString().slice(0, 10)} />
+        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Avg Buy Price (₹)">
+            <Input type="number" step="0.01" min="0.01" value={buyPrice}
+              onChange={e => setBuyPrice(e.target.value)} />
+          </Field>
+          <Field label="Quantity" hint={trade.soldQuantity > 0 ? `min ${trade.soldQuantity}` : undefined}>
+            <Input type="number" step="1" min={trade.soldQuantity || 1} value={buyQty}
+              onChange={e => setBuyQty(e.target.value)} />
+          </Field>
+        </div>
+
+        {invested > 0 && (
+          <div className="flex items-center justify-between mb-4 px-3 py-2 rounded-lg"
+            style={{ background: 'rgba(99,102,241,0.08)', border: '1px solid rgba(99,102,241,0.2)' }}>
+            <span className="text-[11px]" style={{ color: 'var(--text-muted)' }}>New Total Invested</span>
+            <span className="text-sm font-black" style={{ color: '#818cf8' }}>{fmtINR(invested)}</span>
+          </div>
+        )}
+
+        <Field label="Notes" hint="(optional)">
+          <Input type="text" placeholder="Any notes about this trade" value={notes}
+            onChange={e => setNotes(e.target.value)} />
+        </Field>
+
+        {error && <p className="text-xs mb-3" style={{ color: 'var(--loss)' }}>{error}</p>}
+
+        <div className="flex gap-2 mt-5">
+          <button type="button" onClick={onClose}
+            className="flex-1 py-2.5 rounded-xl text-sm font-bold"
+            style={{ background: 'var(--bg-raised)', color: 'var(--text-muted)', border: '1px solid var(--border-md)' }}>
+            Cancel
+          </button>
+          <button type="submit" disabled={loading}
+            className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white"
+            style={{ background: '#f59e0b', opacity: loading ? 0.6 : 1 }}>
+            {loading ? 'Saving…' : 'Save Changes'}
+          </button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+/* ─── DiscardModal ───────────────────────────────────────────────────────── */
+export function DiscardModal({
+  trade,
+  onClose,
+  onSuccess,
+}: {
+  trade: Trade;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error,   setError]   = useState('');
+
+  async function handleDiscard() {
+    setLoading(true); setError('');
+    try {
+      const res  = await fetch(`/api/prediction-trades/${trade._id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) { onSuccess(); onClose(); }
+      else setError(data.error || 'Failed to discard');
+    } catch (err: any) { setError(err.message); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <Modal title="Discard Trade" onClose={onClose}>
+      {/* Warning icon */}
+      <div className="flex flex-col items-center text-center mb-6">
+        <div className="w-14 h-14 rounded-full flex items-center justify-center mb-3"
+          style={{ background: 'rgba(239,68,68,0.1)', border: '2px solid rgba(239,68,68,0.25)' }}>
+          <svg className="w-7 h-7" fill="none" stroke="#ef4444" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+        </div>
+        <p className="text-sm font-black mb-1" style={{ color: 'var(--text-hi)' }}>
+          Permanently discard this trade?
+        </p>
+        <p className="text-xs" style={{ color: 'var(--text-lo)' }}>
+          This will delete the recorded buy for <strong style={{ color: 'var(--text-hi)' }}>{trade.stockSymbol}</strong> and all associated sell history. This cannot be undone.
+        </p>
+      </div>
+
+      {/* Trade summary */}
+      <div className="rounded-xl p-3 mb-5" style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-md)' }}>
+        <div className="grid grid-cols-3 gap-2 text-center">
+          {[
+            { label: 'Stock',    val: trade.stockSymbol },
+            { label: 'Qty',      val: trade.buyQuantity.toString() },
+            { label: 'Invested', val: fmtINR(trade.totalInvested) },
+          ].map(({ label, val }) => (
+            <div key={label}>
+              <p className="text-[9px] font-bold uppercase tracking-widest mb-0.5" style={{ color: 'var(--text-muted)' }}>{label}</p>
+              <p className="text-xs font-black" style={{ color: 'var(--text-hi)' }}>{val}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {error && <p className="text-xs mb-3 text-center" style={{ color: 'var(--loss)' }}>{error}</p>}
+
+      <div className="flex gap-2">
+        <button type="button" onClick={onClose}
+          className="flex-1 py-2.5 rounded-xl text-sm font-bold"
+          style={{ background: 'var(--bg-raised)', color: 'var(--text-muted)', border: '1px solid var(--border-md)' }}>
+          Keep Trade
+        </button>
+        <button type="button" onClick={handleDiscard} disabled={loading}
+          className="flex-1 py-2.5 rounded-xl text-sm font-bold text-white"
+          style={{ background: '#ef4444', opacity: loading ? 0.6 : 1 }}>
+          {loading ? 'Discarding…' : 'Yes, Discard'}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 /* ─── SellHistoryRow ─────────────────────────────────────────────────────── */
 function SellHistory({ sells }: { sells: SellLot[] }) {
   if (sells.length === 0) return null;
@@ -461,10 +649,13 @@ function AnalyticsCards({ trades }: { trades: Trade[] }) {
 export default function PredictionTrades({
   predictions,
   onBuySuccess,
+  onTradeChange,
   refreshKey,
 }: {
   predictions: TradePrediction[];
   onBuySuccess?: () => void;
+  /** Called after any modify or discard so the parent can refresh allTrades */
+  onTradeChange?: () => void;
   refreshKey?: number;
 }) {
   const [trades, setTrades]         = useState<Trade[]>([]);
@@ -472,6 +663,8 @@ export default function PredictionTrades({
   const [expanded, setExpanded]     = useState<string | null>(null);
   const [buyFor, setBuyFor]         = useState<TradePrediction | null>(null);
   const [sellFor, setSellFor]       = useState<Trade | null>(null);
+  const [modifyFor, setModifyFor]   = useState<Trade | null>(null);
+  const [discardFor, setDiscardFor] = useState<Trade | null>(null);
   const [statusFilter, setStatusFilter] = useState<'all' | TradeStatus>('all');
 
   const fetchTrades = useCallback(async () => {
@@ -510,8 +703,10 @@ export default function PredictionTrades({
   return (
     <>
       {/* ── Modals ─────────────────────────────────────────────────────────── */}
-      {buyFor  && <BuyModal  prediction={buyFor}  onClose={() => setBuyFor(null)}  onSuccess={() => { fetchTrades(); onBuySuccess?.(); }} />}
-      {sellFor && <SellModal trade={sellFor}       onClose={() => setSellFor(null)} onSuccess={fetchTrades} />}
+      {buyFor     && <BuyModal     prediction={buyFor}  onClose={() => setBuyFor(null)}     onSuccess={() => { fetchTrades(); onBuySuccess?.(); }} />}
+      {sellFor    && <SellModal    trade={sellFor}      onClose={() => setSellFor(null)}    onSuccess={fetchTrades} />}
+      {modifyFor  && <ModifyModal  trade={modifyFor}    onClose={() => setModifyFor(null)}  onSuccess={() => { fetchTrades(); onTradeChange?.(); }} />}
+      {discardFor && <DiscardModal trade={discardFor}   onClose={() => setDiscardFor(null)} onSuccess={() => { fetchTrades(); onTradeChange?.(); }} />}
 
       <div className="card overflow-hidden">
         {/* Header */}
@@ -726,15 +921,31 @@ export default function PredictionTrades({
 
                         {/* Actions */}
                         <td style={{ ...tdStyle, textAlign: 'center' }}>
-                          <div className="flex items-center gap-1 justify-center">
+                          <div className="flex items-center gap-1 justify-center flex-wrap">
+                            {/* Sell */}
                             {t.remainingQuantity > 0 && (
                               <button
                                 onClick={e => { e.stopPropagation(); setSellFor(t); }}
-                                className="px-2.5 py-1 rounded-lg text-[10px] font-bold"
+                                className="px-2.5 py-1 rounded-lg text-[10px] font-bold transition-opacity hover:opacity-80"
                                 style={{ background: 'rgba(248,113,113,0.12)', color: '#f87171', border: '1px solid rgba(248,113,113,0.25)' }}>
                                 Sell
                               </button>
                             )}
+                            {/* Modify */}
+                            <button
+                              onClick={e => { e.stopPropagation(); setModifyFor(t); }}
+                              className="px-2.5 py-1 rounded-lg text-[10px] font-bold transition-opacity hover:opacity-80"
+                              style={{ background: 'rgba(251,191,36,0.12)', color: '#f59e0b', border: '1px solid rgba(251,191,36,0.3)' }}>
+                              ✏️ Modify
+                            </button>
+                            {/* Discard */}
+                            <button
+                              onClick={e => { e.stopPropagation(); setDiscardFor(t); }}
+                              className="px-2.5 py-1 rounded-lg text-[10px] font-bold transition-opacity hover:opacity-80"
+                              style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)' }}>
+                              🗑 Discard
+                            </button>
+                            {/* Expand toggle */}
                             <button
                               onClick={e => { e.stopPropagation(); setExpanded(isExpanded ? null : t._id); }}
                               className="w-6 h-6 rounded-lg flex items-center justify-center"

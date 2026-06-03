@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import DailyTrackingTable from './DailyTrackingTable';
 import PredictionTrades, { BuyModal, SellModal, Trade as PTrade, TradePrediction } from './PredictionTrades';
 import PredictionIntelligence from './PredictionIntelligence';
@@ -161,12 +161,85 @@ function Th({ label, sk, current, dir, onSort, right = false, hint }: {
   );
 }
 
+/* ─── Volume Chip with fixed-position tooltip ────────────────────────────── */
+function VolumeChip({ volumeRatio }: { volumeRatio: number }) {
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const ref = useRef<HTMLSpanElement>(null);
+
+  const up     = volumeRatio >= 1.1;
+  const strong = volumeRatio >= 1.4 || volumeRatio <= 0.6;
+  const color  = up ? '#34d399' : '#f87171';
+  const bg     = up ? 'rgba(52,211,153,0.13)' : 'rgba(248,113,113,0.13)';
+  const border = up ? 'rgba(52,211,153,0.35)' : 'rgba(248,113,113,0.35)';
+  const arrow  = up ? (strong ? '↑↑' : '↑') : (strong ? '↓↓' : '↓');
+  const label  = up ? (strong ? 'Strong surge' : 'Above average') : (strong ? 'Sharp decline' : 'Below average');
+  const bars   = [0.4, 0.65, 1.0, 0.75];
+
+  function handleMouseEnter() {
+    if (!ref.current) return;
+    const r = ref.current.getBoundingClientRect();
+    setPos({ x: r.left + r.width / 2, y: r.top });
+  }
+
+  return (
+    <>
+      <span ref={ref}
+        className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-lg text-[9px] font-black whitespace-nowrap cursor-default"
+        style={{ background: bg, color, border: `1px solid ${border}` }}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={() => setPos(null)}>
+        <svg className="w-2.5 h-2.5" viewBox="0 0 12 12" fill="currentColor">
+          <rect x="0" y="6" width="2.5" height="6" rx="0.5"/>
+          <rect x="3.5" y="3" width="2.5" height="9" rx="0.5"/>
+          <rect x="7" y="1" width="2.5" height="11" rx="0.5"/>
+          <rect x="10.5" y="4" width="1.5" height="8" rx="0.5"/>
+        </svg>
+        {arrow}
+      </span>
+
+      {/* Fixed-position tooltip — escapes overflow:hidden */}
+      {pos && (
+        <div className="pointer-events-none"
+          style={{ position: 'fixed', zIndex: 9999, top: pos.y - 8, left: pos.x, transform: 'translate(-50%, -100%)', minWidth: 168 }}>
+          {/* Tooltip card */}
+          <div className="rounded-xl px-3 py-2.5"
+            style={{ background: 'var(--bg-surface)', border: `1px solid ${border}`, boxShadow: `0 8px 28px rgba(0,0,0,0.35), 0 0 0 1px ${border}` }}>
+            {/* Header */}
+            <div className="flex items-center justify-between gap-3 mb-2">
+              <span className="text-[10px] font-black uppercase tracking-wider" style={{ color: 'var(--text-muted)' }}>Volume Trend</span>
+              <span className="text-[10px] font-black px-1.5 py-0.5 rounded-md" style={{ background: bg, color }}>{label}</span>
+            </div>
+            {/* Big ratio */}
+            <div className="flex items-end gap-1.5 mb-2.5">
+              <span className="text-xl font-black leading-none" style={{ color }}>{volumeRatio.toFixed(2)}×</span>
+              <span className="text-[10px] mb-0.5" style={{ color: 'var(--text-muted)' }}>vs avg volume</span>
+            </div>
+            {/* Mini sparkline */}
+            <div className="flex items-end gap-1 h-7">
+              {bars.map((h, i) => (
+                <div key={i} className="flex-1 rounded-sm"
+                  style={{ height: `${h * 100}%`, background: `color-mix(in srgb,${color} 45%,transparent)` }} />
+              ))}
+              <div className="flex-1 rounded-sm"
+                style={{ height: `${Math.min(volumeRatio / 2, 1) * 100}%`, background: color, boxShadow: `0 0 6px ${color}` }} />
+            </div>
+            <p className="text-[9px] mt-1.5 text-center" style={{ color: 'var(--text-muted)' }}>Recent days · last bar = now</p>
+          </div>
+          {/* Caret */}
+          <div className="mx-auto w-2.5 h-2.5 rotate-45 -mt-1.5"
+            style={{ background: 'var(--bg-surface)', border: `1px solid ${border}`, borderTop: 'none', borderLeft: 'none', width: 10, height: 10 }} />
+        </div>
+      )}
+    </>
+  );
+}
+
 /* ─── Today's Pick Card ──────────────────────────────────────────────────── */
 function PickCard({
-  p, rank, openTrade,
+  p, rank, tRank, openTrade,
   onBuy, onSell,
 }: {
-  p: Prediction; rank: number; openTrade: PTrade | null;
+  p: Prediction; rank: number; tRank: number; openTrade: PTrade | null;
   onBuy: () => void; onSell: () => void;
 }) {
   const ret       = p.tracking?.totalReturn ?? p.bestReturn;
@@ -177,13 +250,26 @@ function PickCard({
   const progress  = Math.min(100, (ret / (p.targetReturn || 5)) * 100);
   const rankColors = ['#818cf8', '#34d399', '#fbbf24'];
   const rc = rankColors[rank - 1] ?? 'var(--brand)';
+  const tColors = [
+    { color: '#f59e0b', bg: 'rgba(245,158,11,0.22)', border: 'rgba(245,158,11,0.5)'  }, // T-1 amber
+    { color: '#a78bfa', bg: 'rgba(167,139,250,0.22)', border: 'rgba(167,139,250,0.5)' }, // T-2 violet
+    { color: '#38bdf8', bg: 'rgba(56,189,248,0.22)',  border: 'rgba(56,189,248,0.5)'  }, // T-3 sky
+  ];
+  const tc = tColors[(tRank - 1) % tColors.length];
 
   return (
     <div className="rounded-2xl overflow-hidden flex flex-col"
       style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-md)', boxShadow: '0 2px 12px rgba(0,0,0,0.08)' }}>
 
-      {/* Top accent bar */}
-      <div className="h-0.5" style={{ background: `linear-gradient(90deg, ${rc}, transparent)` }} />
+      {/* Top accent bar with centred T-label — no extra card height */}
+      <div className="relative flex items-center justify-center h-5"
+        style={{ background: `linear-gradient(90deg, transparent, color-mix(in srgb,${tc.color} 12%,transparent), transparent)` }}>
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black"
+          style={{ background: tc.bg, color: tc.color, border: `1px solid ${tc.border}`, boxShadow: `0 0 8px ${tc.bg}`, letterSpacing: '0.06em' }}>
+          <span className="w-1.5 h-1.5 rounded-full" style={{ background: tc.color, boxShadow: `0 0 4px ${tc.color}` }} />
+          T-{tRank}
+        </span>
+      </div>
 
       {/* Header */}
       <div className="p-4 pb-3 flex items-start justify-between gap-3">
@@ -196,6 +282,8 @@ function PickCard({
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {/* Volume trend chip */}
+          <VolumeChip volumeRatio={p.indicatorSnapshot.volumeRatio} />
           {regime && (
             <span className="text-[9px] font-bold px-2 py-0.5 rounded-lg whitespace-nowrap"
               style={{ background: regime.bg, color: regime.color }}>{regime.label}</span>
@@ -615,7 +703,7 @@ export default function StockPredictions() {
       ══════════════════════════════════════════════════════════════════════ */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         {[
-          { label: 'Active Picks',  val: String(activePredictions.length), sub: 'being tracked', color: '#38bdf8' },
+          { label: 'Active Picks',  val: `${new Set(openTrades.map(t => t.stockSymbol)).size}/${data?.total ?? 0}`, sub: 'invested in predictions', color: '#38bdf8' },
           { label: 'Win Rate',      val: data ? `${data.stats.successRate.toFixed(0)}%` : '—', sub: `${data?.stats.successCount ?? 0}/${data?.stats.totalEvaluated ?? 0} evaluated`, color: 'var(--gain)' },
           { label: 'Avg Return',    val: data ? fmtPct(data.stats.avgReturn) : '—', sub: 'on evaluated picks', color: data && data.stats.avgReturn >= 0 ? 'var(--gain)' : 'var(--loss)' },
           { label: 'Invested',      val: allTrades.length ? fmtCompact(tradeStats.invested) : '—', sub: `${allTrades.length} trade${allTrades.length !== 1 ? 's' : ''}`, color: '#818cf8' },
@@ -651,12 +739,14 @@ export default function StockPredictions() {
             <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>— {activePredictions.length} active · click card to expand details</span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {activePredictions.map((p, i) => (
-              <PickCard key={p._id} p={p} rank={i + 1}
-                openTrade={openTradesMap.get(p._id) ?? null}
-                onBuy={() => setBuyForPred({ _id: p._id, stockSymbol: p.stockSymbol, stockName: p.stockName, entryPrice: p.entryPrice, status: p.status })}
-                onSell={() => { const t = openTradesMap.get(p._id); if (t) setSellForTrade(t); }} />
-            ))}
+            {[...activePredictions]
+              .sort((a, b) => new Date(b.latestRecommendedDate).getTime() - new Date(a.latestRecommendedDate).getTime())
+              .map((p, i) => (
+                <PickCard key={p._id} p={p} rank={i + 1} tRank={i + 1}
+                  openTrade={openTradesMap.get(p._id) ?? null}
+                  onBuy={() => setBuyForPred({ _id: p._id, stockSymbol: p.stockSymbol, stockName: p.stockName, entryPrice: p.entryPrice, status: p.status })}
+                  onSell={() => { const t = openTradesMap.get(p._id); if (t) setSellForTrade(t); }} />
+              ))}
           </div>
         </div>
       )}
@@ -963,6 +1053,7 @@ export default function StockPredictions() {
           entryPrice: p.entryPrice, status: p.status,
         }))}
         onBuySuccess={() => { bumpTrades(); fetchPredictions(filter); }}
+        onTradeChange={bumpTrades}
         refreshKey={tradeRefreshKey}
       />
 
