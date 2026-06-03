@@ -94,11 +94,6 @@ export default function MonthlyCharts({
     }))
     .sort((a, b) => parseMonthStr(a.month) - parseMonthStr(b.month));
 
-  // Last-5-year slice: keep only the most recent 60 months
-  const filteredMonthlyInvestments = invPeriod === '5y'
-    ? safeMonthlyInvestments.slice(-60)
-    : safeMonthlyInvestments;
-
   const safeMonthlyDividends = (monthlyDividends || [])
     .map(item => ({
       ...item,
@@ -126,6 +121,11 @@ export default function MonthlyCharts({
 
   // Investments & Withdrawals period toggle: 'all' | '5y'
   const [invPeriod, setInvPeriod] = useState<'all' | '5y'>('all');
+
+  // Last-5-year slice: keep only the most recent 60 months
+  const filteredMonthlyInvestments = invPeriod === '5y'
+    ? safeMonthlyInvestments.slice(-60)
+    : safeMonthlyInvestments;
 
   // Cross-chart hover sync
   const [activeMonth, setActiveMonth]   = useState<string | null>(null);
