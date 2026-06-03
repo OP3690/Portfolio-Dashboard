@@ -94,6 +94,11 @@ export default function MonthlyCharts({
     }))
     .sort((a, b) => parseMonthStr(a.month) - parseMonthStr(b.month));
 
+  // Last-5-year slice: keep only the most recent 60 months
+  const filteredMonthlyInvestments = invPeriod === '5y'
+    ? safeMonthlyInvestments.slice(-60)
+    : safeMonthlyInvestments;
+
   const safeMonthlyDividends = (monthlyDividends || [])
     .map(item => ({
       ...item,
@@ -118,6 +123,9 @@ export default function MonthlyCharts({
   };
   const medianLast6M = computeMedian(safeMonthlyDividends.slice(-6).map(d => d.amount));
   const medianLast3M = computeMedian(safeMonthlyDividends.slice(-3).map(d => d.amount));
+
+  // Investments & Withdrawals period toggle: 'all' | '5y'
+  const [invPeriod, setInvPeriod] = useState<'all' | '5y'>('all');
 
   // Cross-chart hover sync
   const [activeMonth, setActiveMonth]   = useState<string | null>(null);
@@ -196,19 +204,53 @@ export default function MonthlyCharts({
       {safeMonthlyInvestments.length > 0 && (
       <div className="card p-6">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
-          <h2 className="section-title text-base flex items-center gap-2">
-            <div className="w-1 h-5 rounded-full" style={{ background: 'var(--brand)' }}></div>
-            Month on Month Investments & Withdrawals
-          </h2>
+          {/* Title + toggle */}
+          <div className="flex items-center gap-3 flex-wrap">
+            <h2 className="section-title text-base flex items-center gap-2">
+              <div className="w-1 h-5 rounded-full" style={{ background: 'var(--brand)' }}></div>
+              Month on Month Investments &amp; Withdrawals
+            </h2>
+            {/* Period toggle pill */}
+            <div
+              className="flex items-center rounded-full p-0.5 gap-0.5"
+              style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-md)' }}
+            >
+              {(['all', '5y'] as const).map(opt => (
+                <button
+                  key={opt}
+                  onClick={() => setInvPeriod(opt)}
+                  className="text-[11px] font-bold px-3 py-1 rounded-full transition-all duration-200"
+                  style={invPeriod === opt ? {
+                    background: 'var(--brand)',
+                    color: '#fff',
+                    boxShadow: '0 1px 6px color-mix(in srgb, var(--brand) 45%, transparent)',
+                  } : {
+                    background: 'transparent',
+                    color: 'var(--text-lo)',
+                  }}
+                >
+                  {opt === 'all' ? 'All' : 'Last 5 Yr'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Stat pills — reflect filtered data */}
           <div className="flex flex-wrap gap-2.5">
-            {[
-              { label: 'Gross Total Invested', val: safeMonthlyInvestments.reduce((s, i) => s + (i.investments || 0), 0), color: 'var(--brand)' },
-              { label: 'Total Withdrawal', val: safeMonthlyInvestments.reduce((s, i) => s + (i.withdrawals || 0), 0), color: 'var(--loss)' },
-              ...(monthlyInvestmentAverages ? [
-                { label: 'Avg Monthly Investment', val: monthlyInvestmentAverages.avgMonthlyInvestment || 0, color: 'var(--brand)' },
-                { label: 'Avg Monthly Withdrawal', val: monthlyInvestmentAverages.avgMonthlyWithdrawal || 0, color: 'var(--loss)' },
-              ] : []),
-            ].map(({ label, val, color }) => (
+            {(() => {
+              const totalInv = filteredMonthlyInvestments.reduce((s, i) => s + (i.investments || 0), 0);
+              const totalWdl = filteredMonthlyInvestments.reduce((s, i) => s + (i.withdrawals || 0), 0);
+              const n = filteredMonthlyInvestments.filter(i => i.investments > 0).length || 1;
+              const m = filteredMonthlyInvestments.filter(i => i.withdrawals > 0).length || 1;
+              const avgInv = totalInv / n;
+              const avgWdl = totalWdl / m;
+              return [
+                { label: invPeriod === '5y' ? 'Total Invested (5 Yr)' : 'Gross Total Invested', val: totalInv, color: 'var(--brand)' },
+                { label: invPeriod === '5y' ? 'Total Withdrawal (5 Yr)' : 'Total Withdrawal',   val: totalWdl, color: 'var(--loss)' },
+                { label: 'Avg Monthly Investment', val: avgInv, color: 'var(--brand)' },
+                { label: 'Avg Monthly Withdrawal', val: avgWdl, color: 'var(--loss)' },
+              ];
+            })().map(({ label, val, color }) => (
               <div key={label} className="stat-pill">
                 <p className="stat-pill-label">{label}</p>
                 <p className="stat-pill-value metric-value" style={{ color }}>{formatCurrency(val)}</p>
@@ -219,7 +261,7 @@ export default function MonthlyCharts({
         <div style={{ position: 'relative', zIndex: 10, width: '100%', height: '300px' }}>
           {/* Cross-chart companion overlay */}
           {activeMonth && activeChart !== 'investments' && (() => {
-            const md = safeMonthlyInvestments.find(d => d.month === activeMonth);
+            const md = filteredMonthlyInvestments.find(d => d.month === activeMonth);
             return (
               <div className="absolute top-2 right-2 z-30 rounded-xl px-3 py-2 text-xs shadow-lg animate-fadeIn"
                 style={{ background: 'var(--bg-card)', border: '1px solid var(--brand-glow)', minWidth: 190 }}>
@@ -237,7 +279,7 @@ export default function MonthlyCharts({
           })()}
           <ResponsiveContainer width="100%" height={300}>
             <ComposedChart
-              data={safeMonthlyInvestments}
+              data={filteredMonthlyInvestments}
               margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
               onMouseMove={(e: any) => { if (e?.activeLabel) { setActiveMonth(e.activeLabel); setActiveChart('investments'); } }}
               onMouseLeave={() => { setActiveMonth(null); setActiveChart(null); }}
@@ -250,7 +292,7 @@ export default function MonthlyCharts({
               angle={-35}
               textAnchor="end"
               height={55}
-              interval={0}
+              interval={filteredMonthlyInvestments.length > 36 ? Math.ceil(filteredMonthlyInvestments.length / 36) - 1 : 0}
             />
             <YAxis 
               tickFormatter={(value) => `₹${(value / 1000).toFixed(0)}k`}
@@ -260,7 +302,7 @@ export default function MonthlyCharts({
             <Tooltip
               content={({ active, payload, label }) => {
                 if (!active || !payload || !payload.length) return null;
-                const d = safeMonthlyInvestments.find(r => r.month === label);
+                const d = filteredMonthlyInvestments.find(r => r.month === label);
                 const investDetails   = d?.investmentDetails  || [];
                 const withdrawDetails = d?.withdrawalDetails  || [];
                 const investAmt   = d?.investments  || 0;
