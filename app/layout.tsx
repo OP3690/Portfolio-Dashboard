@@ -25,6 +25,10 @@ export const metadata: Metadata = {
     { media: '(prefers-color-scheme: light)', color: '#f1f5f9' },
     { media: '(prefers-color-scheme: dark)',  color: '#0d1117' },
   ],
+  icons: {
+    icon: '/favicon.ico',
+    apple: '/favicon.ico',
+  },
 };
 
 export const viewport = { width: 'device-width', initialScale: 1 };
