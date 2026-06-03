@@ -658,14 +658,15 @@ export default function PredictionTrades({
   onTradeChange?: () => void;
   refreshKey?: number;
 }) {
-  const [trades, setTrades]         = useState<Trade[]>([]);
-  const [loading, setLoading]       = useState(true);
-  const [expanded, setExpanded]     = useState<string | null>(null);
-  const [buyFor, setBuyFor]         = useState<TradePrediction | null>(null);
-  const [sellFor, setSellFor]       = useState<Trade | null>(null);
-  const [modifyFor, setModifyFor]   = useState<Trade | null>(null);
-  const [discardFor, setDiscardFor] = useState<Trade | null>(null);
-  const [statusFilter, setStatusFilter] = useState<'all' | TradeStatus>('all');
+  const [trades, setTrades]               = useState<Trade[]>([]);
+  const [loading, setLoading]             = useState(true);
+  const [expanded, setExpanded]           = useState<string | null>(null);
+  const [buyFor, setBuyFor]               = useState<TradePrediction | null>(null);
+  const [sellFor, setSellFor]             = useState<Trade | null>(null);
+  const [modifyFor, setModifyFor]         = useState<Trade | null>(null);
+  const [discardFor, setDiscardFor]       = useState<Trade | null>(null);
+  const [statusFilter, setStatusFilter]   = useState<'all' | TradeStatus>('all');
+  const [selectedPred, setSelectedPred]   = useState<TradePrediction | null>(null);
 
   const fetchTrades = useCallback(async () => {
     try {
@@ -730,22 +731,34 @@ export default function PredictionTrades({
             <div className="flex items-center gap-2 shrink-0">
               <select
                 className="px-3 py-2 rounded-xl text-xs font-semibold outline-none"
-                style={{ background: 'var(--bg-raised)', border: '1px solid var(--border-md)', color: 'var(--text-lo)' }}
+                style={{
+                  background: 'var(--bg-raised)',
+                  border: `1px solid ${selectedPred ? 'var(--brand)' : 'var(--border-md)'}`,
+                  color: selectedPred ? 'var(--text-hi)' : 'var(--text-lo)',
+                  transition: 'border-color 0.15s',
+                }}
+                value={selectedPred?._id ?? ''}
                 onChange={e => {
                   const p = predictions.find(p => p._id === e.target.value);
-                  if (p) setBuyFor(p);
-                  e.target.value = '';
-                }}
-                defaultValue="">
+                  setSelectedPred(p ?? null);
+                }}>
                 <option value="" disabled>Select stock to buy…</option>
                 {predictions.map(p => (
                   <option key={p._id} value={p._id}>{p.stockSymbol} — {p.stockName}</option>
                 ))}
               </select>
               <button
-                onClick={() => predictions[0] && setBuyFor(predictions[0])}
-                className="px-4 py-2 rounded-xl text-xs font-bold text-white flex items-center gap-1.5"
-                style={{ background: 'var(--brand)' }}>
+                disabled={!selectedPred}
+                onClick={() => { if (selectedPred) { setBuyFor(selectedPred); setSelectedPred(null); } }}
+                className="px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all duration-150"
+                style={{
+                  background: selectedPred ? 'var(--brand)' : 'var(--bg-raised)',
+                  color:      selectedPred ? '#fff' : 'var(--text-muted)',
+                  border:     `1px solid ${selectedPred ? 'var(--brand)' : 'var(--border-md)'}`,
+                  cursor:     selectedPred ? 'pointer' : 'not-allowed',
+                  opacity:    selectedPred ? 1 : 0.55,
+                  boxShadow:  selectedPred ? '0 2px 10px var(--brand-glow)' : 'none',
+                }}>
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" />
                 </svg>
