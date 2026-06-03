@@ -130,10 +130,13 @@ function StatusBadge({ status }: { status: PredictionStatus }) {
 /* ═══════════════════════════════════════════════════════════════════════════
    MAIN COMPONENT
 ══════════════════════════════════════════════════════════════════════════════*/
+const PAGE_SIZE = 10;
+
 export default function DailyTrackingTable() {
   const [data,    setData]    = useState<TrackingHistoryResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter,  setFilter]  = useState('all');
+  const [page,    setPage]    = useState(0);
   const [tooltip, setTooltip] = useState<{ x: number; y: number; content: React.ReactNode } | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
 
@@ -147,6 +150,7 @@ export default function DailyTrackingTable() {
       } catch {}
       finally { setLoading(false); }
     })();
+    setPage(0); // reset to first page on filter change
   }, [filter]);
 
   if (loading) {
@@ -189,6 +193,9 @@ export default function DailyTrackingTable() {
   const activeDates = tradingDates.filter(dateStr =>
     predictions.some(p => p.dailyMap[dateStr])
   );
+
+  const totalPages       = Math.ceil(predictions.length / PAGE_SIZE);
+  const paginatedRows    = predictions.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   const STICKY_W = 300; // px width of the frozen left section
 
@@ -311,7 +318,7 @@ export default function DailyTrackingTable() {
 
           {/* ── BODY ───────────────────────────────────────────────────── */}
           <tbody>
-            {predictions.map((row, rowIdx) => {
+            {paginatedRows.map((row, rowIdx) => {
               const recDateStr = new Date(row.firstRecommendedDate).toISOString().slice(0, 10);
               const isEven     = rowIdx % 2 === 0;
 
@@ -452,16 +459,73 @@ export default function DailyTrackingTable() {
         </table>
       </div>
 
-      {/* ── Footer ─────────────────────────────────────────────────────── */}
-      <div className="px-4 py-2.5 flex items-center justify-between flex-wrap gap-2"
+      {/* ── Footer + Pagination ────────────────────────────────────────── */}
+      <div className="px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
         style={{ borderTop: '1px solid var(--border-sm)' }}>
+
+        {/* Left: info */}
         <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>
-          Predictions auto-archive after 45 trading days · Daily cells = % change from previous close · Hover for price detail
+          Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, predictions.length)} of {predictions.length} predictions
+          &nbsp;·&nbsp;{activeDates.length} trading days
         </p>
-        <div className="flex items-center gap-3 text-[10px]" style={{ color: 'var(--text-muted)' }}>
-          <span>·&nbsp;&nbsp;Trading days only (Mon–Fri)</span>
-          <span>·&nbsp;&nbsp;{activeDates.length} days shown</span>
-        </div>
+
+        {/* Right: pagination controls */}
+        {totalPages > 1 && (
+          <div className="flex items-center gap-1">
+            {/* Prev */}
+            <button
+              onClick={() => setPage(p => Math.max(0, p - 1))}
+              disabled={page === 0}
+              className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold transition-all"
+              style={{
+                background: page === 0 ? 'var(--bg-raised)' : 'var(--bg-raised)',
+                color: page === 0 ? 'var(--border-md)' : 'var(--text-lo)',
+                border: '1px solid var(--border-md)',
+                cursor: page === 0 ? 'not-allowed' : 'pointer',
+              }}>
+              ‹
+            </button>
+
+            {/* Page number pills */}
+            {Array.from({ length: totalPages }, (_, i) => {
+              const isActive  = i === page;
+              const nearCurrent = Math.abs(i - page) <= 2;
+              const isEdge    = i === 0 || i === totalPages - 1;
+              if (!nearCurrent && !isEdge) {
+                if (i === 1 || i === totalPages - 2) {
+                  return <span key={i} className="text-[10px]" style={{ color: 'var(--border-md)' }}>…</span>;
+                }
+                return null;
+              }
+              return (
+                <button key={i} onClick={() => setPage(i)}
+                  className="w-7 h-7 rounded-lg flex items-center justify-center text-[11px] font-bold transition-all"
+                  style={{
+                    background: isActive ? 'var(--brand)' : 'var(--bg-raised)',
+                    color:      isActive ? '#fff' : 'var(--text-lo)',
+                    border:     `1px solid ${isActive ? 'var(--brand)' : 'var(--border-md)'}`,
+                    boxShadow:  isActive ? '0 2px 8px var(--brand-glow)' : 'none',
+                  }}>
+                  {i + 1}
+                </button>
+              );
+            })}
+
+            {/* Next */}
+            <button
+              onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+              disabled={page === totalPages - 1}
+              className="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold transition-all"
+              style={{
+                background: 'var(--bg-raised)',
+                color: page === totalPages - 1 ? 'var(--border-md)' : 'var(--text-lo)',
+                border: '1px solid var(--border-md)',
+                cursor: page === totalPages - 1 ? 'not-allowed' : 'pointer',
+              }}>
+              ›
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
