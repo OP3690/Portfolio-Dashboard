@@ -119,7 +119,9 @@ function MetricCard({
 }
 
 export default function SummaryCards({ summary }: SummaryCardsProps) {
-  const xirr = summary.xirr ?? 0;
+  // Clamp display to ±500% — the Newton-Raphson solver already bounds output,
+  // but guard here too so any stale cached value never shows 4M%
+  const xirr = Math.max(-99.9, Math.min(500, summary.xirr ?? 0));
   const doublingYears = xirr > 0 ? Math.log(2) / Math.log(1 + xirr / 100) : null;
 
   const DoublingBadge = doublingYears ? (

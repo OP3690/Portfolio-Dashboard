@@ -1397,79 +1397,101 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/**
- * Calculate XIRR for a single stock
- */
-function calculateStockXIRR(transactions: any[], holding: any): number {
-  // ✅ HARDENED: Never throw, always return a number (as suggested by user)
+/* ─────────────────────────────────────────────────────────────────────────
+   TRUE XIRR ENGINE  (Newton-Raphson IRR solver)
+   Solves: NPV(r) = Σ CF_i / (1+r)^(days_i/365) = 0
+   Returns annualised rate as a plain number (e.g. 15.3 means 15.3 %)
+   Result is clamped to [-99.9 %, +500 %] so display stays sane.
+───────────────────────────────────────────────────────────────────────── */
+function solveXIRR(cashFlows: Array<{ date: Date; amount: number }>): number {
   try {
-    // Validate inputs
-    if (!transactions || transactions.length === 0) return 0;
-    if (!holding || typeof holding !== 'object') return 0;
-    
-    const cashFlows: Array<{date: Date, amount: number}> = [];
-    
-    transactions.forEach(t => {
-      try {
-        if (!t || typeof t !== 'object') return;
-        const buySell = String(t.buySell || '').toUpperCase();
-        
-        if (buySell === 'BUY') {
-          const tradeValue = t.tradeValueAdjusted || (Number(t.tradePriceAdjusted) || 0) * (Number(t.tradedQty) || 0) + (Number(t.charges) || 0);
-          const date = t.transactionDate ? new Date(t.transactionDate) : new Date();
-          if (!isNaN(date.getTime()) && isFinite(tradeValue)) {
-            cashFlows.push({ date, amount: -Math.abs(tradeValue) });
-          }
-        } else if (buySell === 'SELL') {
-          const tradeValue = t.tradeValueAdjusted || (Number(t.tradePriceAdjusted) || 0) * (Number(t.tradedQty) || 0) - (Number(t.charges) || 0);
-          const date = t.transactionDate ? new Date(t.transactionDate) : new Date();
-          if (!isNaN(date.getTime()) && isFinite(tradeValue)) {
-            cashFlows.push({ date, amount: Math.abs(tradeValue) });
-          }
-        }
-      } catch (e) {
-        // Skip invalid transaction, continue with others
-        console.warn(`Skipping invalid transaction in XIRR calculation:`, e);
-      }
-    });
+    if (cashFlows.length < 2) return 0;
+    const valid = cashFlows.filter(
+      cf => cf && cf.date && !isNaN(cf.date.getTime()) && isFinite(cf.amount) && cf.amount !== 0
+    );
+    if (valid.length < 2) return 0;
+    if (!valid.some(cf => cf.amount < 0)) return 0; // need at least one outflow
+    if (!valid.some(cf => cf.amount > 0)) return 0; // need at least one inflow
 
-    // Current value as final cash flow (only if there's still holding)
-    const openQty = Number(holding.openQty) || 0;
-    const marketValue = Number(holding.marketValue) || 0;
-    if (openQty > 0 && marketValue > 0 && isFinite(marketValue)) {
-      cashFlows.push({ date: new Date(), amount: marketValue });
+    const sorted = [...valid].sort((a, b) => a.date.getTime() - b.date.getTime());
+    const t0 = sorted[0].date.getTime();
+    const daysArr = sorted.map(cf => (cf.date.getTime() - t0) / 86400000);
+    const amts    = sorted.map(cf => cf.amount);
+
+    // NPV and its derivative w.r.t. r
+    const npv  = (r: number) => amts.reduce((s, a, i) => s + a / Math.pow(1 + r, daysArr[i] / 365), 0);
+    const dnpv = (r: number) => amts.reduce((s, a, i) => {
+      const t = daysArr[i] / 365;
+      return s - t * a / Math.pow(1 + r, t + 1);
+    }, 0);
+
+    // Newton-Raphson with multiple starting guesses
+    let best = 0.1, bestErr = Infinity;
+    for (const start of [0.1, 0.5, -0.3, 1.0, 2.0, 0.0]) {
+      let r = start;
+      for (let iter = 0; iter < 300; iter++) {
+        const nv = npv(r);
+        const dv = dnpv(r);
+        if (!isFinite(nv) || !isFinite(dv) || Math.abs(dv) < 1e-14) break;
+        const nr = r - nv / dv;
+        if (!isFinite(nr)) break;
+        r = Math.max(-0.9999, Math.min(50, nr)); // clamp during iteration
+        if (Math.abs(nr - r) < 1e-10) {
+          const err = Math.abs(npv(r));
+          if (err < bestErr) { bestErr = err; best = r; }
+          break;
+        }
+      }
     }
 
-    // Simplified IRR approximation
-    if (cashFlows.length < 2) return 0;
-    
-    // Ensure dates are valid
-    const validCashFlows = cashFlows.filter(cf => cf && cf.date && !isNaN(cf.date.getTime()) && isFinite(cf.amount));
-    if (validCashFlows.length < 2) return 0;
-    
-    const totalInvested = Math.abs(validCashFlows.filter(cf => cf.amount < 0).reduce((sum, cf) => sum + cf.amount, 0));
-    const totalReturn = validCashFlows.filter(cf => cf.amount > 0).reduce((sum, cf) => sum + cf.amount, 0);
-    
-    if (totalInvested === 0 || !isFinite(totalInvested) || !isFinite(totalReturn)) return 0;
-    
-    // Approximate annualized return (simplified)
-    const firstDate = validCashFlows[0]?.date;
-    if (!firstDate || isNaN(firstDate.getTime())) return 0;
-    
-    const daysDiff = Math.max(1, (new Date().getTime() - firstDate.getTime()) / (1000 * 60 * 60 * 24));
-    const years = daysDiff / 365;
-    
-    if (years === 0 || !isFinite(years)) return 0;
-    
-    const returnRatio = totalReturn / totalInvested;
-    if (!isFinite(returnRatio) || returnRatio <= 0) return 0;
-    
-    const annualizedReturn = (Math.pow(returnRatio, 1 / years) - 1) * 100;
-    
-    return isFinite(annualizedReturn) ? annualizedReturn : 0;
-  } catch (error: any) {
-    // ✅ Never throw - always return 0 on any error
-    console.warn(`Error in calculateStockXIRR for ${holding?.isin || 'unknown'}:`, error?.message || error);
+    // Clamp final answer: −99.9 % to +500 %
+    const pct = best * 100;
+    return Math.max(-99.9, Math.min(500, isFinite(pct) ? pct : 0));
+  } catch {
+    return 0;
+  }
+}
+
+/* helper: extract trade value from a transaction record */
+function txnValue(t: any, isBuy: boolean): number {
+  const price  = Number(t.tradePriceAdjusted)  || 0;
+  const qty    = Number(t.tradedQty)            || 0;
+  const chg    = Number(t.charges)              || 0;
+  const adj    = Number(t.tradeValueAdjusted)   || 0;
+  const base   = adj > 0 ? adj : price * qty;
+  return isBuy ? base + chg : base - chg;
+}
+
+/**
+ * Calculate XIRR for a single stock using the proper Newton-Raphson solver.
+ */
+function calculateStockXIRR(transactions: any[], holding: any): number {
+  try {
+    if (!transactions?.length || !holding) return 0;
+
+    const cashFlows: Array<{ date: Date; amount: number }> = [];
+
+    for (const t of transactions) {
+      try {
+        const bs  = String(t.buySell || '').toUpperCase();
+        const val = txnValue(t, bs === 'BUY');
+        if (val <= 0) continue;
+        const date = t.transactionDate ? new Date(t.transactionDate) : null;
+        if (!date || isNaN(date.getTime())) continue;
+        cashFlows.push({ date, amount: bs === 'BUY' ? -val : val });
+      } catch { /* skip bad row */ }
+    }
+
+    // Current market value as final positive cash flow
+    const openQty = Number(holding.openQty) || 0;
+    const mv      = Number(holding.marketValue) || 0;
+    if (openQty > 0 && mv > 0) {
+      cashFlows.push({ date: new Date(), amount: mv });
+    }
+
+    return solveXIRR(cashFlows);
+  } catch (err: any) {
+    console.warn('calculateStockXIRR error:', err?.message);
     return 0;
   }
 }
@@ -1572,147 +1594,51 @@ function calculateStockCAGRAndHoldingPeriod(transactions: any[], holding: any): 
   }
 }
 
-function calculateXIRR(transactions: any[], holdings: any[], realizedPL: any[]): number {
-  // Portfolio-level XIRR calculation that properly accounts for:
-  // 1. Weighted contribution of each stock based on current market value
-  // 2. Realized gains/losses from sold positions
-  // 3. The timing and duration of investments
-  
-  if (transactions.length === 0) return 0;
-  
-  // Sort transactions by date
-  const sortedTransactions = [...transactions].sort((a, b) => 
-    new Date(a.transactionDate).getTime() - new Date(b.transactionDate).getTime()
-  );
-  
-  // Calculate weighted average XIRR based on current holdings value
-  let weightedXIRRSum = 0;
-  let totalCurrentValue = 0;
-  
-  // For current holdings, calculate weighted contribution
-  holdings.forEach(h => {
-    const stockTransactions = sortedTransactions.filter(t => t.isin === h.isin);
-    if (stockTransactions.length > 0 && h.marketValue > 0) {
-      const stockXIRR = calculateStockXIRR(stockTransactions, h);
-      // Weight by current market value (market-cap weighted XIRR)
-      weightedXIRRSum += stockXIRR * h.marketValue;
-      totalCurrentValue += h.marketValue;
+/**
+ * Portfolio-level XIRR — builds a unified dated cash-flow series and runs
+ * the proper Newton-Raphson solver.
+ *
+ * Cash flows:
+ *   BUY  transactions → negative (money leaves investor's pocket)
+ *   SELL transactions → positive (money returns to investor)
+ *   Today             → positive (current portfolio market value)
+ */
+function calculateXIRR(transactions: any[], holdings: any[], _realizedPL: any[]): number {
+  try {
+    if (!transactions?.length) return 0;
+
+    const cashFlows: Array<{ date: Date; amount: number }> = [];
+
+    for (const t of transactions) {
+      try {
+        const bs  = String(t.buySell || '').toUpperCase();
+        if (bs !== 'BUY' && bs !== 'SELL') continue;
+        const val  = txnValue(t, bs === 'BUY');
+        if (val <= 0) continue;
+        const date = t.transactionDate ? new Date(t.transactionDate) : null;
+        if (!date || isNaN(date.getTime())) continue;
+        cashFlows.push({ date, amount: bs === 'BUY' ? -val : val });
+      } catch { /* skip */ }
     }
-  });
-  
-  // Calculate total invested and withdrawn across all transactions
-  const totalInvestedAll = sortedTransactions
-    .filter(t => t.buySell === 'BUY')
-    .reduce((sum, t) => {
-      const tradeValue = t.tradeValueAdjusted || (t.tradePriceAdjusted || 0) * (t.tradedQty || 0) + (t.charges || 0);
-      return sum + tradeValue;
-    }, 0);
-  
-  const totalWithdrawn = sortedTransactions
-    .filter(t => t.buySell === 'SELL')
-    .reduce((sum, t) => {
-      const tradeValue = t.tradeValueAdjusted || (t.tradePriceAdjusted || 0) * (t.tradedQty || 0) - (t.charges || 0);
-      return sum + tradeValue;
-    }, 0);
-  
-  const totalRealizedPLValue = realizedPL.reduce((sum, r) => sum + (r.realizedProfitLoss || 0), 0);
-  
-  if (totalCurrentValue === 0) {
-    // No current holdings - use cash flow based calculation
-    return calculateSimpleXIRR(sortedTransactions, holdings);
+
+    // Add current market value of all open holdings as a final inflow today
+    const totalCurrentMV = holdings.reduce((s: number, h: any) => s + (Number(h.marketValue) || 0), 0);
+    if (totalCurrentMV > 0) {
+      cashFlows.push({ date: new Date(), amount: totalCurrentMV });
+    }
+
+    return solveXIRR(cashFlows);
+  } catch (err: any) {
+    console.warn('calculateXIRR error:', err?.message);
+    return 0;
   }
-  
-  // Market-value weighted XIRR from current holdings
-  const weightedXIRR = totalCurrentValue > 0 ? weightedXIRRSum / totalCurrentValue : 0;
-  
-  // Calculate overall portfolio return considering realized P/L
-  // Total value = Current holdings + Withdrawn (already realized)
-  const totalPortfolioValue = totalCurrentValue + totalWithdrawn;
-  const netInvested = totalInvestedAll - totalWithdrawn;
-  
-  // Calculate time-weighted return
-  const firstBuyDate = sortedTransactions
-    .filter(t => t.buySell === 'BUY')[0]?.transactionDate;
-  
-  if (!firstBuyDate) return weightedXIRR;
-  
-  const years = Math.max(0.01, (new Date().getTime() - new Date(firstBuyDate).getTime()) / (1000 * 60 * 60 * 24 * 365));
-  
-  // Portfolio-level CAGR: (Total Value / Net Invested)^(1/Years) - 1
-  let portfolioCAGR = 0;
-  if (netInvested > 0 && totalPortfolioValue > 0 && years > 0) {
-    portfolioCAGR = (Math.pow(totalPortfolioValue / netInvested, 1 / years) - 1) * 100;
-  } else if (totalInvestedAll > 0 && totalPortfolioValue > 0 && years > 0) {
-    portfolioCAGR = (Math.pow(totalPortfolioValue / totalInvestedAll, 1 / years) - 1) * 100;
-  }
-  
-  // Blend weighted XIRR (from current holdings) with portfolio CAGR
-  // This gives more accurate portfolio-level returns
-  // If portfolio CAGR is significantly different, it likely means timing of investments matters
-  if (Math.abs(weightedXIRR - portfolioCAGR) > 5) {
-    // Use 60% weighted XIRR, 40% portfolio CAGR
-    return weightedXIRR * 0.6 + portfolioCAGR * 0.4;
-  }
-  
-  // If they're close, use weighted XIRR as it better reflects current holdings performance
-  return weightedXIRR;
 }
 
+/** Kept for backward compatibility — delegates to the unified solver */
 function calculateSimpleXIRR(transactions: any[], holdings: any[]): number {
-  // Fallback calculation for portfolios with no current holdings
-  const cashFlows: Array<{date: Date, amount: number}> = [];
-  
-  transactions.forEach(t => {
-    if (t.buySell === 'BUY') {
-      const tradeValue = t.tradeValueAdjusted || (t.tradePriceAdjusted || 0) * (t.tradedQty || 0) + (t.charges || 0);
-      if (tradeValue > 0) {
-        cashFlows.push({ date: new Date(t.transactionDate), amount: -tradeValue });
-      }
-    } else if (t.buySell === 'SELL') {
-      const tradeValue = t.tradeValueAdjusted || (t.tradePriceAdjusted || 0) * (t.tradedQty || 0) - (t.charges || 0);
-      if (tradeValue > 0) {
-        cashFlows.push({ date: new Date(t.transactionDate), amount: tradeValue });
-      }
-    }
-  });
-
-  const currentValue = holdings.reduce((sum, h) => sum + (h.marketValue || 0), 0);
-  if (currentValue > 0) {
-    cashFlows.push({ date: new Date(), amount: currentValue });
-  }
-
-  if (cashFlows.length < 2) return 0;
-  
-  const negativeFlows = cashFlows.filter(cf => cf.amount < 0);
-  const positiveFlows = cashFlows.filter(cf => cf.amount > 0);
-  
-  if (negativeFlows.length === 0 || positiveFlows.length === 0) return 0;
-  
-  const totalInvested = Math.abs(negativeFlows.reduce((sum, cf) => sum + cf.amount, 0));
-  const totalWithdrawn = positiveFlows.filter(cf => cf.date < new Date()).reduce((sum, cf) => sum + cf.amount, 0);
-  const currentPortfolioValue = cashFlows[cashFlows.length - 1]?.amount || 0;
-  
-  if (totalInvested === 0) return 0;
-  
-  const netInvested = totalInvested - totalWithdrawn;
-  const effectiveInvested = netInvested > 0 ? netInvested : totalInvested;
-  
-  const firstDate = negativeFlows[0].date;
-  const lastDate = new Date();
-  const daysDiff = Math.max(1, (lastDate.getTime() - firstDate.getTime()) / (1000 * 60 * 60 * 24));
-  const years = daysDiff / 365;
-  
-  if (years === 0) return 0;
-  
-  const totalValue = currentPortfolioValue + totalWithdrawn;
-  const returnRatio = totalValue / effectiveInvested;
-  
-  if (returnRatio <= 0) return 0;
-  
-  const annualizedReturn = (Math.pow(returnRatio, 1 / years) - 1) * 100;
-  
-  return annualizedReturn || 0;
+  return calculateXIRR(transactions, holdings, []);
 }
+
 
 function calculateMonthlyInvestments(transactions: any[]): Array<{
   month: string, 
