@@ -34,6 +34,7 @@ interface MonthlyChartsProps {
   avgMonthlyDividends?: number;
   medianMonthlyDividendsLast12M?: number;
   avgMonthlyDividendsLast12M?: number;
+  totalInvested?: number;
   monthlyReturns: Array<{ month: string; returnPercent: number; returnAmount: number }>;
   returnStatistics?: {
     xirr: number;
@@ -52,6 +53,7 @@ export default function MonthlyCharts({
   avgMonthlyDividends,
   medianMonthlyDividendsLast12M,
   avgMonthlyDividendsLast12M,
+  totalInvested,
   monthlyReturns,
   returnStatistics,
 }: MonthlyChartsProps) {
@@ -177,12 +179,16 @@ export default function MonthlyCharts({
                          : chartInvData.length > 24 ? 2
                          : chartInvData.length > 12 ? 1 : 0;
 
+        // Use the authoritative totalInvested from the API summary when available;
+        // fall back to chart-computed (gross buys − gross sells) only if not passed.
+        const netDeployedVal = totalInvested !== undefined ? totalInvested : netInv;
+
         const pills = [
-          { label: 'Gross Invested',      val: totalInv, color: '#3b82f6' },
-          { label: 'Total Withdrawal',    val: totalWdl, color: '#ef4444' },
-          { label: 'Net Deployed',        val: netInv,   color: netInv >= 0 ? 'var(--gain)' : 'var(--loss)' },
-          { label: 'Avg Monthly Invest',  val: avgInv,   color: '#3b82f6' },
-          { label: 'Avg Monthly Withdraw',val: avgWdl,   color: '#ef4444' },
+          { label: 'Gross Invested',      val: totalInv,       color: '#3b82f6' },
+          { label: 'Total Withdrawal',    val: totalWdl,       color: '#ef4444' },
+          { label: 'Total Invested',      val: netDeployedVal, color: netDeployedVal >= 0 ? 'var(--gain)' : 'var(--loss)' },
+          { label: 'Avg Monthly Invest',  val: avgInv,         color: '#3b82f6' },
+          { label: 'Avg Monthly Withdraw',val: avgWdl,         color: '#ef4444' },
         ];
 
         return (
