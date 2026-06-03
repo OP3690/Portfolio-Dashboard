@@ -813,10 +813,10 @@ export default function PredictionTrades({
             <table style={{ borderCollapse: 'collapse', width: '100%' }}>
               <thead>
                 <tr>
-                  {['Stock', 'Buy Date', 'Qty', 'Avg Buy', 'Invested', 'Sold', 'Avg Sell', 'Remaining', 'Current ₹', 'Unrealized P&L', 'Realized P&L', 'Total P&L', 'Status', ''].map(h => (
+                  {['Stock', 'Buy Date', 'Qty', 'Avg Buy', 'Invested', 'Sold', 'Avg Sell', 'Remaining', 'Current ₹', 'Unrealized P&L', 'Realized P&L', 'Total P&L', 'Status', 'Actions'].map(h => (
                     <th key={h} style={{
                       padding: '10px 12px', fontSize: 10, fontWeight: 700, letterSpacing: '0.04em',
-                      textTransform: 'uppercase', textAlign: h === '' ? 'center' : 'left',
+                      textTransform: 'uppercase', textAlign: h === 'Actions' ? 'center' : 'left',
                       color: 'var(--text-muted)', background: 'var(--bg-raised)',
                       borderBottom: '1px solid var(--border-md)', whiteSpace: 'nowrap',
                       position: 'sticky', top: 0, zIndex: 2,
@@ -933,42 +933,64 @@ export default function PredictionTrades({
                         <td style={tdStyle}><TradeChip status={t.status} /></td>
 
                         {/* Actions */}
-                        <td style={{ ...tdStyle, textAlign: 'center' }}>
-                          <div className="flex items-center gap-1 justify-center flex-wrap">
+                        <td style={{ ...tdStyle, textAlign: 'center', padding: '8px 10px' }} onClick={e => e.stopPropagation()}>
+                          <div className="flex items-center gap-1 justify-center">
+
                             {/* Sell */}
-                            {t.remainingQuantity > 0 && (
-                              <button
-                                onClick={e => { e.stopPropagation(); setSellFor(t); }}
-                                className="px-2.5 py-1 rounded-lg text-[10px] font-bold transition-opacity hover:opacity-80"
-                                style={{ background: 'rgba(248,113,113,0.12)', color: '#f87171', border: '1px solid rgba(248,113,113,0.25)' }}>
-                                Sell
-                              </button>
-                            )}
+                            <button title="Sell shares"
+                              onClick={e => { e.stopPropagation(); setSellFor(t); }}
+                              className="w-7 h-7 rounded-lg flex items-center justify-center transition-all hover:opacity-90 active:scale-95"
+                              style={{
+                                background: t.remainingQuantity > 0 ? 'rgba(248,113,113,0.13)' : 'var(--bg-raised)',
+                                color: t.remainingQuantity > 0 ? '#f87171' : 'var(--border-md)',
+                                border: `1px solid ${t.remainingQuantity > 0 ? 'rgba(248,113,113,0.30)' : 'var(--border-sm)'}`,
+                                cursor: t.remainingQuantity > 0 ? 'pointer' : 'not-allowed',
+                                opacity: t.remainingQuantity > 0 ? 1 : 0.35,
+                                pointerEvents: t.remainingQuantity > 0 ? 'auto' : 'none',
+                              }}>
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M20 12H4" />
+                              </svg>
+                            </button>
+
                             {/* Modify */}
-                            <button
+                            <button title="Modify buy details"
                               onClick={e => { e.stopPropagation(); setModifyFor(t); }}
-                              className="px-2.5 py-1 rounded-lg text-[10px] font-bold transition-opacity hover:opacity-80"
-                              style={{ background: 'rgba(251,191,36,0.12)', color: '#f59e0b', border: '1px solid rgba(251,191,36,0.3)' }}>
-                              ✏️ Modify
+                              className="w-7 h-7 rounded-lg flex items-center justify-center transition-all hover:opacity-90 active:scale-95"
+                              style={{ background: 'rgba(251,191,36,0.13)', color: '#f59e0b', border: '1px solid rgba(251,191,36,0.32)' }}>
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                  d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                              </svg>
                             </button>
+
                             {/* Discard */}
-                            <button
+                            <button title="Permanently discard this trade"
                               onClick={e => { e.stopPropagation(); setDiscardFor(t); }}
-                              className="px-2.5 py-1 rounded-lg text-[10px] font-bold transition-opacity hover:opacity-80"
-                              style={{ background: 'rgba(239,68,68,0.08)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.2)' }}>
-                              🗑 Discard
+                              className="w-7 h-7 rounded-lg flex items-center justify-center transition-all hover:opacity-90 active:scale-95"
+                              style={{ background: 'rgba(239,68,68,0.10)', color: '#ef4444', border: '1px solid rgba(239,68,68,0.25)' }}>
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
                             </button>
-                            {/* Expand toggle */}
-                            <button
+
+                            {/* Expand / collapse */}
+                            <button title={isExpanded ? 'Collapse' : 'Expand details'}
                               onClick={e => { e.stopPropagation(); setExpanded(isExpanded ? null : t._id); }}
-                              className="w-6 h-6 rounded-lg flex items-center justify-center"
-                              style={{ color: 'var(--text-muted)', background: 'var(--bg-raised)' }}>
+                              className="w-7 h-7 rounded-lg flex items-center justify-center transition-all hover:opacity-90 active:scale-95"
+                              style={{
+                                background: isExpanded ? 'var(--brand-bg)' : 'var(--bg-raised)',
+                                color: isExpanded ? 'var(--brand)' : 'var(--text-muted)',
+                                border: `1px solid ${isExpanded ? 'var(--brand-glow)' : 'var(--border-md)'}`,
+                              }}>
                               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 {isExpanded
                                   ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 15l7-7 7 7" />
                                   : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 9l-7 7-7-7" />}
                               </svg>
                             </button>
+
                           </div>
                         </td>
                       </tr>
