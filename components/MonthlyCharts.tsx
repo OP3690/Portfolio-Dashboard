@@ -277,7 +277,9 @@ export default function MonthlyCharts({
               </div>
             );
           })()}
-          <ResponsiveContainer width="100%" height={300}>
+          {/* key forces full remount when period or data length changes — required because
+              isAnimationActive=false prevents Recharts from diffing data prop updates */}
+          <ResponsiveContainer key={`inv-${invPeriod}-${filteredMonthlyInvestments.length}`} width="100%" height={300}>
             <ComposedChart
               data={filteredMonthlyInvestments}
               margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
