@@ -289,8 +289,9 @@ export default function DailyTrackingTable() {
                 </th>
               )}
 
-              {/* ── Sparkline + Return + Status ── */}
+              {/* ── Sparkline + Current + Return + Status ── */}
               <th rowSpan={2} style={{ ...thStyle, minWidth: 70, textAlign: 'center' }}>Trend</th>
+              <th rowSpan={2} style={{ ...thStyle, minWidth: 90, textAlign: 'right' }}>Current ₹</th>
               <th rowSpan={2} style={{ ...thStyle, minWidth: 90, textAlign: 'right' }}>Total Return</th>
               <th rowSpan={2} style={{ ...thStyle, minWidth: 110 }}>Status</th>
             </tr>
@@ -326,6 +327,10 @@ export default function DailyTrackingTable() {
               const sparkValues = activeDates
                 .filter(d => d >= recDateStr && row.dailyMap[d])
                 .map(d => row.dailyMap[d].totalReturn);
+
+              // Current price = closingPrice from the latest tracked date
+              const latestDate    = [...activeDates].reverse().find(d => row.dailyMap[d] && !row.dailyMap[d].synthetic);
+              const currentPrice  = latestDate ? row.dailyMap[latestDate].closingPrice : null;
 
               return (
                 <tr key={row._id}
@@ -429,6 +434,24 @@ export default function DailyTrackingTable() {
                   {/* Sparkline */}
                   <td style={{ ...tdStyle, textAlign: 'center', padding: '4px 8px' }}>
                     <Sparkline values={sparkValues} />
+                  </td>
+
+                  {/* Current Price */}
+                  <td style={{ ...tdStyle, textAlign: 'right', paddingRight: 10 }}>
+                    {currentPrice != null ? (
+                      <div>
+                        <span className="text-[11px] font-black"
+                          style={{ color: currentPrice >= row.entryPrice ? '#34d399' : '#f87171' }}>
+                          {fmtPrice(currentPrice)}
+                        </span>
+                        <p className="text-[9px] mt-0.5"
+                          style={{ color: currentPrice >= row.entryPrice ? 'rgba(52,211,153,0.7)' : 'rgba(248,113,113,0.7)' }}>
+                          {currentPrice >= row.entryPrice ? '▲' : '▼'} vs entry
+                        </p>
+                      </div>
+                    ) : (
+                      <span style={{ color: 'var(--border-md)', fontSize: 11 }}>—</span>
+                    )}
                   </td>
 
                   {/* Total Return */}
