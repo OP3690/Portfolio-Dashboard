@@ -29,7 +29,7 @@ interface Prediction {
   indicatorSnapshot: IndicatorSnapshot; tracking: Tracking | null;
   regime?: string; mcProbability?: number; backtestWinRate?: number;
 }
-interface Stats { totalEvaluated: number; successCount: number; successRate: number; avgReturn: number; }
+interface Stats { totalEvaluated: number; successCount: number; successRate: number; avgReturn: number; avgReturnSampleSize?: number; }
 interface ApiResponse {
   success: boolean; predictions: Prediction[]; total: number;
   stats: Stats; modelVersion: string; modelWeights: Record<string, number> | null;
@@ -707,7 +707,7 @@ export default function StockPredictions() {
         {[
           { label: 'Active Picks',  val: `${new Set(openTrades.map(t => t.stockSymbol)).size}/${data?.total ?? 0}`, sub: 'invested in predictions', color: '#38bdf8' },
           { label: 'Win Rate',      val: data ? `${data.stats.successRate.toFixed(0)}%` : '—', sub: `${data?.stats.successCount ?? 0}/${data?.stats.totalEvaluated ?? 0} evaluated`, color: 'var(--gain)' },
-          { label: 'Avg Return',    val: data ? fmtPct(data.stats.avgReturn) : '—', sub: 'on evaluated picks', color: data && data.stats.avgReturn >= 0 ? 'var(--gain)' : 'var(--loss)' },
+          { label: 'Avg Return',    val: data ? fmtPct(data.stats.avgReturn) : '—', sub: `${data?.stats.avgReturnSampleSize ?? data?.stats.totalEvaluated ?? 0} evaluated picks`, color: data && data.stats.avgReturn >= 0 ? 'var(--gain)' : 'var(--loss)' },
           { label: 'Invested',      val: allTrades.length ? fmtCompact(tradeStats.invested) : '—', sub: `${allTrades.length} trade${allTrades.length !== 1 ? 's' : ''}`, color: '#818cf8' },
           { label: 'Realized P&L',  val: allTrades.length ? fmtCompactPnl(tradeStats.realized) : '—', sub: 'from closed trades', color: pctColor(tradeStats.realized) },
           { label: 'Unrealized',    val: openTrades.length ? fmtCompactPnl(tradeStats.unrealized) : '—', sub: `${openTrades.length} open position${openTrades.length !== 1 ? 's' : ''}`, color: pctColor(tradeStats.unrealized) },

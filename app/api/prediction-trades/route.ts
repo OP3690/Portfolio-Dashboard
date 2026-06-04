@@ -3,6 +3,8 @@ import dbConnect from '@/lib/mongodb';
 import PredictionTrade from '@/lib/models/PredictionTrade';
 import Prediction from '@/lib/models/Prediction';
 import TrackingEntry from '@/lib/models/TrackingEntry';
+import StockData from '@/models/StockData';
+import { getStockIsin } from '@/lib/aiServices/stockUniverse';
 import mongoose from 'mongoose';
 
 export const dynamic = 'force-dynamic';
@@ -37,6 +39,53 @@ export async function GET() {
       });
     }
 
+    // Fallback: for trades whose predictionId has no TrackingEntry, look up by stockSymbol
+    // (covers trades bought under older/different prediction cycles)
+    const symbols = [...new Set(trades.map((t: any) => t.stockSymbol as string))];
+    const symbolEntries = await TrackingEntry.aggregate([
+      { $match: { stockSymbol: { $in: symbols } } },
+      { $sort: { date: -1 } },
+      { $group: { _id: '$stockSymbol', closingPrice: { $first: '$closingPrice' }, totalReturn: { $first: '$totalReturn' }, date: { $first: '$date' } } },
+    ]);
+
+    const symbolPriceMap = new Map<string, { currentPrice: number; totalReturn: number; lastDate: Date }>();
+    for (const e of symbolEntries) {
+      symbolPriceMap.set(e._id as string, {
+        currentPrice: e.closingPrice,
+        totalReturn:  e.totalReturn,
+        lastDate:     e.date,
+      });
+    }
+
+    // Final fallback: StockData (persistent OHLCV, no TTL) — covers trades whose
+    // TrackingEntries have expired (>60 days old) or were never tracked
+    const symbolIsins = symbols
+      .map(sym => ({ sym, isin: getStockIsin(sym) }))
+      .filter((x): x is { sym: string; isin: string } => !!x.isin);
+    const isins = symbolIsins.map(x => x.isin);
+
+    const stockDataEntries = isins.length > 0
+      ? await StockData.aggregate([
+          { $match: { isin: { $in: isins }, $or: [{ close: { $ne: null } }, { currentPrice: { $ne: null } }] } },
+          { $sort: { date: -1 } },
+          { $group: { _id: '$isin', close: { $first: '$close' }, currentPrice: { $first: '$currentPrice' }, date: { $first: '$date' } } },
+        ])
+      : [];
+
+    // isin → latest price
+    const isinPriceMap = new Map<string, { price: number; date: Date }>();
+    for (const e of stockDataEntries) {
+      const price = e.close ?? e.currentPrice;
+      if (price != null) isinPriceMap.set(e._id as string, { price, date: e.date });
+    }
+
+    // stockSymbol → latest price (via ISIN resolution)
+    const stockDataPriceMap = new Map<string, { price: number; date: Date }>();
+    for (const { sym, isin } of symbolIsins) {
+      const entry = isinPriceMap.get(isin);
+      if (entry) stockDataPriceMap.set(sym, entry);
+    }
+
     // Also pull prediction status
     const predictions = await Prediction.find(
       { _id: { $in: predIds } },
@@ -46,8 +95,16 @@ export async function GET() {
     for (const p of predictions) statusMap.set((p._id as any).toString(), p.status);
 
     const enriched = trades.map((t: any) => {
-      const tp = priceMap.get(t.predictionId.toString());
-      const currentPrice   = tp?.currentPrice ?? t.buyPrice;
+      // Price priority:
+      // 1. StockData (persistent, no TTL, most up-to-date OHLCV)
+      // 2. TrackingEntry by predictionId (prediction-specific daily tracking)
+      // 3. TrackingEntry by stockSymbol (any cycle for that stock)
+      // 4. buyPrice (last resort — unrealizedPnL will show 0)
+      const sdEntry = stockDataPriceMap.get(t.stockSymbol);
+      const tp      = priceMap.get(t.predictionId.toString()) ?? symbolPriceMap.get(t.stockSymbol);
+      const currentPrice   = sdEntry?.price ?? tp?.currentPrice ?? t.buyPrice;
+      const lastTracked    = sdEntry?.date ?? tp?.lastDate ?? null;
+
       const unrealizedPnL  = (currentPrice - t.buyPrice) * t.remainingQuantity;
       const unrealizedPnLPct = t.buyPrice > 0
         ? ((currentPrice - t.buyPrice) / t.buyPrice) * 100
@@ -66,7 +123,7 @@ export async function GET() {
         totalPnL,
         totalPnLPct,
         predictionStatus: statusMap.get(t.predictionId.toString()) ?? 'Unknown',
-        lastTracked: tp?.lastDate ?? null,
+        lastTracked,
       };
     });
 

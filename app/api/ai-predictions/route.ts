@@ -57,8 +57,12 @@ export async function GET(req: NextRequest) {
       (p: any) => p.status === 'Achieved' || p.status === 'OverAchieved'
     ).length;
     const successRate = totalEvaluated > 0 ? (successCount / totalEvaluated) * 100 : 0;
-    const avgReturn   = totalEvaluated > 0
-      ? allCompleted.reduce((s: number, p: any) => s + (p.finalReturn || 0), 0) / totalEvaluated
+
+    // Only include predictions that actually have a finalReturn recorded
+    // (avoids older picks without the field pulling the average toward 0)
+    const withReturn = allCompleted.filter((p: any) => p.finalReturn != null);
+    const avgReturn  = withReturn.length > 0
+      ? withReturn.reduce((s: number, p: any) => s + (p.finalReturn as number), 0) / withReturn.length
       : 0;
 
     return NextResponse.json({
@@ -68,8 +72,9 @@ export async function GET(req: NextRequest) {
       stats: {
         totalEvaluated,
         successCount,
-        successRate: Math.round(successRate * 10) / 10,
-        avgReturn:   Math.round(avgReturn * 100) / 100,
+        successRate:        Math.round(successRate * 10) / 10,
+        avgReturn:          Math.round(avgReturn * 100) / 100,
+        avgReturnSampleSize: withReturn.length,
       },
       modelVersion: activeWeights?.version ?? 'v1.0',
       modelWeights: activeWeights?.weights  ?? null,
