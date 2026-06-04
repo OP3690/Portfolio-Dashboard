@@ -62,7 +62,7 @@ export async function GET() {
   }
 }
 
-/* ── POST /api/db-cleanup — actually delete ────────────────────────────────── */
+/* ── POST /api/db-cleanup — batch delete to stay within serverless timeout ─── */
 export async function POST(req: NextRequest) {
   try {
     await dbConnect();
@@ -70,10 +70,11 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json().catch(() => ({}));
     const {
-      deleteOldStockData     = true,  // StockData > 90 days
-      deleteExpiredTracking  = true,  // TrackingEntries past expiresAt
-      deleteOldPredictions   = false, // Expired/Missed > 180 days (opt-in)
-      stockDataRetainDays    = 90,    // how many days of OHLCV to keep
+      deleteOldStockData     = true,
+      deleteExpiredTracking  = true,
+      deleteOldPredictions   = false,
+      stockDataRetainDays    = 90,
+      batchSize              = 30000,   // docs to delete per call (keeps us under 60s)
     } = body;
 
     const cutoff     = new Date(Date.now() - stockDataRetainDays * 24 * 60 * 60 * 1000);
@@ -82,11 +83,30 @@ export async function POST(req: NextRequest) {
 
     const results: Record<string, any> = {};
 
+    // ── StockData — batch by finding IDs first then deleting ──────────────────
     if (deleteOldStockData) {
-      const r = await db.collection('stockdatas').deleteMany({ date: { $lt: cutoff } });
+      const ids = await db
+        .collection('stockdatas')
+        .find({ date: { $lt: cutoff } }, { projection: { _id: 1 } })
+        .limit(batchSize)
+        .toArray();
+
+      let deleted = 0;
+      if (ids.length > 0) {
+        const r = await db.collection('stockdatas').deleteMany({
+          _id: { $in: ids.map((d: any) => d._id) },
+        });
+        deleted = r.deletedCount;
+      }
+
+      // Count remaining after this batch
+      const remaining = await db.collection('stockdatas').countDocuments({ date: { $lt: cutoff } });
+
       results.oldStockData = {
-        deleted: r.deletedCount,
+        deleted,
+        remaining,
         label: `StockData older than ${stockDataRetainDays} days`,
+        done: remaining === 0,
       };
     }
 
@@ -94,7 +114,9 @@ export async function POST(req: NextRequest) {
       const r = await db.collection('trackingentries').deleteMany({ expiresAt: { $lt: now } });
       results.expiredTracking = {
         deleted: r.deletedCount,
+        remaining: 0,
         label: 'TrackingEntries past expiresAt',
+        done: true,
       };
     }
 
@@ -105,15 +127,21 @@ export async function POST(req: NextRequest) {
       });
       results.oldPredictions = {
         deleted: r.deletedCount,
+        remaining: 0,
         label: 'Expired/Missed predictions older than 180 days',
+        done: true,
       };
     }
 
     const totalDeleted = Object.values(results).reduce((s: number, r: any) => s + r.deleted, 0);
+    const allDone      = Object.values(results).every((r: any) => r.done);
 
     return NextResponse.json({
       success: true,
-      message: `Cleanup complete — ${totalDeleted} documents removed`,
+      message: allDone
+        ? `Cleanup complete — ${totalDeleted} documents removed`
+        : `Batch complete — ${totalDeleted} removed this pass. Call again to continue.`,
+      allDone,
       results,
     });
   } catch (err: any) {
