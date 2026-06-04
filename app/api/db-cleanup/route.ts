@@ -6,7 +6,7 @@ export const dynamic = 'force-dynamic';
 
 /* ── Retention policy ───────────────────────────────────────────────────────
    - Holdings (stocks you currently own): keep 5 years of OHLCV history
-   - All other stocks:                    keep 1 year of OHLCV history
+   - All other stocks:                    keep 3 years of OHLCV history
    - TrackingEntries:                     let TTL handle; force-expire backlog
    - Predictions (Expired/Missed):        keep forever (tiny, <1 MB)
 ────────────────────────────────────────────────────────────────────────── */
@@ -17,24 +17,24 @@ export async function GET() {
     await dbConnect();
     const db = mongoose.connection.db!;
 
-    const cutoff1yr  = new Date(Date.now() - 365  * 24 * 60 * 60 * 1000);
+    const cutoff3yr  = new Date(Date.now() - 3 * 365 * 24 * 60 * 60 * 1000);
     const cutoff5yr  = new Date(Date.now() - 5 * 365 * 24 * 60 * 60 * 1000);
     const now        = new Date();
 
     // ISINs of currently held stocks (keep 5 years for these)
     const holdings = await db.collection('holdings').distinct('isin');
 
-    // Count deletable: older than 5yr for holdings, older than 1yr for rest
+    // Count deletable: older than 5yr for holdings, older than 3yr for rest
     const [oldHoldingData, oldNonHoldingData, expiredTracking] = await Promise.all([
       // Holdings data older than 5 years
       db.collection('stockdatas').countDocuments({
         isin: { $in: holdings },
         date: { $lt: cutoff5yr },
       }),
-      // Non-holding data older than 1 year
+      // Non-holding data older than 3 years
       db.collection('stockdatas').countDocuments({
         isin: { $nin: holdings },
-        date: { $lt: cutoff1yr },
+        date: { $lt: cutoff3yr },
       }),
       // TrackingEntries past their expiresAt
       db.collection('trackingentries').countDocuments({ expiresAt: { $lt: now } }),
@@ -59,11 +59,11 @@ export async function GET() {
         holdingsCount: holdings.length,
         holdingIsins: holdings.slice(0, 10),
         holdingsRetain: '5 years',
-        othersRetain:   '1 year',
+        othersRetain:   '3 years',
       },
       preview: {
         oldHoldingData:    { count: oldHoldingData,    label: 'Holding stocks data older than 5 years' },
-        oldNonHoldingData: { count: oldNonHoldingData, label: 'Non-holding stocks data older than 1 year' },
+        oldNonHoldingData: { count: oldNonHoldingData, label: 'Non-holding stocks data older than 3 years' },
         expiredTracking:   { count: expiredTracking,   label: 'TrackingEntries past expiresAt' },
         total: oldHoldingData + oldNonHoldingData + expiredTracking,
       },
@@ -89,7 +89,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json().catch(() => ({}));
     const { batchSize = 30000 } = body;
 
-    const cutoff1yr = new Date(Date.now() - 365  * 24 * 60 * 60 * 1000);
+    const cutoff3yr = new Date(Date.now() - 3 * 365 * 24 * 60 * 60 * 1000);
     const cutoff5yr = new Date(Date.now() - 5 * 365 * 24 * 60 * 60 * 1000);
     const now       = new Date();
 
@@ -119,11 +119,11 @@ export async function POST(req: NextRequest) {
       results.oldHoldingData = { deleted, remaining, label: 'Holding stocks >5yr', done: remaining === 0 };
     }
 
-    // ── Delete non-holding data older than 1 year ────────────────────────
+    // ── Delete non-holding data older than 3 years ───────────────────────
     {
       const ids = await db
         .collection('stockdatas')
-        .find({ isin: { $nin: holdings }, date: { $lt: cutoff1yr } }, { projection: { _id: 1 } })
+        .find({ isin: { $nin: holdings }, date: { $lt: cutoff3yr } }, { projection: { _id: 1 } })
         .limit(batchSize)
         .toArray();
 
@@ -135,9 +135,9 @@ export async function POST(req: NextRequest) {
         deleted = r.deletedCount;
       }
       const remaining = await db.collection('stockdatas').countDocuments({
-        isin: { $nin: holdings }, date: { $lt: cutoff1yr },
+        isin: { $nin: holdings }, date: { $lt: cutoff3yr },
       });
-      results.oldNonHoldingData = { deleted, remaining, label: 'Non-holding stocks >1yr', done: remaining === 0 };
+      results.oldNonHoldingData = { deleted, remaining, label: 'Non-holding stocks >3yr', done: remaining === 0 };
     }
 
     // ── Clean up expired TrackingEntries ─────────────────────────────────
