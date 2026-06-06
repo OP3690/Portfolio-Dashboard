@@ -1963,7 +1963,7 @@ function calculateMonthlyDividendAvgLast12M(
 
 async function calculateMonthlyReturns(holdings: any[], transactions: any[]): Promise<Array<{month: string, returnPercent: number, returnAmount: number}>> {
   // Calculate monthly returns based on actual stock price movements using historical OHLC data
-  const monthlyReturns: Array<{month: string, returnPercent: number, returnAmount: number, sortKey: number}> = [];
+  const monthlyReturns: Array<{month: string, returnPercent: number, returnAmount: number, sortKey: number, hasData: boolean}> = [];
   
   if (transactions.length === 0 && holdings.length === 0) return [];
   
@@ -2017,11 +2017,13 @@ async function calculateMonthlyReturns(holdings: any[], transactions: any[]): Pr
   
   try {
     // Fetch all prices for all ISINs in one aggregation query
+    // Only fetch records that have a valid price (close OR currentPrice > 0)
     const allPrices: any[] = await StockData.aggregate([
       {
         $match: {
           isin: { $in: uniqueIsins },
-          date: { $gte: minDate }
+          date: { $gte: minDate },
+          $or: [{ close: { $gt: 0 } }, { currentPrice: { $gt: 0 } }],
         }
       },
       {
@@ -2031,19 +2033,22 @@ async function calculateMonthlyReturns(holdings: any[], transactions: any[]): Pr
         $project: {
           isin: 1,
           date: 1,
-          close: 1
+          close: 1,
+          currentPrice: 1,
         }
       }
     ]).exec();
-    
-    // Group prices by ISIN
+
+    // Group prices by ISIN — use close, fall back to currentPrice
     allPrices.forEach((p: any) => {
+      const price = p.close || p.currentPrice;
+      if (!price) return; // skip records with no usable price
       if (!priceDataMap.has(p.isin)) {
         priceDataMap.set(p.isin, []);
       }
       priceDataMap.get(p.isin)!.push({
         date: new Date(p.date),
-        close: p.close || 0
+        close: price,
       });
     });
     
@@ -2056,19 +2061,20 @@ async function calculateMonthlyReturns(holdings: any[], transactions: any[]): Pr
       const batch = uniqueIsins.slice(i, i + BATCH_SIZE);
       await Promise.all(batch.map(async (isin) => {
         try {
-          const prices = await StockData.find({ 
+          const prices = await StockData.find({
             isin,
-            date: { $gte: minDate }
+            date: { $gte: minDate },
+            $or: [{ close: { $gt: 0 } }, { currentPrice: { $gt: 0 } }],
           })
             .sort({ date: 1 })
-            .select('date close')
+            .select('date close currentPrice')
             .lean();
-          
+
           if (prices.length > 0) {
-            priceDataMap.set(isin, prices.map((p: any) => ({
-              date: new Date(p.date),
-              close: p.close || 0
-            })));
+            priceDataMap.set(isin, prices
+              .map((p: any) => ({ date: new Date(p.date), close: p.close || p.currentPrice }))
+              .filter((p: any) => p.close > 0)
+            );
           }
         } catch (err) {
           priceDataMap.set(isin, []);
@@ -2242,13 +2248,14 @@ async function calculateMonthlyReturns(holdings: any[], transactions: any[]): Pr
       returnPercent = Math.max(-100, Math.min(200, returnPercent));
     }
     
-    monthlyReturns.push({ month, returnPercent, returnAmount, sortKey });
+    const hasData = portfolioValueStart > 0;
+    monthlyReturns.push({ month, returnPercent, returnAmount, sortKey, hasData });
   }
-  
-  // Sort by date and filter out months with 0 returns
+
+  // Only include months where we actually had price data for the portfolio
   return monthlyReturns
     .sort((a, b) => a.sortKey - b.sortKey)
-    .filter(({ returnPercent }) => Math.abs(returnPercent) > 0.01) // Filter out months with 0% or near-zero returns
+    .filter(({ hasData }) => hasData)
     .map(({ month, returnPercent, returnAmount }) => ({ month, returnPercent, returnAmount }));
 }
 
