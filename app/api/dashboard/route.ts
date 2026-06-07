@@ -2196,9 +2196,12 @@ async function calculateMonthlyReturns(holdings: any[], transactions: any[]): Pr
     return xirr;
   };
   
+  const today = new Date();
+
   // Calculate portfolio value for each month
   for (const monthStart of months) {
-    const monthEnd = endOfMonth(monthStart);
+    // For the current (incomplete) month use today's date as end — month-end is in the future
+    const monthEnd = endOfMonth(monthStart) > today ? today : endOfMonth(monthStart);
     const month = format(monthStart, 'MMM-yy');
     const sortKey = monthStart.getTime();
     
