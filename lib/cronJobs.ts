@@ -33,9 +33,8 @@ export function setupDailyStockDataRefresh() {
       const refreshModule = await import('../app/api/fetch-historical-data/route');
       const refreshHandler = refreshModule.POST;
       
-      // Create a request with refreshLatest and refreshAllStocks
+      // Only refresh holdings — fetching all stocks fills the 512 MB Atlas free tier
       const url = new URL('http://localhost:3000/api/fetch-historical-data');
-      url.searchParams.set('refreshAllStocks', 'true');
       const directRequest = new NextRequest(url, {
         method: 'POST',
         body: JSON.stringify({ refreshLatest: true }),

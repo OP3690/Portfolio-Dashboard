@@ -57,10 +57,9 @@ export async function GET(request: NextRequest) {
       const refreshHandler = refreshModule.POST;
       
       // Call the refresh handler directly (no need for HTTP request)
-      // Create a mock request object with the necessary parameters
+      // Only refresh holdings — fetching all stocks fills the 512 MB Atlas free tier
       const mockUrl = new URL('http://localhost/api/fetch-historical-data');
-      mockUrl.searchParams.set('refreshAllStocks', 'true');
-      
+
       const directRequest = new NextRequest(mockUrl, {
         method: 'POST',
         body: JSON.stringify({ refreshLatest: true }),
