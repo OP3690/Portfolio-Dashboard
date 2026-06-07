@@ -2084,14 +2084,17 @@ async function calculateMonthlyReturns(holdings: any[], transactions: any[]): Pr
   }
   
   // Helper function to get price from cached data
+  // Returns 0 if no price exists within 14 calendar days of the target date
+  // (prevents stale cross-month prices from making a month falsely show 0% return)
+  const MAX_PRICE_GAP_MS = 14 * 24 * 60 * 60 * 1000; // 14 days in ms
   const getCachedPrice = (isin: string, targetDate: Date): number => {
     const prices = priceDataMap.get(isin) || [];
     if (prices.length === 0) return 0;
-    
-    // Find closest date
+
+    // Find closest date within 14-day window
     let closestPrice = 0;
     let minDiff = Infinity;
-    
+
     for (const item of prices) {
       const diff = Math.abs(item.date.getTime() - targetDate.getTime());
       if (diff < minDiff) {
@@ -2099,8 +2102,9 @@ async function calculateMonthlyReturns(holdings: any[], transactions: any[]): Pr
         closestPrice = item.close;
       }
     }
-    
-    return closestPrice;
+
+    // If the closest price is more than 14 days away, treat as no data
+    return minDiff <= MAX_PRICE_GAP_MS ? closestPrice : 0;
   };
   
   // Helper function to calculate XIRR up to a specific date (XIRR as of end of that month)
