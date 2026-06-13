@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
+  BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   LineChart, Line, Legend, ReferenceLine,
 } from 'recharts';
 
@@ -375,7 +375,7 @@ export default function WorldEconomy() {
                   contentStyle={{ background: 'var(--bg-surface)', border: '1px solid var(--border-md)', borderRadius: 12, fontSize: 11 }} />
                 <Bar dataKey="gdp" radius={[0, 6, 6, 0]}>
                   {gdpBarData.map((entry, i) => (
-                    <rect key={i} fill={entry.highlight ? '#f97316' : '#5b5ef4'} />
+                    <Cell key={i} fill={entry.highlight ? '#f97316' : '#5b5ef4'} />
                   ))}
                 </Bar>
               </BarChart>
@@ -388,15 +388,11 @@ export default function WorldEconomy() {
                 <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} width={55} />
                 <Tooltip formatter={(v: number) => [`${v > 0 ? '+' : ''}${v}%`, 'GDP Growth']}
                   contentStyle={{ background: 'var(--bg-surface)', border: '1px solid var(--border-md)', borderRadius: 12, fontSize: 11 }} />
-                <Bar dataKey="growth" radius={[0, 6, 6, 0]}
-                  fill="url(#growthGrad)"
-                />
-                <defs>
-                  <linearGradient id="growthGrad" x1="0" y1="0" x2="1" y2="0">
-                    <stop offset="0%" stopColor="#22c55e" />
-                    <stop offset="100%" stopColor="#86efac" />
-                  </linearGradient>
-                </defs>
+                <Bar dataKey="growth" radius={[0, 6, 6, 0]}>
+                  {growthBarData.map((entry, i) => (
+                    <Cell key={i} fill={entry.code === 'IN' ? '#f97316' : growthColor(entry.growth)} />
+                  ))}
+                </Bar>
               </BarChart>
             ) : (
               <BarChart data={inflBarData} layout="vertical" margin={{ left: 60, right: 30 }}>
@@ -407,13 +403,11 @@ export default function WorldEconomy() {
                 <YAxis type="category" dataKey="name" tick={{ fontSize: 10, fill: 'var(--text-muted)' }} width={55} />
                 <Tooltip formatter={(v: number) => [`${v}%`, 'Inflation']}
                   contentStyle={{ background: 'var(--bg-surface)', border: '1px solid var(--border-md)', borderRadius: 12, fontSize: 11 }} />
-                <Bar dataKey="inflation" radius={[0, 6, 6, 0]} fill="url(#inflGrad)" />
-                <defs>
-                  <linearGradient id="inflGrad" x1="0" y1="0" x2="1" y2="0">
-                    <stop offset="0%" stopColor="#fbbf24" />
-                    <stop offset="100%" stopColor="#f87171" />
-                  </linearGradient>
-                </defs>
+                <Bar dataKey="inflation" radius={[0, 6, 6, 0]}>
+                  {inflBarData.map((entry, i) => (
+                    <Cell key={i} fill={entry.code === 'IN' ? '#f97316' : inflColor(entry.inflation)} />
+                  ))}
+                </Bar>
               </BarChart>
             )}
           </ResponsiveContainer>

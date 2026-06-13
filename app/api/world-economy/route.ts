@@ -36,7 +36,9 @@ function buildTimeSeries(rows: any[]): Record<string, Record<string, number | nu
   // { countryCode: { year: value } }
   const map: Record<string, Record<string, number | null>> = {};
   for (const r of rows) {
-    const code  = r.countryiso3code || r.country?.id;
+    // Prefer 2-letter ISO id (e.g. "IN", "US") — matches our COUNTRIES array
+    // Fall back to 3-letter only if id is missing
+    const code  = r.country?.id || r.countryiso3code;
     const year  = r.date;
     const value = r.value;
     if (!code || !year) continue;
