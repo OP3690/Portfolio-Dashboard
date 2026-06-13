@@ -621,6 +621,11 @@ export default function StockPredictions() {
 
   const activePredictions = data?.predictions.filter(p => p.status === 'Active') ?? [];
 
+  // Split active picks: last 24 h shown in "Today's AI Picks", older in Daily Tracker
+  const cutoff24h = Date.now() - 24 * 60 * 60 * 1000;
+  const todayPicks  = activePredictions.filter(p => new Date(p.latestRecommendedDate).getTime() >= cutoff24h);
+  const olderPicks  = activePredictions.filter(p => new Date(p.latestRecommendedDate).getTime() <  cutoff24h);
+
   /* ── Trade analytics numbers ─────────────────────────────────────────────── */
   const tradeStats = useMemo(() => ({
     invested:   allTrades.reduce((s, t) => s + t.totalInvested, 0),
@@ -733,15 +738,15 @@ export default function StockPredictions() {
       {/* ══════════════════════════════════════════════════════════════════════
           3. TODAY'S AI PICKS
       ══════════════════════════════════════════════════════════════════════ */}
-      {activePredictions.length > 0 && (
+      {todayPicks.length > 0 && (
         <div>
           <div className="flex items-center gap-2 mb-3">
             <span className="w-2 h-2 rounded-full animate-pulse" style={{ background: '#38bdf8', boxShadow: '0 0 6px #38bdf8' }} />
             <h2 className="text-sm font-black" style={{ color: 'var(--text-hi)' }}>Today's AI Picks</h2>
-            <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>— {activePredictions.length} active · click card to expand details</span>
+            <span className="text-[10px]" style={{ color: 'var(--text-muted)' }}>— {todayPicks.length} pick{todayPicks.length !== 1 ? 's' : ''} in last 24 h · click card to expand details</span>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {[...activePredictions]
+            {[...todayPicks]
               .sort((a, b) => new Date(b.latestRecommendedDate).getTime() - new Date(a.latestRecommendedDate).getTime())
               .map((p, i) => (
                 <PickCard key={p._id} p={p} rank={i + 1} tRank={i + 1}

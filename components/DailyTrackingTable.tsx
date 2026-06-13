@@ -211,7 +211,7 @@ export default function DailyTrackingTable() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                 d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
-            Daily Performance Tracker
+            Daily Predicted Stocks & Its Performance Tracker
           </h2>
           <p className="text-[11px] mt-0.5" style={{ color: 'var(--text-muted)' }}>
             {predictions.length} prediction{predictions.length !== 1 ? 's' : ''} · {activeDates.length} trading days · hover any cell for detail
