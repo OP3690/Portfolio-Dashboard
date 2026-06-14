@@ -38,7 +38,7 @@ interface MonthlyChartsProps {
   medianMonthlyDividendsLast12M?: number;
   avgMonthlyDividendsLast12M?: number;
   totalInvested?: number;
-  monthlyReturns: Array<{ month: string; returnPercent: number; returnAmount: number }>;
+  monthlyReturns: Array<{ month: string; returnPercent: number; returnAmount: number; indexReturn?: number | null }>;
   returnStatistics?: {
     xirr: number;
     weightedXirr?: number;
@@ -117,8 +117,11 @@ export default function MonthlyCharts({
       ...item,
       returnPercent: Number(item.returnPercent || 0),
       returnAmount: Number(item.returnAmount || 0),
+      indexReturn: item.indexReturn != null ? Number(item.indexReturn) : undefined,
     }))
     .sort((a, b) => parseMonthStr(a.month) - parseMonthStr(b.month));
+
+  const hasIndexData = safeMonthlyReturns.some(r => r.indexReturn != null);
 
   // Median helper
   const computeMedian = (arr: number[]) => {
@@ -728,8 +731,14 @@ export default function MonthlyCharts({
                 tickFormatter={(v) => `${v}%`}
                 tick={{ fill: '#6b7280', fontSize: 11 }} stroke="#9ca3af"
                 domain={[
-                  () => { const mn = Math.min(...safeMonthlyReturns.map(r => r.returnPercent)); return Math.floor(mn/5)*5 - 2; },
-                  () => { const mx = Math.max(...safeMonthlyReturns.map(r => r.returnPercent)); return Math.ceil(mx/5)*5 + 2; },
+                  () => {
+                    const vals = safeMonthlyReturns.flatMap(r => [r.returnPercent, r.indexReturn ?? r.returnPercent]);
+                    return Math.floor(Math.min(...vals) / 5) * 5 - 2;
+                  },
+                  () => {
+                    const vals = safeMonthlyReturns.flatMap(r => [r.returnPercent, r.indexReturn ?? r.returnPercent]);
+                    return Math.ceil(Math.max(...vals) / 5) * 5 + 2;
+                  },
                 ]}
               />
               <YAxis yAxisId="right" orientation="right"
@@ -742,12 +751,16 @@ export default function MonthlyCharts({
                   if (!active || !payload?.length) return null;
                   const pct = (payload.find((e: any) => e.dataKey === 'returnPercent')?.value ?? 0) as number;
                   const amt = (payload.find((e: any) => e.dataKey === 'returnAmount')?.value ?? 0) as number;
+                  const idxRaw = payload.find((e: any) => e.dataKey === 'indexReturn')?.value;
+                  const idx = idxRaw != null ? (idxRaw as number) : null;
                   const isUp = pct >= 0;
                   const ac = isUp ? 'var(--gain)' : 'var(--loss)';
                   const ab = isUp ? 'var(--gain-bg)' : 'var(--loss-bg)';
                   const abr = isUp ? 'var(--gain-border)' : 'var(--loss-border)';
+                  const idxColor = idx == null ? '#94a3b8' : idx >= 0 ? 'var(--gain)' : 'var(--loss)';
+                  const beat = idx != null ? pct - idx : null;
                   return (
-                    <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-md)', borderRadius: 16, boxShadow: 'var(--shadow-lg)', minWidth: 240, overflow: 'hidden' }}>
+                    <div style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-md)', borderRadius: 16, boxShadow: 'var(--shadow-lg)', minWidth: 250, overflow: 'hidden' }}>
                       <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border-md)', background: ab, borderTop: `3px solid ${ac}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                           <svg width="13" height="13" fill="none" stroke={ac} viewBox="0 0 24 24">
@@ -763,14 +776,29 @@ export default function MonthlyCharts({
                       <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderRadius: 10, background: ab, border: `1px solid ${abr}` }}>
                           <div>
-                            <p style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: 2 }}>Return %</p>
-                            <p style={{ fontSize: 22, fontWeight: 900, color: ac, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{pct >= 0 ? '+' : ''}{(pct as number).toFixed(2)}%</p>
+                            <p style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: 2 }}>Portfolio Return</p>
+                            <p style={{ fontSize: 22, fontWeight: 900, color: ac, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{pct >= 0 ? '+' : ''}{pct.toFixed(2)}%</p>
                           </div>
                           <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
                             <circle cx="16" cy="16" r="15" stroke={ac} strokeWidth="1.5" strokeOpacity="0.3" />
                             <text x="16" y="20" textAnchor="middle" fontSize="13" fontWeight="900" fill={ac}>%</text>
                           </svg>
                         </div>
+                        {idx != null && (
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderRadius: 10, background: 'var(--bg-raised)', border: '1px solid var(--border-md)' }}>
+                            <div>
+                              <p style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: 2 }}>Nifty 50</p>
+                              <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                                <p style={{ fontSize: 18, fontWeight: 900, color: idxColor, fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{idx >= 0 ? '+' : ''}{idx.toFixed(2)}%</p>
+                                {beat != null && (
+                                  <span style={{ fontSize: 10, fontWeight: 700, color: beat >= 0 ? 'var(--gain)' : 'var(--loss)', background: beat >= 0 ? 'var(--gain-bg)' : 'var(--loss-bg)', padding: '1px 6px', borderRadius: 99 }}>
+                                    {beat >= 0 ? '↑' : '↓'} {Math.abs(beat).toFixed(1)}% vs index
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        )}
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 12px', borderRadius: 10, background: 'var(--bg-raised)', border: '1px solid var(--border-md)' }}>
                           <div>
                             <p style={{ fontSize: 9, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-muted)', marginBottom: 2 }}>Return Amount</p>
@@ -797,6 +825,14 @@ export default function MonthlyCharts({
               <Line yAxisId="right" type="monotone" dataKey="returnAmount" name="Return Amount (₹)"
                 stroke="#f59e0b" strokeWidth={2.5}
                 dot={false} activeDot={{ r: 5, fill: '#f59e0b', stroke: '#fff', strokeWidth: 2 }} />
+              {/* Nifty 50 benchmark line */}
+              {hasIndexData && (
+                <Line yAxisId="left" type="monotone" dataKey="indexReturn" name="Nifty 50"
+                  stroke="#a78bfa" strokeWidth={2} strokeDasharray="5 3"
+                  dot={{ r: 3, fill: '#a78bfa', stroke: '#fff', strokeWidth: 1.5 }}
+                  activeDot={{ r: 5, fill: '#a78bfa', stroke: '#fff', strokeWidth: 2 }}
+                  connectNulls={false} />
+              )}
             </ComposedChart>
           </ResponsiveContainer>
         </div>

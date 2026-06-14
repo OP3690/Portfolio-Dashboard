@@ -426,7 +426,7 @@ export async function GET(request: NextRequest) {
     // Month on month returns (based on actual stock prices)
     // Wrap in try-catch with timeout to prevent blocking
     // Increased timeout for Vercel (serverless can be slower)
-    let monthlyReturns: Array<{month: string, returnPercent: number, returnAmount: number}> = [];
+    let monthlyReturns: Array<{month: string, returnPercent: number, returnAmount: number, indexReturn?: number | null}> = [];
     try {
       console.log('🔄 Starting monthly returns calculation...');
       const monthlyReturnsPromise = calculateMonthlyReturns(holdings, transactions);
@@ -447,6 +447,17 @@ export async function GET(request: NextRequest) {
       monthlyReturns = [];
     }
     
+    // Fetch Nifty 50 monthly returns and attach to each month
+    try {
+      const niftyMap = await fetchNiftyMonthlyReturns();
+      if (Object.keys(niftyMap).length > 0) {
+        monthlyReturns = monthlyReturns.map(r => ({
+          ...r,
+          indexReturn: niftyMap[r.month] ?? null,
+        }));
+      }
+    } catch { /* non-critical — chart still works without index line */ }
+
     // Calculate return statistics
     let returnStatistics = {
       xirr: 0,
@@ -1977,6 +1988,39 @@ function calculateMonthlyDividendAvgLast12M(
   if (withDividends.length === 0) return 0;
   const total = last12.reduce((s, m) => s + (m.amount || 0), 0);
   return total / withDividends.length;
+}
+
+async function fetchNiftyMonthlyReturns(): Promise<Record<string, number>> {
+  try {
+    const url = 'https://query1.finance.yahoo.com/v8/finance/chart/%5ENSEI?interval=1mo&range=5y';
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; PortfolioDashboard/1.0)' },
+      signal: AbortSignal.timeout(8000),
+      next: { revalidate: 3600 }, // cache 1 hr
+    });
+    if (!res.ok) return {};
+    const data = await res.json();
+    const result = data?.chart?.result?.[0];
+    if (!result) return {};
+
+    const timestamps: number[] = result.timestamp || [];
+    const closes: number[] = result.indicators?.adjclose?.[0]?.adjclose
+      || result.indicators?.quote?.[0]?.close
+      || [];
+
+    const monthMap: Record<string, number> = {};
+    for (let i = 1; i < timestamps.length; i++) {
+      const prev = closes[i - 1];
+      const curr = closes[i];
+      if (prev == null || curr == null || prev === 0) continue;
+      const date = new Date(timestamps[i] * 1000);
+      const monthStr = format(date, 'MMM-yy');
+      monthMap[monthStr] = parseFloat(((curr - prev) / prev * 100).toFixed(2));
+    }
+    return monthMap;
+  } catch {
+    return {};
+  }
 }
 
 async function calculateMonthlyReturns(holdings: any[], transactions: any[]): Promise<Array<{month: string, returnPercent: number, returnAmount: number}>> {
