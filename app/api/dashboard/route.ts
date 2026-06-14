@@ -1267,6 +1267,22 @@ export async function GET(request: NextRequest) {
     console.log(`API: 🎯 RETURNING: ${finalHoldingsResult.length} holdings`);
     console.log(`API: 🎯 RETURNING ISINs:`, finalHoldingsResult.map((h: any) => normalizeIsin(h.isin)).sort());
     
+    // Patch weighted XIRR now that finalHoldingsResult has per-stock XIRRs
+    {
+      const eligible = (finalHoldingsResult || []).filter(
+        (h: any) => h.xirr != null && isFinite(h.xirr) && (h.investmentAmount || 0) > 0
+      );
+      if (eligible.length > 0) {
+        const totalWeight = eligible.reduce((s: number, h: any) => s + (h.investmentAmount || 0), 0);
+        if (totalWeight > 0) {
+          const weightedSum = eligible.reduce(
+            (s: number, h: any) => s + h.xirr * (h.investmentAmount || 0), 0
+          );
+          returnStatistics.weightedXirr = Math.max(-99.9, Math.min(500, weightedSum / totalWeight));
+        }
+      }
+    }
+
     try {
       // Ensure all values are valid before returning
       const safeCurrentValue = isFinite(currentValue) ? currentValue : 0;
@@ -2340,21 +2356,9 @@ function calculateReturnStatistics(
   // Calculate portfolio-level XIRR (single cashflow series)
   const xirr = calculateXIRR(transactions, holdings, []);
 
-  // Weighted XIRR = Σ (stock_xirr × stock_invested) / Σ stock_invested
-  // Uses per-stock XIRR already stored on each holding, weighted by investmentAmount.
-  let weightedXirr = 0;
-  const eligibleHoldings = (holdings || []).filter(
-    h => h.xirr != null && isFinite(h.xirr) && (h.investmentAmount || 0) > 0
-  );
-  if (eligibleHoldings.length > 0) {
-    const totalWeight = eligibleHoldings.reduce((s, h) => s + (h.investmentAmount || 0), 0);
-    if (totalWeight > 0) {
-      const weightedSum = eligibleHoldings.reduce(
-        (s, h) => s + h.xirr * (h.investmentAmount || 0), 0
-      );
-      weightedXirr = Math.max(-99.9, Math.min(500, weightedSum / totalWeight));
-    }
-  }
+  // weightedXirr is patched in after finalHoldingsResult is available (per-stock XIRRs
+  // are not yet computed at this point — holdings here are raw DB records).
+  const weightedXirr = 0;
   
   // Calculate CAGR (Compound Annual Growth Rate)
   // Use net invested (total invested minus withdrawals) for more accurate calculation
