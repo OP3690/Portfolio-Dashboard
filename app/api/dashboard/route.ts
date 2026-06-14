@@ -2421,33 +2421,41 @@ function calculateReturnStatistics(
     amount: totalReturnAmount / monthlyReturns.length,
   };
 
-  // Filter current year data (last 12 months or from start of current year)
-  const currentYearStart = startOfYear(new Date());
-  const currentYearReturns = monthlyReturns.filter(r => {
-    // Parse month string (MMM-yy) to date
+  // Filter to completed months of the current year only (exclude the current partial month)
+  const now = new Date();
+  const currentYearStart = startOfYear(now);
+  const currentMonthStart = startOfMonth(now);
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+  const parseMonthStr = (m: string): Date | null => {
     try {
-      const [monthStr, yearStr] = r.month.split('-');
-      const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const [monthStr, yearStr] = m.split('-');
       const monthIndex = monthNames.indexOf(monthStr);
-      const year = 2000 + parseInt(yearStr); // Convert yy to yyyy
-      const returnDate = new Date(year, monthIndex, 1);
-      return returnDate >= currentYearStart;
-    } catch {
-      return false;
-    }
+      const year = 2000 + parseInt(yearStr);
+      if (monthIndex === -1 || isNaN(year)) return null;
+      return new Date(year, monthIndex, 1);
+    } catch { return null; }
+  };
+
+  // All current-year months (for best/worst)
+  const currentYearReturns = monthlyReturns.filter(r => {
+    const d = parseMonthStr(r.month);
+    return d !== null && d >= currentYearStart;
   });
 
-  // Calculate current year average
-  // Divide by months elapsed in the current year (e.g. 6 if we're in June),
-  // not by the count of months that happen to have data.
-  const monthsElapsedThisYear = new Date().getMonth() + 1; // Jan=1 … Dec=12
+  // Completed months only (exclude the current partial month) — for the average
+  const completedYearReturns = currentYearReturns.filter(r => {
+    const d = parseMonthStr(r.month);
+    return d !== null && d < currentMonthStart;
+  });
+
   let avgReturnCurrentYear = { percent: 0, amount: 0 };
-  if (currentYearReturns.length > 0) {
-    const currentYearTotalPercent = currentYearReturns.reduce((sum, r) => sum + r.returnPercent, 0);
-    const currentYearTotalAmount = currentYearReturns.reduce((sum, r) => sum + r.returnAmount, 0);
+  if (completedYearReturns.length > 0) {
+    const totalPercent = completedYearReturns.reduce((sum, r) => sum + r.returnPercent, 0);
+    const totalAmount  = completedYearReturns.reduce((sum, r) => sum + r.returnAmount, 0);
     avgReturnCurrentYear = {
-      percent: currentYearTotalPercent / monthsElapsedThisYear,
-      amount: currentYearTotalAmount / monthsElapsedThisYear,
+      percent: totalPercent / completedYearReturns.length,
+      amount:  totalAmount  / completedYearReturns.length,
     };
   }
 

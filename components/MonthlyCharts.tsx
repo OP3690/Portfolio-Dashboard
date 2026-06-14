@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import {
   LineChart,
   Line,
@@ -630,18 +631,16 @@ export default function MonthlyCharts({
 
             return (
               <>
-                {/* Explain modal */}
-                {activeExplain && explainContent[activeExplain] && (() => {
-                  const ec = explainContent[activeExplain];
+                {/* Explain modal — portalled to body so fixed positioning is viewport-relative */}
+                {activeExplain && explainContent[activeExplain] && typeof document !== 'undefined' && createPortal((() => {
+                  const ec = explainContent[activeExplain]!;
                   return (
                     <div
-                      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-                      style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }}
+                      style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem', background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }}
                       onClick={() => setActiveExplain(null)}
                     >
                       <div
-                        className="relative rounded-2xl w-full max-w-lg"
-                        style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-md)', boxShadow: 'var(--shadow-lg)', maxHeight: '90vh', overflowY: 'auto' }}
+                        style={{ position: 'relative', borderRadius: '1rem', width: '100%', maxWidth: '32rem', background: 'var(--bg-surface)', border: '1px solid var(--border-md)', boxShadow: 'var(--shadow-lg)', maxHeight: '90vh', overflowY: 'auto' }}
                         onClick={e => e.stopPropagation()}
                       >
                         {/* Header */}
@@ -679,7 +678,7 @@ export default function MonthlyCharts({
                       </div>
                     </div>
                   );
-                })()}
+                })(), document.body)}
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-5">
                   {statCards.map(({ label, pct, color, sub, explainKey }) => (
