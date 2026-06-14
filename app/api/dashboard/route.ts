@@ -2438,13 +2438,16 @@ function calculateReturnStatistics(
   });
 
   // Calculate current year average
+  // Divide by months elapsed in the current year (e.g. 6 if we're in June),
+  // not by the count of months that happen to have data.
+  const monthsElapsedThisYear = new Date().getMonth() + 1; // Jan=1 … Dec=12
   let avgReturnCurrentYear = { percent: 0, amount: 0 };
   if (currentYearReturns.length > 0) {
     const currentYearTotalPercent = currentYearReturns.reduce((sum, r) => sum + r.returnPercent, 0);
     const currentYearTotalAmount = currentYearReturns.reduce((sum, r) => sum + r.returnAmount, 0);
     avgReturnCurrentYear = {
-      percent: currentYearTotalPercent / currentYearReturns.length,
-      amount: currentYearTotalAmount / currentYearReturns.length,
+      percent: currentYearTotalPercent / monthsElapsedThisYear,
+      amount: currentYearTotalAmount / monthsElapsedThisYear,
     };
   }
 
