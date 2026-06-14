@@ -2380,27 +2380,24 @@ function calculateReturnStatistics(
       }, 0);
     
     const netInvested = totalInvestedAll - totalWithdrawn;
-    const totalPortfolioValue = currentValue + totalWithdrawn; // Current value + withdrawn money
-    
-    // Find first investment date
-    const firstTransaction = transactions
-      .filter(t => t.buySell === 'BUY')
-      .sort((a, b) => new Date(a.transactionDate).getTime() - new Date(b.transactionDate).getTime())[0];
-    
-    if (firstTransaction && (netInvested > 0 || totalInvestedAll > 0)) {
-      const startDate = new Date(firstTransaction.transactionDate);
-      const endDate = new Date();
-      const daysDiff = Math.max(1, (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
-      const years = daysDiff / 365;
-      
-      if (years > 0) {
-        // CAGR = (Total Value / Net Invested)^(1/Years) - 1
-        // Total Value includes current holdings + withdrawn money
-        const effectiveInvested = netInvested > 0 ? netInvested : totalInvestedAll;
-        if (effectiveInvested > 0 && totalPortfolioValue > 0) {
-          cagr = (Math.pow(totalPortfolioValue / effectiveInvested, 1 / years) - 1) * 100;
-        }
+    const effectiveInvested = netInvested > 0 ? netInvested : totalInvestedAll;
+
+    // Weighted-average investment date: each BUY weighted by its amount
+    // This gives a fair holding period — recent large deployments aren't penalised
+    // by an early small trade stretching the clock back to 2016
+    const buyTransactions = transactions.filter(t => t.buySell === 'BUY');
+    if (buyTransactions.length > 0 && effectiveInvested > 0 && currentValue > 0) {
+      const now = new Date();
+      let weightedMsSum = 0;
+      for (const t of buyTransactions) {
+        const amount = t.tradeValueAdjusted || (t.tradePriceAdjusted || 0) * (t.tradedQty || 0) + (t.charges || 0);
+        const ms = new Date(t.transactionDate).getTime();
+        weightedMsSum += amount * ms;
       }
+      const weightedAvgMs = weightedMsSum / totalInvestedAll;
+      const years = Math.max(1 / 365, (now.getTime() - weightedAvgMs) / (1000 * 60 * 60 * 24 * 365));
+
+      cagr = (Math.pow(currentValue / effectiveInvested, 1 / years) - 1) * 100;
     }
   }
 
