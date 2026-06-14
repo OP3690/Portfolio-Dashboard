@@ -141,6 +141,7 @@ export default function MonthlyCharts({
   // Cross-chart hover sync
   const [activeMonth, setActiveMonth]   = useState<string | null>(null);
   const [activeChart, setActiveChart]   = useState<string | null>(null);
+  const [activeExplain, setActiveExplain] = useState<'xirr' | 'wxirr' | 'cagr' | null>(null);
 
   // Enrich filtered data with per-month net cashflow + mirrored withdrawals
   const chartInvData = useMemo(() =>
@@ -522,73 +523,185 @@ export default function MonthlyCharts({
             const wxirr = returnStatistics.weightedXirr ?? 0;
             const xirrDelta = wxirr - returnStatistics.xirr;
 
-            const statCards = [
+            type ExplainKey = 'xirr' | 'wxirr' | 'cagr';
+            const explainContent: Record<ExplainKey, { title: string; lines: string[]; example: { steps: string[]; result: string } }> = {
+              xirr: {
+                title: 'Portfolio XIRR — Extended Internal Rate of Return',
+                lines: [
+                  'XIRR finds the single annual return rate that makes the net present value of all your cash flows equal to zero.',
+                  'Unlike simple return %, it accounts for exactly when each rupee was invested or withdrawn — so a large investment made 3 months ago counts less "time" than one made 3 years ago.',
+                  'Calculated using Newton-Raphson iteration on all BUY and SELL transactions plus today\'s portfolio value.',
+                ],
+                example: {
+                  steps: [
+                    'Jan 2024: Invest ₹1,00,000',
+                    'Jul 2024: Invest ₹2,00,000',
+                    'Dec 2024: Portfolio value = ₹3,60,000',
+                    'XIRR solves for r where: −1L/(1+r)^0 − 2L/(1+r)^0.5 + 3.6L/(1+r)^1 = 0',
+                  ],
+                  result: 'r ≈ 27.4% per year — even though simple return is only 20% on total invested.',
+                },
+              },
+              wxirr: {
+                title: 'Weighted XIRR — Investment-Weighted Average',
+                lines: [
+                  'Each stock\'s individual XIRR is computed, then averaged weighted by how much money you put into that stock.',
+                  'Formula: Σ (Stock XIRR × Amount Invested) ÷ Total Invested',
+                  'Useful for spotting if a few large positions are inflating or dragging your Portfolio XIRR — compare the delta badge below to see how your big bets are performing relative to the rest.',
+                ],
+                example: {
+                  steps: [
+                    'Stock A: ₹1L invested, XIRR = +50%',
+                    'Stock B: ₹3L invested, XIRR = +10%',
+                    'Weighted XIRR = (50 × 1L + 10 × 3L) ÷ (1L + 3L)',
+                    '= (50 + 30) ÷ 4 = 80 ÷ 4',
+                  ],
+                  result: '= 20% — the large ₹3L position in Stock B pulls the average down from 50%.',
+                },
+              },
+              cagr: {
+                title: 'CAGR — Compound Annual Growth Rate',
+                lines: [
+                  'CAGR answers: "If my net invested capital earned the same fixed rate every year, what rate would give me today\'s portfolio value?"',
+                  'Formula: (Current Value ÷ Net Invested) ^ (1 ÷ Holding Years) − 1',
+                  'Holding Years uses the amount-weighted average of your BUY dates — so a ₹10L investment in 2024 gets far more weight than a ₹10K trade in 2016, giving a fair effective holding period.',
+                  'CAGR will typically be lower than XIRR when you\'ve been adding capital over time, because XIRR rewards the good timing of recent deployments while CAGR treats all money equivalently.',
+                ],
+                example: {
+                  steps: [
+                    'Jan 2020: Invest ₹1L → weight 10%',
+                    'Jan 2024: Invest ₹9L → weight 90%',
+                    'Weighted avg date ≈ Oct 2023 → Holding period ≈ 2.2 years',
+                    'Today\'s portfolio value = ₹13L; Net invested = ₹10L',
+                    'CAGR = (13 ÷ 10) ^ (1 ÷ 2.2) − 1',
+                  ],
+                  result: '≈ 12.9% per year — reflects the ~2.2 year effective holding period, not 4 years.',
+                },
+              },
+            };
+
+            const statCards: { label: string; pct: number; color: string; sub: string | null; explainKey?: ExplainKey }[] = [
               {
                 label: 'Portfolio XIRR',
                 pct: returnStatistics.xirr,
                 color: returnStatistics.xirr >= 15 ? 'var(--gain)' : returnStatistics.xirr >= 8 ? 'var(--warn)' : 'var(--loss)',
                 sub: null,
-                tooltip: 'True IRR on all cash flows (Newton-Raphson)',
+                explainKey: 'xirr',
               },
               {
                 label: 'Weighted XIRR',
                 pct: wxirr,
                 color: wxirr >= 15 ? 'var(--gain)' : wxirr >= 8 ? 'var(--warn)' : 'var(--loss)',
-                sub: xirrDelta !== 0
-                  ? `${xirrDelta >= 0 ? '+' : ''}${xirrDelta.toFixed(1)}% vs Portfolio`
-                  : null,
-                tooltip: 'Σ (stock XIRR × invested) / total invested',
+                sub: xirrDelta !== 0 ? `${xirrDelta >= 0 ? '+' : ''}${xirrDelta.toFixed(1)}% vs Portfolio` : null,
+                explainKey: 'wxirr',
               },
               {
                 label: 'CAGR',
                 pct: returnStatistics.cagr,
                 color: returnStatistics.cagr >= 15 ? 'var(--gain)' : returnStatistics.cagr >= 8 ? 'var(--warn)' : 'var(--loss)',
                 sub: null,
-                tooltip: null,
+                explainKey: 'cagr',
               },
               {
                 label: 'Avg Monthly',
                 pct: returnStatistics.avgReturnOverall.percent,
                 color: returnStatistics.avgReturnOverall.percent >= 0 ? 'var(--gain)' : 'var(--loss)',
                 sub: formatCurrency(returnStatistics.avgReturnOverall.amount),
-                tooltip: null,
               },
               {
                 label: 'Cur Year Avg',
                 pct: returnStatistics.avgReturnCurrentYear.percent,
                 color: returnStatistics.avgReturnCurrentYear.percent >= 0 ? 'var(--gain)' : 'var(--loss)',
                 sub: formatCurrency(returnStatistics.avgReturnCurrentYear.amount),
-                tooltip: null,
               },
               {
                 label: `Best · ${returnStatistics.bestMonthCurrentYear.month}`,
                 pct: returnStatistics.bestMonthCurrentYear.percent,
                 color: 'var(--gain)',
                 sub: formatCurrency(returnStatistics.bestMonthCurrentYear.amount),
-                tooltip: null,
               },
               {
                 label: `Worst · ${returnStatistics.worstMonthCurrentYear.month}`,
                 pct: returnStatistics.worstMonthCurrentYear.percent,
                 color: 'var(--loss)',
                 sub: formatCurrency(returnStatistics.worstMonthCurrentYear.amount),
-                tooltip: null,
               },
             ];
+
             return (
-              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-5">
-                {statCards.map(({ label, pct, color, sub, tooltip }) => (
-                  <div key={label} className="rounded-xl p-3 text-center"
-                    title={tooltip ?? undefined}
-                    style={{ background: `color-mix(in srgb,${color} 7%,transparent)`, border: `1px solid color-mix(in srgb,${color} 18%,transparent)` }}>
-                    <p className="text-[10px] font-bold uppercase tracking-[0.08em] mb-1.5 truncate" style={{ color: 'var(--text-muted)' }}>{label}</p>
-                    <p className="text-lg font-black metric-value leading-none" style={{ color }}>
-                      {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
-                    </p>
-                    {sub && <p className="text-[10px] font-semibold mt-1 metric-value" style={{ color }}>{sub}</p>}
-                  </div>
-                ))}
-              </div>
+              <>
+                {/* Explain modal */}
+                {activeExplain && explainContent[activeExplain] && (() => {
+                  const ec = explainContent[activeExplain];
+                  return (
+                    <div
+                      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+                      style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }}
+                      onClick={() => setActiveExplain(null)}
+                    >
+                      <div
+                        className="relative rounded-2xl w-full max-w-lg"
+                        style={{ background: 'var(--bg-surface)', border: '1px solid var(--border-md)', boxShadow: 'var(--shadow-lg)', maxHeight: '90vh', overflowY: 'auto' }}
+                        onClick={e => e.stopPropagation()}
+                      >
+                        {/* Header */}
+                        <div className="flex items-start justify-between gap-3 p-5 pb-3">
+                          <h3 className="text-sm font-bold leading-snug" style={{ color: 'var(--text-hi)' }}>{ec.title}</h3>
+                          <button
+                            onClick={() => setActiveExplain(null)}
+                            className="shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-colors"
+                            style={{ background: 'var(--bg-muted)', color: 'var(--text-muted)' }}
+                          >✕</button>
+                        </div>
+
+                        {/* Body */}
+                        <div className="px-5 pb-4 space-y-2">
+                          {ec.lines.map((line, i) => (
+                            <p key={i} className="text-[13px] leading-relaxed" style={{ color: 'var(--text-lo)' }}>{line}</p>
+                          ))}
+                        </div>
+
+                        {/* Example */}
+                        <div className="mx-5 mb-5 rounded-xl p-4" style={{ background: 'var(--bg-muted)', border: '1px solid var(--border-md)' }}>
+                          <p className="text-[10px] font-bold uppercase tracking-[0.1em] mb-3" style={{ color: 'var(--text-muted)' }}>Example</p>
+                          <div className="space-y-1.5 mb-3">
+                            {ec.example.steps.map((step, i) => (
+                              <div key={i} className="flex gap-2 items-start">
+                                <span className="text-[10px] font-bold mt-0.5 shrink-0 w-4 text-right" style={{ color: 'var(--text-muted)' }}>{i + 1}.</span>
+                                <p className="text-[12px] font-mono leading-snug" style={{ color: 'var(--text-lo)' }}>{step}</p>
+                              </div>
+                            ))}
+                          </div>
+                          <div className="rounded-lg px-3 py-2" style={{ background: 'color-mix(in srgb,var(--gain) 12%,transparent)', border: '1px solid color-mix(in srgb,var(--gain) 25%,transparent)' }}>
+                            <p className="text-[12px] font-semibold" style={{ color: 'var(--gain)' }}>→ {ec.example.result}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-5">
+                  {statCards.map(({ label, pct, color, sub, explainKey }) => (
+                    <div key={label} className="rounded-xl p-3 text-center relative"
+                      style={{ background: `color-mix(in srgb,${color} 7%,transparent)`, border: `1px solid color-mix(in srgb,${color} 18%,transparent)` }}>
+                      {explainKey && (
+                        <button
+                          onClick={() => setActiveExplain(explainKey)}
+                          className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold transition-colors hover:opacity-80"
+                          style={{ background: 'color-mix(in srgb,var(--text-muted) 15%,transparent)', color: 'var(--text-muted)', lineHeight: 1 }}
+                          title="What is this?"
+                        >?</button>
+                      )}
+                      <p className="text-[10px] font-bold uppercase tracking-[0.08em] mb-1.5 truncate" style={{ color: 'var(--text-muted)' }}>{label}</p>
+                      <p className="text-lg font-black metric-value leading-none" style={{ color }}>
+                        {pct >= 0 ? '+' : ''}{pct.toFixed(2)}%
+                      </p>
+                      {sub && <p className="text-[10px] font-semibold mt-1 metric-value" style={{ color }}>{sub}</p>}
+                    </div>
+                  ))}
+                </div>
+              </>
             );
           })()}
 
