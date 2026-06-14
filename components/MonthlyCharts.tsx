@@ -141,11 +141,12 @@ export default function MonthlyCharts({
   const [activeMonth, setActiveMonth]   = useState<string | null>(null);
   const [activeChart, setActiveChart]   = useState<string | null>(null);
 
-  // Enrich filtered data with per-month net cashflow
+  // Enrich filtered data with per-month net cashflow + mirrored withdrawals
   const chartInvData = useMemo(() =>
     filteredMonthlyInvestments.map(d => ({
       ...d,
-      net: (d.investments || 0) - (d.withdrawals || 0),
+      net:              (d.investments || 0) - (d.withdrawals || 0),
+      negWithdrawals:   -(d.withdrawals || 0),   // downward bars
     })),
   [filteredMonthlyInvestments]);
 
@@ -227,28 +228,39 @@ export default function MonthlyCharts({
           </div>
 
           {/* ── Chart ── */}
-          <ResponsiveContainer width="100%" height={300}>
+          <ResponsiveContainer width="100%" height={320}>
             <ComposedChart
               key={`inv-${invPeriod}`}
               data={chartInvData}
-              margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+              margin={{ top: 8, right: 30, left: 20, bottom: 8 }}
               onMouseMove={(e: any) => { if (e?.activeLabel) { setActiveMonth(e.activeLabel); setActiveChart('investments'); } }}
               onMouseLeave={() => { setActiveMonth(null); setActiveChart(null); }}
-              barGap={3}
-              barCategoryGap="28%"
+              barGap={2}
+              barCategoryGap="32%"
             >
               <defs>
+                {/* Investment bars — blue, top-heavy */}
                 <linearGradient id="invGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#60a5fa" />
-                  <stop offset="100%" stopColor="#2563eb" />
+                  <stop offset="0%"   stopColor="#60a5fa" stopOpacity={1} />
+                  <stop offset="100%" stopColor="#2563eb" stopOpacity={0.85} />
                 </linearGradient>
-                <linearGradient id="wdlGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#fb7185" />
-                  <stop offset="100%" stopColor="#dc2626" />
+                {/* Withdrawal bars — rose, bottom-heavy (bars go downward) */}
+                <linearGradient id="wdlGrad" x1="0" y1="1" x2="0" y2="0">
+                  <stop offset="0%"   stopColor="#fb7185" stopOpacity={1} />
+                  <stop offset="100%" stopColor="#dc2626" stopOpacity={0.85} />
+                </linearGradient>
+                {/* Net positive line */}
+                <linearGradient id="netPosGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%"   stopColor="#34d399" stopOpacity={0.5} />
+                  <stop offset="100%" stopColor="#34d399" stopOpacity={0.05} />
                 </linearGradient>
               </defs>
 
-              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border-sm)" opacity={0.6} />
+
+              {/* Zero baseline */}
+              <ReferenceLine y={0} stroke="var(--text-muted)" strokeWidth={1.5} strokeDasharray="0" />
+
               <XAxis
                 dataKey="month"
                 tick={{ fill: '#6b7280', fontSize: 11 }}
@@ -259,9 +271,17 @@ export default function MonthlyCharts({
                 interval={xInterval}
               />
               <YAxis
-                tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`}
+                domain={['auto', 'auto']}
+                tickFormatter={(v) => {
+                  const abs = Math.abs(v);
+                  const fmt = abs >= 1_00_000
+                    ? `₹${(abs/1_00_000).toFixed(1)}L`
+                    : `₹${(abs/1_000).toFixed(0)}k`;
+                  return v < 0 ? `−${fmt}` : fmt;
+                }}
                 tick={{ fill: '#6b7280', fontSize: 11 }}
                 stroke="#9ca3af"
+                width={72}
               />
 
               <Tooltip
@@ -319,24 +339,29 @@ export default function MonthlyCharts({
               />
 
               <Legend
-                wrapperStyle={{ paddingTop: 12 }}
+                wrapperStyle={{ paddingTop: 14 }}
                 iconSize={10}
                 formatter={(value) => <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-lo)' }}>{value}</span>}
               />
 
-              {/* Bars */}
-              <Bar dataKey="investments" name="Investments (Buy)" fill="url(#invGrad)" radius={[4,4,0,0]} maxBarSize={32} />
-              <Bar dataKey="withdrawals" name="Withdrawals (Sell)" fill="url(#wdlGrad)" radius={[4,4,0,0]} maxBarSize={32} />
+              {/* Investment bars — go UP */}
+              <Bar dataKey="investments" name="Invested (Buy)" fill="url(#invGrad)" radius={[5,5,0,0]} maxBarSize={28} />
 
-              {/* Dashed trend lines — same style as original */}
-              <Line type="monotone" dataKey="investments" name="Invest Trend"
-                stroke="#2563eb" strokeWidth={2} strokeDasharray="5 4"
-                dot={false} activeDot={{ r: 4, fill: '#2563eb', stroke: '#fff', strokeWidth: 2 }}
-                legendType="line" />
-              <Line type="monotone" dataKey="withdrawals" name="Withdraw Trend"
-                stroke="#dc2626" strokeWidth={2} strokeDasharray="5 4"
-                dot={false} activeDot={{ r: 4, fill: '#dc2626', stroke: '#fff', strokeWidth: 2 }}
-                legendType="line" />
+              {/* Withdrawal bars — go DOWN (negative values) */}
+              <Bar dataKey="negWithdrawals" name="Withdrawn (Sell)" fill="url(#wdlGrad)" radius={[0,0,5,5]} maxBarSize={28} />
+
+              {/* Net cashflow trend line — green, dotted */}
+              <Line
+                type="natural"
+                dataKey="net"
+                name="Net / Month"
+                stroke="#10b981"
+                strokeWidth={2}
+                dot={{ r: 3, fill: '#10b981', stroke: '#fff', strokeWidth: 1.5 }}
+                activeDot={{ r: 5, fill: '#10b981', stroke: '#fff', strokeWidth: 2 }}
+                legendType="line"
+                isAnimationActive={false}
+              />
             </ComposedChart>
           </ResponsiveContainer>
         </div>
