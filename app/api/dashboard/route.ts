@@ -450,6 +450,7 @@ export async function GET(request: NextRequest) {
     // Calculate return statistics
     let returnStatistics = {
       xirr: 0,
+      weightedXirr: 0,
       cagr: 0,
       avgReturnOverall: { percent: 0, amount: 0 },
       avgReturnCurrentYear: { percent: 0, amount: 0 },
@@ -1303,6 +1304,7 @@ export async function GET(request: NextRequest) {
           monthlyReturns: monthlyReturns || [],
           returnStatistics: returnStatistics || {
             xirr: 0,
+            weightedXirr: 0,
             cagr: 0,
             avgReturnOverall: { percent: 0, amount: 0 },
             avgReturnCurrentYear: { percent: 0, amount: 0 },
@@ -2328,14 +2330,31 @@ function calculateReturnStatistics(
   totalInvested: number
 ): {
   xirr: number,
+  weightedXirr: number,
   cagr: number,
   avgReturnOverall: { percent: number, amount: number },
   avgReturnCurrentYear: { percent: number, amount: number },
   bestMonthCurrentYear: { month: string, percent: number, amount: number },
   worstMonthCurrentYear: { month: string, percent: number, amount: number }
 } {
-  // Calculate XIRR
+  // Calculate portfolio-level XIRR (single cashflow series)
   const xirr = calculateXIRR(transactions, holdings, []);
+
+  // Weighted XIRR = Σ (stock_xirr × stock_invested) / Σ stock_invested
+  // Uses per-stock XIRR already stored on each holding, weighted by investmentAmount.
+  let weightedXirr = 0;
+  const eligibleHoldings = (holdings || []).filter(
+    h => h.xirr != null && isFinite(h.xirr) && (h.investmentAmount || 0) > 0
+  );
+  if (eligibleHoldings.length > 0) {
+    const totalWeight = eligibleHoldings.reduce((s, h) => s + (h.investmentAmount || 0), 0);
+    if (totalWeight > 0) {
+      const weightedSum = eligibleHoldings.reduce(
+        (s, h) => s + h.xirr * (h.investmentAmount || 0), 0
+      );
+      weightedXirr = Math.max(-99.9, Math.min(500, weightedSum / totalWeight));
+    }
+  }
   
   // Calculate CAGR (Compound Annual Growth Rate)
   // Use net invested (total invested minus withdrawals) for more accurate calculation
@@ -2384,6 +2403,7 @@ function calculateReturnStatistics(
   if (monthlyReturns.length === 0) {
     return {
       xirr,
+      weightedXirr,
       cagr,
       avgReturnOverall: { percent: 0, amount: 0 },
       avgReturnCurrentYear: { percent: 0, amount: 0 },
@@ -2448,6 +2468,7 @@ function calculateReturnStatistics(
 
   return {
     xirr,
+    weightedXirr,
     cagr,
     avgReturnOverall,
     avgReturnCurrentYear,

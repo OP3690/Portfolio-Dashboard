@@ -40,6 +40,7 @@ interface MonthlyChartsProps {
   monthlyReturns: Array<{ month: string; returnPercent: number; returnAmount: number }>;
   returnStatistics?: {
     xirr: number;
+    weightedXirr?: number;
     cagr: number;
     avgReturnOverall: { percent: number; amount: number };
     avgReturnCurrentYear: { percent: number; amount: number };
@@ -518,18 +519,67 @@ export default function MonthlyCharts({
 
           {/* Stats grid */}
           {returnStatistics && (() => {
+            const wxirr = returnStatistics.weightedXirr ?? 0;
+            const xirrDelta = wxirr - returnStatistics.xirr;
+
             const statCards = [
-              { label: 'XIRR', pct: returnStatistics.xirr, color: returnStatistics.xirr >= 15 ? 'var(--gain)' : returnStatistics.xirr >= 8 ? 'var(--warn)' : 'var(--loss)', sub: null },
-              { label: 'CAGR', pct: returnStatistics.cagr, color: returnStatistics.cagr >= 15 ? 'var(--gain)' : returnStatistics.cagr >= 8 ? 'var(--warn)' : 'var(--loss)', sub: null },
-              { label: 'Avg Monthly', pct: returnStatistics.avgReturnOverall.percent, color: returnStatistics.avgReturnOverall.percent >= 0 ? 'var(--gain)' : 'var(--loss)', sub: formatCurrency(returnStatistics.avgReturnOverall.amount) },
-              { label: 'Cur Year Avg', pct: returnStatistics.avgReturnCurrentYear.percent, color: returnStatistics.avgReturnCurrentYear.percent >= 0 ? 'var(--gain)' : 'var(--loss)', sub: formatCurrency(returnStatistics.avgReturnCurrentYear.amount) },
-              { label: `Best · ${returnStatistics.bestMonthCurrentYear.month}`, pct: returnStatistics.bestMonthCurrentYear.percent, color: 'var(--gain)', sub: formatCurrency(returnStatistics.bestMonthCurrentYear.amount) },
-              { label: `Worst · ${returnStatistics.worstMonthCurrentYear.month}`, pct: returnStatistics.worstMonthCurrentYear.percent, color: 'var(--loss)', sub: formatCurrency(returnStatistics.worstMonthCurrentYear.amount) },
+              {
+                label: 'Portfolio XIRR',
+                pct: returnStatistics.xirr,
+                color: returnStatistics.xirr >= 15 ? 'var(--gain)' : returnStatistics.xirr >= 8 ? 'var(--warn)' : 'var(--loss)',
+                sub: null,
+                tooltip: 'True IRR on all cash flows (Newton-Raphson)',
+              },
+              {
+                label: 'Weighted XIRR',
+                pct: wxirr,
+                color: wxirr >= 15 ? 'var(--gain)' : wxirr >= 8 ? 'var(--warn)' : 'var(--loss)',
+                sub: xirrDelta !== 0
+                  ? `${xirrDelta >= 0 ? '+' : ''}${xirrDelta.toFixed(1)}% vs Portfolio`
+                  : null,
+                tooltip: 'Σ (stock XIRR × invested) / total invested',
+              },
+              {
+                label: 'CAGR',
+                pct: returnStatistics.cagr,
+                color: returnStatistics.cagr >= 15 ? 'var(--gain)' : returnStatistics.cagr >= 8 ? 'var(--warn)' : 'var(--loss)',
+                sub: null,
+                tooltip: null,
+              },
+              {
+                label: 'Avg Monthly',
+                pct: returnStatistics.avgReturnOverall.percent,
+                color: returnStatistics.avgReturnOverall.percent >= 0 ? 'var(--gain)' : 'var(--loss)',
+                sub: formatCurrency(returnStatistics.avgReturnOverall.amount),
+                tooltip: null,
+              },
+              {
+                label: 'Cur Year Avg',
+                pct: returnStatistics.avgReturnCurrentYear.percent,
+                color: returnStatistics.avgReturnCurrentYear.percent >= 0 ? 'var(--gain)' : 'var(--loss)',
+                sub: formatCurrency(returnStatistics.avgReturnCurrentYear.amount),
+                tooltip: null,
+              },
+              {
+                label: `Best · ${returnStatistics.bestMonthCurrentYear.month}`,
+                pct: returnStatistics.bestMonthCurrentYear.percent,
+                color: 'var(--gain)',
+                sub: formatCurrency(returnStatistics.bestMonthCurrentYear.amount),
+                tooltip: null,
+              },
+              {
+                label: `Worst · ${returnStatistics.worstMonthCurrentYear.month}`,
+                pct: returnStatistics.worstMonthCurrentYear.percent,
+                color: 'var(--loss)',
+                sub: formatCurrency(returnStatistics.worstMonthCurrentYear.amount),
+                tooltip: null,
+              },
             ];
             return (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-5">
-                {statCards.map(({ label, pct, color, sub }) => (
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-5">
+                {statCards.map(({ label, pct, color, sub, tooltip }) => (
                   <div key={label} className="rounded-xl p-3 text-center"
+                    title={tooltip ?? undefined}
                     style={{ background: `color-mix(in srgb,${color} 7%,transparent)`, border: `1px solid color-mix(in srgb,${color} 18%,transparent)` }}>
                     <p className="text-[10px] font-bold uppercase tracking-[0.08em] mb-1.5 truncate" style={{ color: 'var(--text-muted)' }}>{label}</p>
                     <p className="text-lg font-black metric-value leading-none" style={{ color }}>
